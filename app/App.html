@@ -76,6 +76,7 @@ function sair() {
 }
 
 function mostrarLogin() {
+  document.getElementById('splash').classList.add('oculto');
   document.getElementById('app').classList.add('oculto');
   document.getElementById('tela-login').classList.remove('oculto');
 }
@@ -107,6 +108,7 @@ var MENUS = {
 };
 
 function abrirApp() {
+  document.getElementById('splash').classList.add('oculto');
   document.getElementById('tela-login').classList.add('oculto');
   document.getElementById('app').classList.remove('oculto');
   document.getElementById('lbl-nome').textContent = sessao.nome || '';
