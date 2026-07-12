@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Estilos'); ?>
+</head>
+<body>
+
+  <!-- =========================== LOGIN =========================== -->
+  <div id="tela-login" class="tela-login">
+    <form class="card-login" id="form-login" autocomplete="on">
+      <img class="logo" src="<?= LOGO ?>" alt="Marfim">
+      <h1>Gestão de Compras</h1>
+      <p class="sub">Acesso restrito · informe suas credenciais</p>
+
+      <div class="campo">
+        <label for="in-usuario">Usuário</label>
+        <input id="in-usuario" name="username" type="text" autocomplete="username"
+               autocapitalize="off" spellcheck="false" required>
+      </div>
+      <div class="campo">
+        <label for="in-senha">Senha</label>
+        <input id="in-senha" name="password" type="password"
+               autocomplete="current-password" required>
+      </div>
+
+      <button type="submit" class="btn-principal" id="btn-entrar">Entrar</button>
+      <div class="erro-login" id="erro-login"></div>
+      <div class="rodape-login">Marfim · Sistema interno</div>
+    </form>
+  </div>
+
+  <!-- ============================ APP ============================ -->
+  <div id="app" class="app oculto">
+    <header class="topo">
+      <div class="marca">
+        <img src="<?= LOGO ?>" alt="Marfim">
+        <span>Gestão de Compras</span>
+      </div>
+      <nav id="menu"></nav>
+      <div class="usuario-box">
+        <div class="quem">
+          <b id="lbl-nome"></b>
+          <small id="lbl-papel"></small>
+        </div>
+        <button class="btn-sair" id="btn-sair">Sair</button>
+      </div>
+    </header>
+    <main class="conteudo" id="conteudo"></main>
+  </div>
+
+  <?!= include('App'); ?>
+</body>
+</html>

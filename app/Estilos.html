@@ -1,0 +1,163 @@
+<style>
+  :root {
+    --azul: #0F5FA0;
+    --azul-esc: #0B4576;
+    --azul-claro: #2E86C9;
+    --azul-suave: #E8F1F9;
+    --bg: #EEF2F6;
+    --card: #FFFFFF;
+    --texto: #1C2733;
+    --texto-fraco: #64748B;
+    --borda: #D8E0E8;
+    --ok: #1F9D55;
+    --alerta: #E8590C;
+    --erro: #D0342C;
+    --sombra: 0 10px 30px rgba(15, 95, 160, .12);
+    --raio: 12px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--texto);
+    background: var(--bg);
+    font-size: 15px;
+  }
+  .oculto { display: none !important; }
+  button { font-family: inherit; }
+
+  /* ---------------------------- LOGIN ---------------------------- */
+  .tela-login {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #Dbe9f6 0%, transparent 60%),
+      linear-gradient(160deg, #F4F8FC 0%, #E7EEF5 100%);
+  }
+  .card-login {
+    width: 100%;
+    max-width: 380px;
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: var(--sombra);
+    padding: 34px 30px 28px;
+    text-align: center;
+    border: 1px solid var(--borda);
+  }
+  .card-login .logo { width: 150px; height: auto; margin: 4px auto 10px; display: block; }
+  .card-login h1 {
+    font-size: 20px; margin: 6px 0 2px; color: var(--azul-esc); font-weight: 700;
+  }
+  .card-login .sub { margin: 0 0 22px; color: var(--texto-fraco); font-size: 13px; }
+  .campo { text-align: left; margin-bottom: 14px; }
+  .campo label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: var(--texto-fraco); margin-bottom: 6px; text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  .campo input {
+    width: 100%; padding: 12px 14px; font-size: 15px;
+    border: 1px solid var(--borda); border-radius: 10px; background: #FBFDFF;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .campo input:focus {
+    outline: none; border-color: var(--azul-claro);
+    box-shadow: 0 0 0 3px rgba(46, 134, 201, .18);
+  }
+  .btn-principal {
+    width: 100%; padding: 13px; margin-top: 6px;
+    background: var(--azul); color: #fff; border: none;
+    border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: background .15s, transform .05s;
+  }
+  .btn-principal:hover { background: var(--azul-esc); }
+  .btn-principal:active { transform: translateY(1px); }
+  .btn-principal:disabled { opacity: .6; cursor: default; }
+  .erro-login {
+    margin-top: 14px; color: var(--erro); font-size: 13px; min-height: 18px;
+    font-weight: 500;
+  }
+  .rodape-login { margin-top: 22px; color: var(--texto-fraco); font-size: 12px; }
+
+  /* ---------------------------- APP SHELL ---------------------------- */
+  .app { min-height: 100vh; display: flex; flex-direction: column; }
+  .topo {
+    background: var(--azul); color: #fff;
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 20px; height: 60px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  }
+  .topo .marca { display: flex; align-items: center; gap: 10px; }
+  .topo .marca img { height: 30px; background: #fff; padding: 3px 6px; border-radius: 6px; }
+  .topo .marca span { font-weight: 600; font-size: 15px; }
+  .topo nav { display: flex; gap: 4px; margin-left: 12px; flex: 1; flex-wrap: wrap; }
+  .topo nav button {
+    background: transparent; color: #EAF2FA; border: none;
+    padding: 9px 14px; border-radius: 8px; cursor: pointer; font-size: 14px;
+    transition: background .15s;
+  }
+  .topo nav button:hover { background: rgba(255,255,255,.14); }
+  .topo nav button.ativo { background: #fff; color: var(--azul-esc); font-weight: 600; }
+  .usuario-box { display: flex; align-items: center; gap: 12px; }
+  .usuario-box .quem { text-align: right; line-height: 1.15; }
+  .usuario-box .quem b { display: block; font-size: 14px; }
+  .usuario-box .quem small { opacity: .85; font-size: 12px; }
+  .btn-sair {
+    background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.35);
+    padding: 7px 13px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  .btn-sair:hover { background: rgba(255,255,255,.28); }
+
+  main.conteudo { flex: 1; padding: 24px; max-width: 1100px; width: 100%; margin: 0 auto; }
+
+  .painel {
+    background: var(--card); border: 1px solid var(--borda);
+    border-radius: var(--raio); box-shadow: var(--sombra);
+    padding: 22px 24px; margin-bottom: 20px;
+  }
+  .painel h2 { margin: 0 0 4px; font-size: 18px; color: var(--azul-esc); }
+  .painel .desc { margin: 0 0 18px; color: var(--texto-fraco); font-size: 13px; }
+
+  .linha-form { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+  .linha-form .campo { margin-bottom: 0; }
+  .linha-form .btn-principal { width: auto; padding: 12px 22px; margin-top: 0; }
+
+  .aviso {
+    background: var(--azul-suave); border: 1px solid #CFE1F1; color: var(--azul-esc);
+    padding: 12px 14px; border-radius: 10px; font-size: 13px; margin-top: 16px;
+  }
+  .aviso.ok { background: #E7F6EE; border-color: #BFE6CF; color: #146C3A; }
+  .aviso.erro { background: #FBEAE9; border-color: #F2C6C3; color: var(--erro); }
+
+  /* Tabelas */
+  .tabela-wrap { overflow-x: auto; margin-top: 8px; }
+  table.dados { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.dados th, table.dados td {
+    border-bottom: 1px solid var(--borda); padding: 9px 10px; text-align: left;
+    white-space: nowrap;
+  }
+  table.dados thead th {
+    background: #F3F7FB; color: var(--azul-esc); font-weight: 600;
+    position: sticky; top: 0;
+  }
+  table.dados tbody tr:hover { background: #F7FAFD; }
+  .vazio { padding: 26px; text-align: center; color: var(--texto-fraco); font-size: 14px; }
+
+  .em-construcao {
+    text-align: center; color: var(--texto-fraco); padding: 40px 20px;
+  }
+  .em-construcao .icone { font-size: 42px; margin-bottom: 8px; }
+
+  .carregando { display: inline-block; color: var(--texto-fraco); font-size: 13px; }
+
+  @media (max-width: 640px) {
+    .topo { height: auto; flex-wrap: wrap; padding: 10px 14px; gap: 10px; }
+    .topo nav { order: 3; width: 100%; }
+    main.conteudo { padding: 16px; }
+  }
+</style>
