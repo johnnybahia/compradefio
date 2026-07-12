@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 13px; }
+      h3 { margin-top: 0; }
+      .input-group { margin-bottom: 8px; }
+      label { display: inline-block; width: 50px; }
+      input[type="text"] { width: 250px; }
+      .button-container { margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <h3>Consulta Atualização</h3>
+    <form id="consultaForm">
+      <!-- Cria 15 campos de entrada -->
+      <? for (var i = 1; i <= 15; i++) { ?>
+        <div class="input-group">
+          <label for="item<?= i ?>">Item <?= i ?>:</label>
+          <input type="text" id="item<?= i ?>" name="item<?= i ?>" placeholder="Informe o item <?= i ?>">
+        </div>
+      <? } ?>
+      <div class="button-container">
+        <input type="button" value="Enviar" onclick="enviarConsulta()">
+      </div>
+    </form>
+    
+    <script>
+      function enviarConsulta() {
+        // Coleta os valores dos 15 campos
+        var formData = {};
+        for (var i = 1; i <= 15; i++) {
+          formData["item" + i] = document.getElementById("item" + i).value;
+        }
+        google.script.run.withSuccessHandler(function(resp){
+          alert(resp);
+        }).consultaAtualizacao(formData);
+      }
+    </script>
+  </body>
+</html>
