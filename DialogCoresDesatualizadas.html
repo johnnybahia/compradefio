@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: Arial; padding: 20px; }
+      input { margin: 5px 0; padding: 8px; font-size: 16px; width: 90%; }
+      button { padding: 8px; font-size: 16px; width: 100%; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <h2>Cores Desatualizadas</h2>
+    <p>Informe a data de início (dd/mm/yyyy):</p>
+    <input type="text" id="startDate" placeholder="dd/mm/yyyy">
+    <button onclick="filtrar()">Filtrar</button>
+    
+    <script>
+      function filtrar() {
+        var startDate = document.getElementById("startDate").value;
+        if (!startDate) {
+          alert("Informe a data de início.");
+          return;
+        }
+        google.script.run.withSuccessHandler(function(msg) {
+          alert(msg);
+          google.script.host.close();
+        }).processCoresDesatualizadas(startDate);
+      }
+    </script>
+  </body>
+</html>
