@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        padding: 20px;
+        font-size: 18px;
+      }
+      button {
+        padding: 10px 20px;
+        font-size: 18px;
+        margin-top: 20px;
+        cursor: pointer;
+      }
+    </style>
+    <script>
+      function closeDialog() {
+        google.script.host.close();
+      }
+    </script>
+  </head>
+  <body>
+    <div id="message"><?= message ?></div>
+    <button onclick="closeDialog()">OK</button>
+  </body>
+</html>
