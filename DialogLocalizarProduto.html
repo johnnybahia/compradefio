@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { 
+        font-family: Arial, sans-serif; 
+        padding: 20px; 
+        font-size: 18px; 
+      }
+      h3 { 
+        text-transform: uppercase; 
+        font-size: 22px; 
+        text-align: center; 
+        margin-bottom: 20px; 
+      }
+      label { 
+        display: block; 
+        margin-top: 10px; 
+        font-weight: bold; 
+        text-transform: uppercase; 
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin-top: 10px;
+        font-size: 18px;
+      }
+      button { 
+        margin-top: 20px; 
+        padding: 10px; 
+        font-size: 18px; 
+        width: 100%; 
+        cursor: pointer; 
+      }
+    </style>
+    <script>
+      function buscarProduto() {
+        var produto = document.getElementById("produto").value;
+        if (produto.trim() === "") {
+          alert("⚠️ POR FAVOR, DIGITE UM PRODUTO.");
+          return;
+        }
+        google.script.run.withSuccessHandler(function() {
+          google.script.host.close();
+        }).filtrarProduto(produto);
+      }
+      function fechar() {
+        google.script.host.close();
+      }
+    </script>
+  </head>
+  <body>
+    <h3>LOCALIZAR PRODUTO</h3>
+    <label>Produto:</label>
+    <input type="text" id="produto" list="produtos" placeholder="Digite ou selecione o produto">
+    <datalist id="produtos">
+      <? 
+         var arr = [];
+         try {
+           arr = JSON.parse(produtos || '[]');
+         } catch(e) {
+           arr = [];
+         }
+         for (var i = 0; i < arr.length; i++) { ?>
+      <option value="<?= arr[i] ?>">
+      <? } ?>
+    </datalist>
+    <button onclick="buscarProduto()">Buscar</button>
+    <button onclick="fechar()">Fechar</button>
+  </body>
+</html>
