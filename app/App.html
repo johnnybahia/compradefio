@@ -1,0 +1,228 @@
+<script>
+/* ============================================================
+   App.html — lógica do cliente (Web App Marfim)
+   ============================================================ */
+
+var TOKEN_KEY = 'marfim_token';
+var sessao = { token: null, nome: null, papel: null };
+
+/* ---- ponte com o servidor (google.script.run → Promise) ---- */
+function chamar(fn) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+    r[fn].apply(r, args);
+  });
+}
+
+/* ------------------------- inicialização ------------------------- */
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('form-login').addEventListener('submit', aoEntrar);
+  document.getElementById('btn-sair').addEventListener('click', sair);
+
+  var t = localStorage.getItem(TOKEN_KEY);
+  if (!t) return mostrarLogin();
+  chamar('validarSessao', t).then(function (r) {
+    if (r && r.ok) {
+      sessao = { token: t, nome: r.nome, papel: r.papel };
+      abrirApp();
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+      mostrarLogin();
+    }
+  }).catch(mostrarLogin);
+});
+
+/* ----------------------------- login ----------------------------- */
+function aoEntrar(e) {
+  e.preventDefault();
+  var btn = document.getElementById('btn-entrar');
+  var erro = document.getElementById('erro-login');
+  var usuario = document.getElementById('in-usuario').value.trim();
+  var senha = document.getElementById('in-senha').value;
+  erro.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Entrando…';
+
+  chamar('login', usuario, senha).then(function (r) {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+    if (r.ok) {
+      sessao = { token: r.token, nome: r.nome, papel: r.papel };
+      localStorage.setItem(TOKEN_KEY, r.token);
+      document.getElementById('in-senha').value = '';
+      abrirApp();
+    } else {
+      erro.textContent = r.erro || 'Não foi possível entrar.';
+    }
+  }).catch(function (err) {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+    erro.textContent = 'Falha de conexão. Tente novamente.';
+  });
+}
+
+function sair() {
+  localStorage.removeItem(TOKEN_KEY);
+  sessao = { token: null, nome: null, papel: null };
+  mostrarLogin();
+}
+
+function mostrarLogin() {
+  document.getElementById('app').classList.add('oculto');
+  document.getElementById('tela-login').classList.remove('oculto');
+}
+
+/* --------------------------- app shell --------------------------- */
+var ROTULO_PAPEL = {
+  master: 'Master', tingimento: 'Tingimento',
+  almoxarifado1: 'Almoxarifado 1', almoxarifado2: 'Almoxarifado 2'
+};
+
+/* Menu por papel. O master enxerga tudo; cada operador só o que é dele. */
+var MENUS = {
+  master: [
+    { id: 'analise',    rotulo: 'Análise de Compra',  render: viewAnalise },
+    { id: 'tingimento', rotulo: 'Tingimento',          render: emConstrucao('Tingimento') },
+    { id: 'embarques',  rotulo: 'Embarques',           render: emConstrucao('Embarques (Almoxarifado 1)') },
+    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') },
+    { id: 'usuarios',   rotulo: 'Usuários',            render: emConstrucao('Cadastro de usuários') }
+  ],
+  tingimento: [
+    { id: 'tingimento', rotulo: 'Tingimento',          render: emConstrucao('Painel de Tingimento') }
+  ],
+  almoxarifado1: [
+    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: emConstrucao('Confirmação de Embarque') }
+  ],
+  almoxarifado2: [
+    { id: 'recebimento',rotulo: 'Confirmar Recebimento', render: emConstrucao('Confirmação de Recebimento') }
+  ]
+};
+
+function abrirApp() {
+  document.getElementById('tela-login').classList.add('oculto');
+  document.getElementById('app').classList.remove('oculto');
+  document.getElementById('lbl-nome').textContent = sessao.nome || '';
+  document.getElementById('lbl-papel').textContent = ROTULO_PAPEL[sessao.papel] || sessao.papel;
+
+  var itens = MENUS[sessao.papel] || [];
+  var nav = document.getElementById('menu');
+  nav.innerHTML = '';
+  itens.forEach(function (item, i) {
+    var b = document.createElement('button');
+    b.textContent = item.rotulo;
+    b.onclick = function () { selecionar(item, b); };
+    nav.appendChild(b);
+    if (i === 0) selecionar(item, b);
+  });
+}
+
+function selecionar(item, botao) {
+  Array.prototype.forEach.call(
+    document.querySelectorAll('#menu button'),
+    function (b) { b.classList.remove('ativo'); });
+  if (botao) botao.classList.add('ativo');
+  var alvo = document.getElementById('conteudo');
+  alvo.innerHTML = '';
+  item.render(alvo);
+}
+
+/* Trata erro de sessão expirada em qualquer chamada de dados. */
+function tratarErro(err) {
+  var msg = (err && err.message) ? err.message : String(err);
+  if (/sess[aã]o expirada/i.test(msg)) { sair(); return null; }
+  return msg;
+}
+
+/* -------------------------- view: análise ------------------------- */
+function viewAnalise(alvo) {
+  var hoje = new Date().toISOString().slice(0, 10);
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Análise de Estoque para Compra</h2>' +
+      '<p class="desc">Informe a data de corte. O sistema analisará o estoque, ' +
+      'o consumo dos últimos 3 meses e a tabela de tingimento para montar a ' +
+      'relação de materiais a comprar — descontando o que já está em pedido aberto.</p>' +
+      '<div class="linha-form">' +
+        '<div class="campo">' +
+          '<label for="data-corte">Data de corte</label>' +
+          '<input type="date" id="data-corte" value="' + hoje + '">' +
+        '</div>' +
+        '<button class="btn-principal" id="btn-gerar">Gerar relação</button>' +
+      '</div>' +
+      '<div id="analise-msg"></div>' +
+    '</section>' +
+    '<section class="painel" id="painel-resultado" style="display:none">' +
+      '<h2>Relação de Compra</h2>' +
+      '<div class="tabela-wrap" id="tabela-resultado"></div>' +
+    '</section>';
+
+  document.getElementById('btn-gerar').onclick = function () {
+    var btn = this;
+    var dataCorte = document.getElementById('data-corte').value;
+    var msg = document.getElementById('analise-msg');
+    if (!dataCorte) { msg.innerHTML = '<div class="aviso erro">Selecione a data de corte.</div>'; return; }
+    btn.disabled = true;
+    msg.innerHTML = '<div class="aviso"><span class="carregando">Analisando estoque…</span></div>';
+
+    chamar('gerarRelacaoDeCompra', sessao.token, { dataCorte: dataCorte })
+      .then(function (r) {
+        btn.disabled = false;
+        msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
+        renderResultado(r.colunas, r.linhas);
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        var m = tratarErro(err);
+        if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+      });
+  };
+}
+
+var ROTULO_COL = {
+  ITEM: 'Item', DESCRICAO: 'Descrição', TIPO_FIO: 'Tipo de fio', SALDO: 'Saldo',
+  CONSUMO_3M: 'Consumo 3 meses', SUGERIDO: 'Sugerido', EM_ABERTO: 'Em aberto',
+  A_COMPRAR: 'A comprar', STATUS: 'Status'
+};
+
+function renderResultado(colunas, linhas) {
+  var painel = document.getElementById('painel-resultado');
+  var wrap = document.getElementById('tabela-resultado');
+  painel.style.display = '';
+
+  var th = colunas.map(function (c) {
+    return '<th>' + (ROTULO_COL[c] || c) + '</th>';
+  }).join('');
+
+  if (!linhas || !linhas.length) {
+    wrap.innerHTML =
+      '<table class="dados"><thead><tr>' + th + '</tr></thead></table>' +
+      '<div class="vazio">Nenhum item na relação ainda — a lógica de análise ' +
+      'será preenchida conforme as regras de negócio.</div>';
+    return;
+  }
+
+  var body = linhas.map(function (l) {
+    return '<tr>' + colunas.map(function (c) {
+      return '<td>' + (l[c] !== undefined && l[c] !== '' ? l[c] : '—') + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/* --------------------- view: placeholder padrão ------------------- */
+function emConstrucao(titulo) {
+  return function (alvo) {
+    alvo.innerHTML =
+      '<section class="painel">' +
+        '<div class="em-construcao">' +
+          '<div class="icone">🚧</div>' +
+          '<h2>' + titulo + '</h2>' +
+          '<p>Este módulo será desenvolvido nas próximas etapas do projeto.</p>' +
+        '</div>' +
+      '</section>';
+  };
+}
+</script>
