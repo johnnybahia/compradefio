@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { 
+        font-family: Arial, sans-serif; 
+        padding: 20px; 
+        font-size: 18px; 
+      }
+      h3 { 
+        text-transform: uppercase; 
+        font-size: 22px; 
+        text-align: center; 
+        margin-bottom: 20px; 
+      }
+      label { 
+        display: block; 
+        margin-top: 10px; 
+        font-weight: bold; 
+        text-transform: uppercase; 
+      }
+      input { 
+        width: 100%; 
+        padding: 10px; 
+        margin-top: 10px; 
+        font-size: 18px; 
+      }
+      button { 
+        margin-top: 20px; 
+        padding: 10px; 
+        font-size: 18px; 
+        width: 100%; 
+        cursor: pointer; 
+      }
+    </style>
+    <script>
+      function gerarRelatorioPorGrupo() {
+        var grupo = document.getElementById("grupo").value.trim();
+        if (grupo === "") {
+          alert("⚠️ POR FAVOR, SELECIONE UM GRUPO.");
+          return;
+        }
+        google.script.run.withSuccessHandler(function(msg) {
+          alert(msg);
+          google.script.host.close();
+        }).gerarRelatorioPorGrupo(grupo);
+      }
+      function fechar() {
+        google.script.host.close();
+      }
+    </script>
+  </head>
+  <body>
+    <h3>RELATÓRIO POR GRUPO</h3>
+    <label>Grupo:</label>
+    <input type="text" id="grupo" list="grupos" placeholder="Selecione um grupo">
+    <datalist id="grupos">
+      <? 
+         var arr = [];
+         try {
+           arr = JSON.parse(grupos || '[]');
+         } catch(e) {
+           arr = [];
+         }
+         for (var i = 0; i < arr.length; i++) { ?>
+      <option value="<?= arr[i] ?>">
+      <? } ?>
+    </datalist>
+    <button onclick="gerarRelatorioPorGrupo()">Gerar Relatório por Grupo</button>
+    <button onclick="fechar()">Fechar</button>
+  </body>
+</html>
