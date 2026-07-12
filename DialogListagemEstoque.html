@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; }
+      .item-input { margin: 5px 0; padding: 6px; width: 100%; box-sizing: border-box; }
+      button { margin-top: 10px; padding: 8px 12px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+      th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+      th { background: #f4f4f4; }
+      #results { margin-top: 20px; }
+    </style>
+  </head>
+  <body>
+    <h2>Listagem de Estoque</h2>
+    <p>Insira até 20 itens:</p>
+    <form id="form">
+      <? for (var i = 1; i <= 20; i++) { ?>
+        <input
+          type="text"
+          name="item<?= i ?>"
+          class="item-input"
+          placeholder="Item <?= i ?>"
+          list="produtosList">
+      <? } ?>
+      <button type="button" onclick="submitForm()">Gerar Listagem</button>
+    </form>
+
+    <div id="results"></div>
+
+    <datalist id="produtosList">
+  <? var list = produtos; ?>
+  <? list.forEach(function(p) { ?>
+    <option value="<?= p ?>">
+  <? }); ?>
+</datalist>
+
+
+    <script>
+      function submitForm() {
+        // mostra o indicador de carregamento
+        document.getElementById('results').innerHTML = '<em>Carregando…</em>';
+        var data = {};
+        new FormData(document.getElementById('form')).forEach(function(val, key) {
+          if (val && val.trim()) data[key] = val.trim();
+        });
+        google.script.run
+          .withSuccessHandler(showResults)
+          .withFailureHandler(showError)
+          .gerarListagemEstoque(data);
+      }
+
+      function showResults(html) {
+        document.getElementById('results').innerHTML = html;
+      }
+
+      function showError(err) {
+        document.getElementById('results').innerHTML =
+          '<span style="color:red;">Erro: ' + err.message + '</span>';
+      }
+    </script>
+  </body>
+</html>
