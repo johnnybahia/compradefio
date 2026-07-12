@@ -61,6 +61,7 @@ function listarItensParaAnalise(token, params) {
   var tresMeses = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate());
 
   var movimentos = _lerEstoque();
+  var descricaoDe = _criarLocalizadorDescricao();
   var porItem = {};
 
   movimentos.forEach(function (mov) {
@@ -93,7 +94,7 @@ function listarItensParaAnalise(token, params) {
     if (!r.noPeriodo) return;
     itens.push({
       item: r.item,
-      descricao: '', // fonte da descrição (ASSOCIAÇÃO/PEDIDO DE FIO) ainda a definir
+      descricao: descricaoDe(r.item),
       saldo: r.saldo,
       consumoMedio: Math.round((r.saidas3m / 3) * 100) / 100
     });
@@ -199,6 +200,52 @@ function _lerEstoque() {
     });
   });
   return out;
+}
+
+/**
+ * Cria o localizador de descrição de item, reproduzindo a fórmula da coluna E
+ * (REFERENCIA) de PEDIDO DE FIO:
+ *   código → ASSOCIAÇÃO (procura em B/C/D/E → devolve A)
+ *          → PEDIDO DE FIO (procura A em O → devolve M = descrição da produção).
+ * Devolve uma função descricao(codigo) → string ('' quando não há cadastro).
+ * (Validado contra a planilha real: reproduz 44/44 as descrições da coluna E.)
+ */
+function _criarLocalizadorDescricao() {
+  // ASSOCIAÇÃO: normalizado(B|C|D|E) → valor da coluna A
+  var assocMaps = [{}, {}, {}, {}];
+  var shA = _aba(CONFIG.SHEETS.ASSOCIACAO);
+  if (shA && shA.getLastRow() > 1) {
+    var va = shA.getRange(2, 1, shA.getLastRow() - 1, 5).getValues();
+    va.forEach(function (row) {
+      var a = row[0];
+      for (var c = 1; c <= 4; c++) {
+        var k = _norm(row[c]);
+        if (k && !(k in assocMaps[c - 1])) assocMaps[c - 1][k] = a;
+      }
+    });
+  }
+  // PEDIDO DE FIO: normalizado(O) → M (descrição da produção)
+  var oToM = {};
+  var shP = _aba(CONFIG.SHEETS.PEDIDO_FIO);
+  if (shP && shP.getLastRow() > 1) {
+    var vp = shP.getRange(1, 13, shP.getLastRow(), 3).getValues(); // colunas M, N, O
+    vp.forEach(function (row) {
+      var o = _norm(row[2]); // O
+      var m = row[0];        // M
+      if (o && m !== '' && m != null && !(o in oToM)) oToM[o] = String(m).trim();
+    });
+  }
+  return function (codigo) {
+    var vl = _norm(codigo);
+    if (!vl) return '';
+    for (var i = 0; i < assocMaps.length; i++) {
+      if (vl in assocMaps[i]) {
+        var cod = _norm(assocMaps[i][vl]);
+        if (cod in oToM) return oToM[cod];
+      }
+    }
+    return '';
+  };
 }
 
 /** Normaliza texto para comparação (minúsculas, sem acento, sem espaços extras). */
