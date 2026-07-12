@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 10px;
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 5px;
+        margin: 5px 0;
+        box-sizing: border-box;
+      }
+      input[type="button"] {
+        margin-top: 10px;
+        padding: 8px 16px;
+      }
+      table {
+        margin-top: 15px;
+      }
+      th, td {
+        padding: 5px;
+        text-align: left;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Listagem de Cores Desatualizadas</h2>
+    <p>Informe até 10 itens:</p>
+    <form id="listagemForm">
+      <input list="espelhoItems" type="text" name="item1" placeholder="Item 1" required>
+      <input list="espelhoItems" type="text" name="item2" placeholder="Item 2">
+      <input list="espelhoItems" type="text" name="item3" placeholder="Item 3">
+      <input list="espelhoItems" type="text" name="item4" placeholder="Item 4">
+      <input list="espelhoItems" type="text" name="item5" placeholder="Item 5">
+      <input list="espelhoItems" type="text" name="item6" placeholder="Item 6">
+      <input list="espelhoItems" type="text" name="item7" placeholder="Item 7">
+      <input list="espelhoItems" type="text" name="item8" placeholder="Item 8">
+      <input list="espelhoItems" type="text" name="item9" placeholder="Item 9">
+      <input list="espelhoItems" type="text" name="item10" placeholder="Item 10">
+      <input type="button" value="Gerar Listagem" onclick="enviarFormulario()">
+    </form>
+    
+    <!-- Datalist que será preenchido com os itens da aba ESPELHO DO ESTOQUE -->
+    <datalist id="espelhoItems"></datalist>
+    
+    <div id="resultado" style="margin-top:20px;"></div>
+    
+    <script>
+  // Converte a string JSON em array
+  var items = JSON.parse('<?= espelhoItems ?>');
+  var dataList = document.getElementById("espelhoItems");
+  items.forEach(function(item) {
+    var option = document.createElement("option");
+    option.value = item;
+    dataList.appendChild(option);
+  });
+  
+  function enviarFormulario() {
+    var form = document.getElementById('listagemForm');
+    var formData = {};
+    for (var i = 1; i <= 10; i++) {
+      formData['item' + i] = form['item' + i].value;
+    }
+    document.getElementById('resultado').innerHTML = 'Processando...';
+    google.script.run
+      .withSuccessHandler(function(resp) {
+        document.getElementById('resultado').innerHTML = resp;
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('resultado').innerHTML = 'Erro: ' + err;
+      })
+      .gerarListagemCoresDesatualizadas(formData);
+  }
+</script>
