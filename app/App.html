@@ -11,6 +11,11 @@ function chamar(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
   return new Promise(function (resolve, reject) {
     var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+    if (typeof r[fn] !== 'function') {
+      reject(new Error('Função "' + fn + '" não existe no servidor. ' +
+        'Atualize os arquivos .gs (Analise, Associacao, Config) e publique uma NOVA versão da implantação.'));
+      return;
+    }
     r[fn].apply(r, args);
   });
 }
