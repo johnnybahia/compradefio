@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 13px; }
+      h3 { margin-top: 0; }
+      .item { margin-bottom: 4px; }
+    </style>
+  </head>
+  <body>
+    <h3>Cores Desatualizadas</h3>
+    <form id="coresForm">
+      <div id="coresList"></div>
+      <br>
+      <input type="button" value="Confirmar" onclick="processCores()">
+    </form>
+    
+    <script>
+      // 'cores' é injetado pelo template server-side
+      var cores = <?= cores ?>;
+      var container = document.getElementById("coresList");
+      
+      // Cria checkboxes para cada item
+      cores.forEach(function(cor) {
+        var div = document.createElement("div");
+        div.className = "item";
+        var checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = "cores";
+        checkbox.value = cor;
+        div.appendChild(checkbox);
+        var label = document.createElement("label");
+        label.textContent = cor;
+        div.appendChild(label);
+        container.appendChild(div);
+      });
+      
+      // Coleta os itens selecionados e chama a função server-side
+      function processCores() {
+        var selected = [];
+        var checkboxes = document.getElementsByName("cores");
+        for (var i = 0; i < checkboxes.length; i++) {
+          if (checkboxes[i].checked) {
+            selected.push(checkboxes[i].value);
+          }
+        }
+        google.script.run.withSuccessHandler(function(msg){
+          alert(msg);
+        }).processCoresFromSidebar(selected);
+      }
+    </script>
+  </body>
+</html>
