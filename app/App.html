@@ -150,12 +150,16 @@ function ymd(d) {
   return d.getFullYear() + '-' + m + '-' + dia;
 }
 
-var itensAnalise = []; // itens listados na última análise
+// Estado da análise, preservado enquanto a sessão estiver aberta.
+var estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '' };
 
 function viewAnalise(alvo) {
   var hoje = new Date();
-  var fim = ymd(hoje);
-  var inicio = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate()));
+  var fimPadrao = ymd(hoje);
+  var inicioPadrao = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate()));
+  var vi = estadoAnalise.dataInicio || inicioPadrao;
+  var vf = estadoAnalise.dataFim || fimPadrao;
+  var vk = estadoAnalise.kgBase || '20';
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Análise de Estoque para Compra</h2>' +
@@ -167,15 +171,15 @@ function viewAnalise(alvo) {
       '<div class="linha-form">' +
         '<div class="campo">' +
           '<label for="data-inicio">Data inicial</label>' +
-          '<input type="date" id="data-inicio" value="' + inicio + '">' +
+          '<input type="date" id="data-inicio" value="' + vi + '">' +
         '</div>' +
         '<div class="campo">' +
           '<label for="data-fim">Data final</label>' +
-          '<input type="date" id="data-fim" value="' + fim + '">' +
+          '<input type="date" id="data-fim" value="' + vf + '">' +
         '</div>' +
         '<div class="campo">' +
           '<label for="kg-base">Destacar saldo ≤ (kg)</label>' +
-          '<input type="number" id="kg-base" value="20" step="any" style="max-width:130px">' +
+          '<input type="number" id="kg-base" value="' + vk + '" step="any" style="max-width:130px">' +
         '</div>' +
         '<button class="btn-principal" id="btn-analisar">Analisar estoque</button>' +
       '</div>' +
@@ -191,12 +195,27 @@ function viewAnalise(alvo) {
         'Prosseguir com a compra</button>' +
       '</div>' +
       '<div id="prosseguir-msg"></div>' +
+    '</section>' +
+    '<section class="painel" id="painel-relacao" style="display:none">' +
+      '<h2>Relação de compra (última gerada)</h2>' +
+      '<p class="desc">Seleção salva no banco. Gere de novo para atualizar.</p>' +
+      '<div class="tabela-wrap" id="tabela-relacao"></div>' +
     '</section>';
 
   document.getElementById('btn-analisar').onclick = analisarEstoque;
   document.getElementById('btn-prosseguir').onclick = prosseguirCompra;
-  // Ao mudar o valor base, apenas re-realça (mantém as exclusões marcadas).
-  document.getElementById('kg-base').addEventListener('input', reaplicarDestaque);
+  document.getElementById('kg-base').addEventListener('input', function () {
+    estadoAnalise.kgBase = document.getElementById('kg-base').value;
+    reaplicarDestaque();
+  });
+
+  // Restaura a lista já analisada na sessão e recarrega a última relação salva.
+  if (estadoAnalise.itens.length) {
+    document.getElementById('analise-msg').innerHTML =
+      '<div class="aviso ok">' + (estadoAnalise.mensagem || '') + '</div>';
+    renderLista(estadoAnalise.itens);
+  }
+  carregarUltimaRelacao();
 }
 
 function analisarEstoque() {
@@ -218,9 +237,13 @@ function analisarEstoque() {
   chamar('listarItensParaAnalise', sessao.token, { dataInicio: dataInicio, dataFim: dataFim })
     .then(function (r) {
       btn.disabled = false;
-      itensAnalise = r.itens || [];
+      estadoAnalise.dataInicio = dataInicio;
+      estadoAnalise.dataFim = dataFim;
+      estadoAnalise.kgBase = document.getElementById('kg-base').value;
+      estadoAnalise.itens = r.itens || [];
+      estadoAnalise.mensagem = r.mensagem || '';
       msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
-      renderLista(itensAnalise);
+      renderLista(estadoAnalise.itens);
     })
     .catch(function (err) {
       btn.disabled = false;
@@ -248,10 +271,13 @@ function renderLista(itens) {
   }
 
   var body = itens.map(function (it, i) {
+    var desc = it.descricao
+      ? it.descricao
+      : '<span class="sem-desc">— ' + (it.motivo || 'sem descrição') + '</span>';
     return '<tr data-idx="' + i + '">' +
       '<td style="text-align:center"><input type="checkbox" class="excluir" data-idx="' + i + '"></td>' +
       '<td>' + (it.item || '—') + '</td>' +
-      '<td>' + (it.descricao ? it.descricao : '—') + '</td>' +
+      '<td>' + desc + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
       '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
     '</tr>';
@@ -273,7 +299,7 @@ function reaplicarDestaque() {
   var base = campo ? parseFloat(campo.value) : NaN;
   var linhas = document.querySelectorAll('#tabela-lista tbody tr');
   Array.prototype.forEach.call(linhas, function (tr) {
-    var it = itensAnalise[Number(tr.getAttribute('data-idx'))];
+    var it = estadoAnalise.itens[Number(tr.getAttribute('data-idx'))];
     var saldo = it ? Number(it.saldo) : NaN;
     if (!isNaN(base) && !isNaN(saldo) && saldo <= base) {
       tr.classList.add('destaque');
@@ -288,7 +314,7 @@ function prosseguirCompra() {
   var marcadas = document.querySelectorAll('#tabela-lista .excluir');
   var manter = [];
   Array.prototype.forEach.call(marcadas, function (chk) {
-    if (!chk.checked) manter.push(itensAnalise[Number(chk.getAttribute('data-idx'))]);
+    if (!chk.checked) manter.push(estadoAnalise.itens[Number(chk.getAttribute('data-idx'))]);
   });
   if (!manter.length) {
     msg.innerHTML = '<div class="aviso erro">Todos os itens foram excluídos. Deixe ao menos um.</div>';
@@ -302,12 +328,39 @@ function prosseguirCompra() {
     .then(function (r) {
       btn.disabled = false;
       msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
+      carregarUltimaRelacao(); // reflete a seleção salva no painel abaixo
     })
     .catch(function (err) {
       btn.disabled = false;
       var m = tratarErro(err);
       if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
+}
+
+/** Recarrega e exibe a última relação de compra gravada no banco. */
+function carregarUltimaRelacao() {
+  chamar('obterRelacaoDeCompra', sessao.token)
+    .then(function (r) { renderRelacaoSalva(r.linhas); })
+    .catch(function () { /* silencioso — só não mostra o painel */ });
+}
+
+function renderRelacaoSalva(linhas) {
+  var painel = document.getElementById('painel-relacao');
+  var wrap = document.getElementById('tabela-relacao');
+  if (!painel || !wrap) return;
+  if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
+  painel.style.display = '';
+  var cols = ['ITEM', 'DESCRICAO', 'SALDO', 'CONSUMO_MEDIO'];
+  var rot = { ITEM: 'Item', DESCRICAO: 'Descrição', SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio' };
+  var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
+  var body = linhas.map(function (l) {
+    return '<tr>' + cols.map(function (c) {
+      var v = l[c];
+      return '<td>' + (v !== '' && v != null ? v : '—') + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 
 /* --------------------- view: placeholder padrão ------------------- */
