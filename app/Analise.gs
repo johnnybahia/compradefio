@@ -60,6 +60,10 @@ function listarItensParaAnalise(token, params) {
   var hoje = new Date();
   var tresMeses = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate());
 
+  // Mantém a ASSOCIAÇÃO em dia: cadastra automaticamente os itens novos vindos
+  // da produção antes de montar a lista (para já saírem com descrição).
+  var novosCadastrados = registrarItensNovos(token).adicionados;
+
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
   var porItem = {};
@@ -101,13 +105,13 @@ function listarItensParaAnalise(token, params) {
   });
   itens.sort(function (a, b) { return String(a.item).localeCompare(String(b.item)); });
 
-  return {
-    ok: true,
-    itens: itens,
-    mensagem: itens.length
-      ? itens.length + ' item(ns) lançado(s) no período.'
-      : 'Nenhum item teve lançamento no período informado.'
-  };
+  var msg = itens.length
+    ? itens.length + ' item(ns) lançado(s) no período.'
+    : 'Nenhum item teve lançamento no período informado.';
+  if (novosCadastrados > 0) {
+    msg += ' ' + novosCadastrados + ' item(ns) novo(s) cadastrado(s) automaticamente na ASSOCIAÇÃO.';
+  }
+  return { ok: true, itens: itens, novosCadastrados: novosCadastrados, mensagem: msg };
 }
 
 /**
