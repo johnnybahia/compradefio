@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { 
+        font-family: Arial, sans-serif; 
+        margin: 0; 
+        padding: 20px; 
+        text-align: center; 
+        height: 100%;
+      }
+      h2 {
+        font-size: 22px; 
+        margin-bottom: 15px;
+      }
+      input { 
+        width: 90%; 
+        padding: 12px; 
+        margin-top: 10px; 
+        font-size: 18px;
+      }
+      button { 
+        margin-top: 20px; 
+        padding: 12px; 
+        font-size: 18px; 
+        width: 100%; 
+        cursor: pointer;
+      }
+    </style>
+    <script>
+      function login() {
+        var username = document.getElementById("username").value.trim();
+        var password = document.getElementById("password").value.trim();
+        if (username === "" || password === "") {
+          alert("⚠️ DIGITE USUÁRIO E SENHA.");
+          return;
+        }
+        google.script.run.withSuccessHandler(function(msg) {
+          alert(msg);
+          google.script.host.close();
+          google.script.run.select10RowsBelow();
+        }).withFailureHandler(function(err) {
+          alert("❌ ERRO: " + err.message);
+        }).processLogin({ username: username, password: password });
+      }
+    </script>
+  </head>
+  <body>
+    <h2>LOGIN</h2>
+    <input type="text" id="username" placeholder="USUÁRIO">
+    <input type="password" id="password" placeholder="SENHA">
+    <button onclick="login()">ENTRAR</button>
+  </body>
+</html>
