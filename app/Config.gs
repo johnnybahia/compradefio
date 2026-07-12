@@ -42,8 +42,9 @@ var CONFIG = {
 
   /** Nomes das abas (tabelas) no banco de dados. */
   SHEETS: {
-    USUARIOS: 'USUARIOS',            // credenciais e papéis
-    RELACAO_COMPRA: 'RELACAO_COMPRA' // resultado da análise de compra
+    USUARIOS: 'USUARIOS',             // credenciais e papéis
+    ESTOQUE: 'ESTOQUE',               // razão de movimentos (fonte da análise)
+    RELACAO_COMPRA: 'RELACAO_COMPRA'  // resultado da análise de compra
     // Demais tabelas (FIO_CRU, PEDIDOS, TINGIMENTO, EMBARQUES, ITENS...)
     // serão adicionadas conforme definirmos as regras de negócio.
   },

@@ -143,6 +143,8 @@ function ymd(d) {
   return d.getFullYear() + '-' + m + '-' + dia;
 }
 
+var itensAnalise = []; // itens listados na última análise
+
 function viewAnalise(alvo) {
   var hoje = new Date();
   var fim = ymd(hoje);
@@ -150,10 +152,10 @@ function viewAnalise(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Análise de Estoque para Compra</h2>' +
-      '<p class="desc">Escolha o período a analisar. O sistema lê o estoque no ' +
-      'fim do período, calcula o consumo dentro dele e usa a tabela de tingimento ' +
-      'para montar a relação de materiais a comprar — descontando o que já está ' +
-      'em pedido aberto. O padrão são os últimos 3 meses.</p>' +
+      '<p class="desc">Escolha o período. O sistema lista o <b>saldo final</b> de ' +
+      'todos os itens que tiveram lançamento nesse período e o <b>consumo médio</b> ' +
+      '(saídas dos últimos 3 meses ÷ 3). Marque para <b>excluir</b> os itens que não ' +
+      'quer comprar e depois siga para a compra automática.</p>' +
       '<div class="linha-form">' +
         '<div class="campo">' +
           '<label for="data-inicio">Data inicial</label>' +
@@ -163,74 +165,118 @@ function viewAnalise(alvo) {
           '<label for="data-fim">Data final</label>' +
           '<input type="date" id="data-fim" value="' + fim + '">' +
         '</div>' +
-        '<button class="btn-principal" id="btn-gerar">Gerar relação</button>' +
+        '<button class="btn-principal" id="btn-analisar">Analisar estoque</button>' +
       '</div>' +
       '<div id="analise-msg"></div>' +
     '</section>' +
-    '<section class="painel" id="painel-resultado" style="display:none">' +
-      '<h2>Relação de Compra</h2>' +
-      '<div class="tabela-wrap" id="tabela-resultado"></div>' +
+    '<section class="painel" id="painel-lista" style="display:none">' +
+      '<h2>Itens do período</h2>' +
+      '<p class="desc">Marque a caixa <b>Excluir</b> nos itens que não devem ' +
+      'entrar na compra.</p>' +
+      '<div class="tabela-wrap" id="tabela-lista"></div>' +
+      '<div style="margin-top:16px">' +
+        '<button class="btn-principal" id="btn-prosseguir" style="display:none">' +
+        'Prosseguir com a compra</button>' +
+      '</div>' +
+      '<div id="prosseguir-msg"></div>' +
     '</section>';
 
-  document.getElementById('btn-gerar').onclick = function () {
-    var btn = this;
-    var dataInicio = document.getElementById('data-inicio').value;
-    var dataFim = document.getElementById('data-fim').value;
-    var msg = document.getElementById('analise-msg');
-    if (!dataInicio || !dataFim) {
-      msg.innerHTML = '<div class="aviso erro">Selecione as datas inicial e final.</div>'; return;
-    }
-    if (dataInicio > dataFim) {
-      msg.innerHTML = '<div class="aviso erro">A data inicial não pode ser maior que a final.</div>'; return;
-    }
-    btn.disabled = true;
-    msg.innerHTML = '<div class="aviso"><span class="carregando">Analisando estoque…</span></div>';
-
-    chamar('gerarRelacaoDeCompra', sessao.token, { dataInicio: dataInicio, dataFim: dataFim })
-      .then(function (r) {
-        btn.disabled = false;
-        msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
-        renderResultado(r.colunas, r.linhas);
-      })
-      .catch(function (err) {
-        btn.disabled = false;
-        var m = tratarErro(err);
-        if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
-      });
-  };
+  document.getElementById('btn-analisar').onclick = analisarEstoque;
+  document.getElementById('btn-prosseguir').onclick = prosseguirCompra;
 }
 
-var ROTULO_COL = {
-  ITEM: 'Item', DESCRICAO: 'Descrição', TIPO_FIO: 'Tipo de fio', SALDO: 'Saldo',
-  CONSUMO_PERIODO: 'Consumo no período', SUGERIDO: 'Sugerido', EM_ABERTO: 'Em aberto',
-  A_COMPRAR: 'A comprar', STATUS: 'Status'
-};
+function analisarEstoque() {
+  var btn = document.getElementById('btn-analisar');
+  var dataInicio = document.getElementById('data-inicio').value;
+  var dataFim = document.getElementById('data-fim').value;
+  var msg = document.getElementById('analise-msg');
+  if (!dataInicio || !dataFim) {
+    msg.innerHTML = '<div class="aviso erro">Selecione as datas inicial e final.</div>'; return;
+  }
+  if (dataInicio > dataFim) {
+    msg.innerHTML = '<div class="aviso erro">A data inicial não pode ser maior que a final.</div>'; return;
+  }
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Lendo o estoque…</span></div>';
+  document.getElementById('painel-lista').style.display = 'none';
+  document.getElementById('prosseguir-msg').innerHTML = '';
 
-function renderResultado(colunas, linhas) {
-  var painel = document.getElementById('painel-resultado');
-  var wrap = document.getElementById('tabela-resultado');
+  chamar('listarItensParaAnalise', sessao.token, { dataInicio: dataInicio, dataFim: dataFim })
+    .then(function (r) {
+      btn.disabled = false;
+      itensAnalise = r.itens || [];
+      msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
+      renderLista(itensAnalise);
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function num(v) {
+  if (v === '' || v === null || v === undefined) return '—';
+  var n = Number(v);
+  return isNaN(n) ? v : n.toLocaleString('pt-BR');
+}
+
+function renderLista(itens) {
+  var painel = document.getElementById('painel-lista');
+  var wrap = document.getElementById('tabela-lista');
+  var btnPros = document.getElementById('btn-prosseguir');
   painel.style.display = '';
 
-  var th = colunas.map(function (c) {
-    return '<th>' + (ROTULO_COL[c] || c) + '</th>';
-  }).join('');
-
-  if (!linhas || !linhas.length) {
-    wrap.innerHTML =
-      '<table class="dados"><thead><tr>' + th + '</tr></thead></table>' +
-      '<div class="vazio">Nenhum item na relação ainda — a lógica de análise ' +
-      'será preenchida conforme as regras de negócio.</div>';
+  if (!itens.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum item lançado no período informado.</div>';
+    btnPros.style.display = 'none';
     return;
   }
 
-  var body = linhas.map(function (l) {
-    return '<tr>' + colunas.map(function (c) {
-      return '<td>' + (l[c] !== undefined && l[c] !== '' ? l[c] : '—') + '</td>';
-    }).join('') + '</tr>';
+  var body = itens.map(function (it, i) {
+    return '<tr>' +
+      '<td style="text-align:center"><input type="checkbox" class="excluir" data-idx="' + i + '"></td>' +
+      '<td>' + (it.item || '—') + '</td>' +
+      '<td>' + (it.descricao ? it.descricao : '—') + '</td>' +
+      '<td style="text-align:right">' + num(it.saldo) + '</td>' +
+      '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
+    '</tr>';
   }).join('');
 
   wrap.innerHTML =
-    '<table class="dados"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+    '<table class="dados"><thead><tr>' +
+      '<th style="text-align:center">Excluir</th><th>Item</th><th>Descrição</th>' +
+      '<th style="text-align:right">Saldo final</th>' +
+      '<th style="text-align:right">Consumo médio</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+  btnPros.style.display = '';
+}
+
+function prosseguirCompra() {
+  var msg = document.getElementById('prosseguir-msg');
+  var marcadas = document.querySelectorAll('#tabela-lista .excluir');
+  var manter = [];
+  Array.prototype.forEach.call(marcadas, function (chk) {
+    if (!chk.checked) manter.push(itensAnalise[Number(chk.getAttribute('data-idx'))]);
+  });
+  if (!manter.length) {
+    msg.innerHTML = '<div class="aviso erro">Todos os itens foram excluídos. Deixe ao menos um.</div>';
+    return;
+  }
+  var btn = document.getElementById('btn-prosseguir');
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Preparando a compra…</span></div>';
+
+  chamar('gerarRelacaoDeCompra', sessao.token, { itens: manter })
+    .then(function (r) {
+      btn.disabled = false;
+      msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
 }
 
 /* --------------------- view: placeholder padrão ------------------- */
