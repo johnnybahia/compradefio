@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 14px;       /* Fonte reduzida */
+        width: 280px;          /* Largura compacta para sidebar (~280px) */
+        margin: 0;
+        padding: 8px;
+      }
+      h3 {
+        text-transform: uppercase;
+        font-size: 16px;
+        text-align: center;
+        margin: 0 0 10px 0;
+      }
+      label {
+        display: block;
+        margin-top: 8px;
+        font-weight: bold;
+        text-transform: uppercase;
+        font-size: 14px;
+      }
+      input, select {
+        width: 100%;
+        padding: 6px;
+        margin-top: 2px;
+        font-size: 14px;
+      }
+      .smallText {
+        font-size: 12px;
+        color: #777;
+        margin-top: 2px;
+      }
+      .btn-container {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+      }
+      button {
+        padding: 8px 12px;
+        font-size: 14px;
+        cursor: pointer;
+        width: 48%;
+      }
+      .container {
+        max-width: 280px;
+        margin: auto;
+      }
+      .info {
+        font-size: 12px;
+        color: #555;
+        margin-top: 2px;
+      }
+      .alert {
+        font-size: 12px;
+        color: red;
+        margin-top: 2px;
+        font-weight: bold;
+      }
+    </style>
+    <script>
+      var itemList = JSON.parse('<?= itemList ?>');
+      var groupList = JSON.parse('<?= groupList ?>');
+      var nfList = JSON.parse('<?= nfList ?>');
+      var obsList = JSON.parse('<?= obsList ?>');
+      
+      function populateDatalists() {
+         var itemDatalist = document.getElementById("itemList");
+         itemDatalist.innerHTML = "";
+         itemList.forEach(function(item) {
+           var option = document.createElement("option");
+           option.value = item;
+           itemDatalist.appendChild(option);
+         });
+         var groupDatalist = document.getElementById("groupList");
+         groupDatalist.innerHTML = "";
+         groupList.forEach(function(group) {
+           var option = document.createElement("option");
+           option.value = group;
+           groupDatalist.appendChild(option);
+         });
+         var nfDatalist = document.getElementById("nfList");
+         nfDatalist.innerHTML = "";
+         nfList.forEach(function(nf) {
+           var option = document.createElement("option");
+           option.value = nf;
+           nfDatalist.appendChild(option);
+         });
+         var obsDatalist = document.getElementById("obsList");
+         obsDatalist.innerHTML = "";
+         obsList.forEach(function(obs) {
+           var option = document.createElement("option");
+           option.value = obs;
+           obsDatalist.appendChild(option);
+         });
+      }
+      
+      function checkLastRegistration() {
+         var item = document.getElementById("item").value.trim();
+         if (item === "") {
+           document.getElementById("lastInfo").innerHTML = "";
+           document.getElementById("alertInfo").innerHTML = "";
+           return;
+         }
+         var currentRow = Number(document.getElementById("currentRow").value);
+         google.script.run.withSuccessHandler(function(result) {
+           if (result.lastDate) {
+             var lastDate = new Date(result.lastDate);
+             var options = { day: '2-digit', month: '2-digit', year: 'numeric' };
+             var formattedDate = lastDate.toLocaleDateString("pt-BR", options);
+             document.getElementById("lastInfo").innerHTML =
+               "Última: " + formattedDate + " | Estoque: " + result.lastStock;
+             var diffDays = (new Date().getTime() - lastDate.getTime()) / (1000 * 3600 * 24);
+             if (diffDays > 20) {
+               document.getElementById("alertInfo").innerHTML =
+                 "⚠️ PRODUTO DESATUALIZADO (HÁ MAIS DE 20 DIAS).";
+             } else {
+               document.getElementById("alertInfo").innerHTML = "";
+             }
+           } else {
+             document.getElementById("lastInfo").innerHTML = "Sem histórico.";
+             document.getElementById("alertInfo").innerHTML = "";
+           }
+         }).getLastRegistration(document.getElementById("item").value, currentRow);
+      }
+      
+      function enviarDados() {
+         var group = document.getElementById("group").value.trim();
+         var item = document.getElementById("item").value.trim();
+         var nf = document.getElementById("nf").value.trim();
+         var obs = document.getElementById("obs").value.trim();
+         var entrada = document.getElementById("entrada").value;
+         var saida = document.getElementById("saida").value;
+         
+         if (group === "" || item === "" || nf === "" || entrada === "" || saida === "") {
+           alert("⚠️ PREENCHA TODOS OS CAMPOS OBRIGATÓRIOS.");
+           return;
+         }
+         
+         var formData = {
+           group: group,
+           item: item,
+           nf: nf,
+           obs: obs,
+           entrada: parseFloat(entrada),
+           saida: parseFloat(saida)
+         };
+         
+         google.script.run.withSuccessHandler(function() {
+           resetForm();
+         }).withFailureHandler(function(err) {
+           alert("❌ ERRO: " + err.message);
+         }).processEstoque(formData);
+      }
+      
+      function resetForm() {
+         document.getElementById("group").value = "";
+         document.getElementById("item").value = "";
+         document.getElementById("nf").value = "";
+         document.getElementById("obs").value = "";
+         document.getElementById("entrada").value = "";
+         document.getElementById("saida").value = "";
+         document.getElementById("lastInfo").innerHTML = "";
+         document.getElementById("alertInfo").innerHTML = "";
+         document.getElementById("group").focus();
+         google.script.run.withSuccessHandler(function(row){
+            document.getElementById("currentRow").value = row;
+         }).getNextRow();
+         google.script.run.setActiveNextEmptyCell();
+      }
+      
+      function cancelar() {
+         google.script.host.close();
+      }
+      
+      window.onload = function() {
+         populateDatalists();
+         google.script.run.withSuccessHandler(function(row) {
+           document.getElementById("currentRow").value = row;
+         }).getNextRow();
+      };
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      <h3>Cadastro de Estoque</h3>
+      
+      <label>Grupo:</label>
+      <input list="groupList" id="group" placeholder="Grupo" required>
+      <datalist id="groupList"></datalist>
+      
+      <label>Produto:</label>
+      <input list="itemList" id="item" placeholder="Produto" oninput="checkLastRegistration()" onblur="checkLastRegistration()" required>
+      <datalist id="itemList"></datalist>
+      <div id="lastInfo" class="info"></div>
+      <div id="alertInfo" class="alert"></div>
+      
+      <label>NF/Pedido:</label>
+      <input list="nfList" id="nf" placeholder="Nota/Pedido" required>
+      <datalist id="nfList"></datalist>
+      
+      <label>Cliente/Obs:</label>
+      <input list="obsList" id="obs" placeholder="Cliente/Obs">
+      <datalist id="obsList"></datalist>
+      
+      <label>Entrada:</label>
+      <input type="number" id="entrada" step="any" required>
+      <div class="smallText">0 se não houver</div>
+      
+      <label>Saída:</label>
+      <input type="number" id="saida" step="any" required>
+      <div class="smallText">0 se não houver</div>
+      
+      <input type="hidden" id="currentRow">
+      
+      <div class="btn-container">
+         <button onclick="enviarDados()">Enviar</button>
+         <button onclick="cancelar()">Cancelar</button>
+      </div>
+    </div>
+  </body>
+</html>
