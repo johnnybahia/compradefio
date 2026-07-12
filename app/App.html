@@ -137,18 +137,31 @@ function tratarErro(err) {
 }
 
 /* -------------------------- view: análise ------------------------- */
+function ymd(d) {
+  var m = ('0' + (d.getMonth() + 1)).slice(-2);
+  var dia = ('0' + d.getDate()).slice(-2);
+  return d.getFullYear() + '-' + m + '-' + dia;
+}
+
 function viewAnalise(alvo) {
-  var hoje = new Date().toISOString().slice(0, 10);
+  var hoje = new Date();
+  var fim = ymd(hoje);
+  var inicio = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate()));
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Análise de Estoque para Compra</h2>' +
-      '<p class="desc">Informe a data de corte. O sistema analisará o estoque, ' +
-      'o consumo dos últimos 3 meses e a tabela de tingimento para montar a ' +
-      'relação de materiais a comprar — descontando o que já está em pedido aberto.</p>' +
+      '<p class="desc">Escolha o período a analisar. O sistema lê o estoque no ' +
+      'fim do período, calcula o consumo dentro dele e usa a tabela de tingimento ' +
+      'para montar a relação de materiais a comprar — descontando o que já está ' +
+      'em pedido aberto. O padrão são os últimos 3 meses.</p>' +
       '<div class="linha-form">' +
         '<div class="campo">' +
-          '<label for="data-corte">Data de corte</label>' +
-          '<input type="date" id="data-corte" value="' + hoje + '">' +
+          '<label for="data-inicio">Data inicial</label>' +
+          '<input type="date" id="data-inicio" value="' + inicio + '">' +
+        '</div>' +
+        '<div class="campo">' +
+          '<label for="data-fim">Data final</label>' +
+          '<input type="date" id="data-fim" value="' + fim + '">' +
         '</div>' +
         '<button class="btn-principal" id="btn-gerar">Gerar relação</button>' +
       '</div>' +
@@ -161,13 +174,19 @@ function viewAnalise(alvo) {
 
   document.getElementById('btn-gerar').onclick = function () {
     var btn = this;
-    var dataCorte = document.getElementById('data-corte').value;
+    var dataInicio = document.getElementById('data-inicio').value;
+    var dataFim = document.getElementById('data-fim').value;
     var msg = document.getElementById('analise-msg');
-    if (!dataCorte) { msg.innerHTML = '<div class="aviso erro">Selecione a data de corte.</div>'; return; }
+    if (!dataInicio || !dataFim) {
+      msg.innerHTML = '<div class="aviso erro">Selecione as datas inicial e final.</div>'; return;
+    }
+    if (dataInicio > dataFim) {
+      msg.innerHTML = '<div class="aviso erro">A data inicial não pode ser maior que a final.</div>'; return;
+    }
     btn.disabled = true;
     msg.innerHTML = '<div class="aviso"><span class="carregando">Analisando estoque…</span></div>';
 
-    chamar('gerarRelacaoDeCompra', sessao.token, { dataCorte: dataCorte })
+    chamar('gerarRelacaoDeCompra', sessao.token, { dataInicio: dataInicio, dataFim: dataFim })
       .then(function (r) {
         btn.disabled = false;
         msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
@@ -183,7 +202,7 @@ function viewAnalise(alvo) {
 
 var ROTULO_COL = {
   ITEM: 'Item', DESCRICAO: 'Descrição', TIPO_FIO: 'Tipo de fio', SALDO: 'Saldo',
-  CONSUMO_3M: 'Consumo 3 meses', SUGERIDO: 'Sugerido', EM_ABERTO: 'Em aberto',
+  CONSUMO_PERIODO: 'Consumo no período', SUGERIDO: 'Sugerido', EM_ABERTO: 'Em aberto',
   A_COMPRAR: 'A comprar', STATUS: 'Status'
 };
 
