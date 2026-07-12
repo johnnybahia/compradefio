@@ -154,8 +154,9 @@ function viewAnalise(alvo) {
       '<h2>Análise de Estoque para Compra</h2>' +
       '<p class="desc">Escolha o período. O sistema lista o <b>saldo final</b> de ' +
       'todos os itens que tiveram lançamento nesse período e o <b>consumo médio</b> ' +
-      '(saídas dos últimos 3 meses ÷ 3). Marque para <b>excluir</b> os itens que não ' +
-      'quer comprar e depois siga para a compra automática.</p>' +
+      '(saídas dos últimos 3 meses ÷ 3). Itens com saldo <b>igual ou abaixo</b> do ' +
+      'valor base (kg) ficam destacados. Marque para <b>excluir</b> os que não quer ' +
+      'comprar e depois siga para a compra automática.</p>' +
       '<div class="linha-form">' +
         '<div class="campo">' +
           '<label for="data-inicio">Data inicial</label>' +
@@ -164,6 +165,10 @@ function viewAnalise(alvo) {
         '<div class="campo">' +
           '<label for="data-fim">Data final</label>' +
           '<input type="date" id="data-fim" value="' + fim + '">' +
+        '</div>' +
+        '<div class="campo">' +
+          '<label for="kg-base">Destacar saldo ≤ (kg)</label>' +
+          '<input type="number" id="kg-base" value="20" step="any" style="max-width:130px">' +
         '</div>' +
         '<button class="btn-principal" id="btn-analisar">Analisar estoque</button>' +
       '</div>' +
@@ -183,6 +188,8 @@ function viewAnalise(alvo) {
 
   document.getElementById('btn-analisar').onclick = analisarEstoque;
   document.getElementById('btn-prosseguir').onclick = prosseguirCompra;
+  // Ao mudar o valor base, apenas re-realça (mantém as exclusões marcadas).
+  document.getElementById('kg-base').addEventListener('input', reaplicarDestaque);
 }
 
 function analisarEstoque() {
@@ -234,7 +241,7 @@ function renderLista(itens) {
   }
 
   var body = itens.map(function (it, i) {
-    return '<tr>' +
+    return '<tr data-idx="' + i + '">' +
       '<td style="text-align:center"><input type="checkbox" class="excluir" data-idx="' + i + '"></td>' +
       '<td>' + (it.item || '—') + '</td>' +
       '<td>' + (it.descricao ? it.descricao : '—') + '</td>' +
@@ -250,6 +257,23 @@ function renderLista(itens) {
       '<th style="text-align:right">Consumo médio</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
+  reaplicarDestaque();
+}
+
+/** Realça as linhas cujo saldo final é ≤ ao valor base (kg), sem recriar a tabela. */
+function reaplicarDestaque() {
+  var campo = document.getElementById('kg-base');
+  var base = campo ? parseFloat(campo.value) : NaN;
+  var linhas = document.querySelectorAll('#tabela-lista tbody tr');
+  Array.prototype.forEach.call(linhas, function (tr) {
+    var it = itensAnalise[Number(tr.getAttribute('data-idx'))];
+    var saldo = it ? Number(it.saldo) : NaN;
+    if (!isNaN(base) && !isNaN(saldo) && saldo <= base) {
+      tr.classList.add('destaque');
+    } else {
+      tr.classList.remove('destaque');
+    }
+  });
 }
 
 function prosseguirCompra() {
