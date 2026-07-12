@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <link rel="stylesheet" href="https://ssl.gstatic.com/docs/script/css/add-ons1.css">
+    <style>
+      .container { padding: 10px; }
+      #item-list { width: 100%; height: 250px; } /* Área de texto maior */
+      #status { margin-top: 15px; }
+      #submit-button { margin-top: 15px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <form id="item-form">
+        <div class="block form-group">
+          <label for="item-list">Cole os itens aqui (um por linha)</label>
+          <textarea id="item-list" name="itemList"></textarea>
+        </div>
+        
+        <button type="submit" id="submit-button" class="action">Processar Estoque 3 Meses</button>
+      </form>
+      
+      <div id="status"></div>
+    </div>
+
+    <script>
+      document.getElementById("item-form").addEventListener("submit", function(e) {
+        e.preventDefault();
+        
+        var statusDiv = document.getElementById("status");
+        statusDiv.innerHTML = "Processando, por favor aguarde...";
+        document.getElementById("submit-button").disabled = true;
+
+        google.script.run
+          .withSuccessHandler(function(htmlResult) {
+            statusDiv.innerHTML = htmlResult;
+            document.getElementById("submit-button").disabled = false;
+          })
+          .withFailureHandler(function(error) {
+            statusDiv.innerHTML = '<p style="color:red;">Erro: ' + error.message + '</p>';
+            document.getElementById("submit-button").disabled = false;
+          })
+          .processEstoque3Meses(this);
+      });
+    </script>
+  </body>
+</html>
