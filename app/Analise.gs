@@ -96,9 +96,11 @@ function listarItensParaAnalise(token, params) {
   Object.keys(porItem).forEach(function (k) {
     var r = porItem[k];
     if (!r.noPeriodo) return;
+    var d = descricaoDe(r.item);
     itens.push({
       item: r.item,
-      descricao: descricaoDe(r.item),
+      descricao: d.descricao,
+      motivo: d.motivo,
       saldo: r.saldo,
       consumoMedio: Math.round((r.saidas3m / 3) * 100) / 100
     });
@@ -241,14 +243,19 @@ function _criarLocalizadorDescricao() {
   }
   return function (codigo) {
     var vl = _norm(codigo);
-    if (!vl) return '';
+    if (!vl) return { descricao: '', motivo: '' };
+    var achouAssoc = false;
     for (var i = 0; i < assocMaps.length; i++) {
       if (vl in assocMaps[i]) {
+        achouAssoc = true;
         var cod = _norm(assocMaps[i][vl]);
-        if (cod in oToM) return oToM[cod];
+        if (cod in oToM) return { descricao: oToM[cod], motivo: '' };
       }
     }
-    return '';
+    return {
+      descricao: '',
+      motivo: achouAssoc ? 'cadastrado, sem descrição na produção' : 'sem cadastro na ASSOCIAÇÃO'
+    };
   };
 }
 
