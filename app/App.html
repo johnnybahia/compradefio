@@ -278,6 +278,7 @@ function renderLista(itens) {
       '<td style="text-align:center"><input type="checkbox" class="excluir" data-idx="' + i + '"></td>' +
       '<td>' + (it.item || '—') + '</td>' +
       '<td>' + desc + '</td>' +
+      '<td>' + (it.cliente ? it.cliente : '—') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
       '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
     '</tr>';
@@ -285,7 +286,7 @@ function renderLista(itens) {
 
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="text-align:center">Excluir</th><th>Item</th><th>Descrição</th>' +
+      '<th style="text-align:center">Excluir</th><th>Item</th><th>Descrição</th><th>Cliente</th>' +
       '<th style="text-align:right">Saldo final</th>' +
       '<th style="text-align:right">Consumo médio</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
@@ -350,8 +351,8 @@ function renderRelacaoSalva(linhas) {
   if (!painel || !wrap) return;
   if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
-  var cols = ['ITEM', 'DESCRICAO', 'SALDO', 'CONSUMO_MEDIO'];
-  var rot = { ITEM: 'Item', DESCRICAO: 'Descrição', SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio' };
+  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'SALDO', 'CONSUMO_MEDIO'];
+  var rot = { ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio' };
   var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {

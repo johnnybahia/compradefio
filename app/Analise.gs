@@ -26,6 +26,7 @@
 var RELACAO_COMPRA_HEADERS = [
   'ITEM',          // código do produto/cor
   'DESCRICAO',     // referência que identifica o item para o usuário
+  'CLIENTE',       // cliente vinculado (produção, coluna N)
   'TIPO_FIO',      // tipo de fio (poliéster, brilhante, reciclado/pet...)
   'SALDO',         // saldo final (último lançamento do item)
   'CONSUMO_MEDIO', // consumo médio mensal (saídas dos últimos 3 meses ÷ 3)
@@ -100,12 +101,14 @@ function listarItensParaAnalise(token, params) {
     itens.push({
       item: r.item,
       descricao: d.descricao,
+      cliente: d.cliente,
       motivo: d.motivo,
       saldo: r.saldo,
       consumoMedio: Math.round((r.saidas3m / 3) * 100) / 100
     });
   });
-  itens.sort(function (a, b) { return String(a.item).localeCompare(String(b.item)); });
+  // Do menor saldo para o maior (mais críticos primeiro).
+  itens.sort(function (a, b) { return Number(a.saldo) - Number(b.saldo); });
 
   var msg = itens.length
     ? itens.length + ' item(ns) lançado(s) no período.'
@@ -135,6 +138,7 @@ function gerarRelacaoDeCompra(token, params) {
     return [
       it.item || '',
       it.descricao || '',
+      it.cliente || '',
       '',                       // TIPO_FIO (a definir)
       it.saldo != null ? it.saldo : '',
       it.consumoMedio != null ? it.consumoMedio : '',
@@ -230,30 +234,35 @@ function _criarLocalizadorDescricao() {
       }
     });
   }
-  // PEDIDO DE FIO: normalizado(O) → M (descrição da produção)
-  var oToM = {};
+  // PEDIDO DE FIO: normalizado(O) → { descrição (M), cliente (N) }
+  var oInfo = {};
   var shP = _aba(CONFIG.SHEETS.PEDIDO_FIO);
   if (shP && shP.getLastRow() > 1) {
     var vp = shP.getRange(1, 13, shP.getLastRow(), 3).getValues(); // colunas M, N, O
     vp.forEach(function (row) {
       var o = _norm(row[2]); // O
-      var m = row[0];        // M
-      if (o && m !== '' && m != null && !(o in oToM)) oToM[o] = String(m).trim();
+      var m = row[0];        // M (descrição)
+      var n = row[1];        // N (cliente)
+      if (o && m !== '' && m != null && !(o in oInfo)) {
+        oInfo[o] = { descricao: String(m).trim(), cliente: (n == null ? '' : String(n).trim()) };
+      }
     });
   }
   return function (codigo) {
     var vl = _norm(codigo);
-    if (!vl) return { descricao: '', motivo: '' };
+    if (!vl) return { descricao: '', cliente: '', motivo: '' };
     var achouAssoc = false;
     for (var i = 0; i < assocMaps.length; i++) {
       if (vl in assocMaps[i]) {
         achouAssoc = true;
         var cod = _norm(assocMaps[i][vl]);
-        if (cod in oToM) return { descricao: oToM[cod], motivo: '' };
+        if (cod in oInfo) {
+          return { descricao: oInfo[cod].descricao, cliente: oInfo[cod].cliente, motivo: '' };
+        }
       }
     }
     return {
-      descricao: '',
+      descricao: '', cliente: '',
       motivo: achouAssoc ? 'cadastrado, sem descrição na produção' : 'sem cadastro na ASSOCIAÇÃO'
     };
   };
