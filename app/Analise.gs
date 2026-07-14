@@ -103,7 +103,7 @@ function listarItensParaAnalise(token, params) {
     var r = porItem[k];
     if (!r.noPeriodo) return;
     var d = descricaoDe(r.item);
-    var media = Math.round((r.saidas3m / 3) * 100) / 100;
+    var media = Math.ceil(r.saidas3m / 3); // consumo médio arredondado para cima
     var t = tingimentoDe(r.item, r.saldo, media);
     itens.push({
       item: r.item,

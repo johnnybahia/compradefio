@@ -179,8 +179,8 @@ function viewAnalise(alvo) {
       '<p class="desc">Escolha o período. O sistema lista o <b>saldo final</b> de ' +
       'todos os itens que tiveram lançamento nesse período e o <b>consumo médio</b> ' +
       '(saídas dos últimos 3 meses ÷ 3). Itens com saldo <b>igual ou abaixo</b> do ' +
-      'valor base (kg) ficam destacados. Marque para <b>excluir</b> os que não quer ' +
-      'comprar e depois siga para a compra automática.</p>' +
+      'valor base (kg) ficam destacados. <b>Marque</b> os itens que quer comprar e ' +
+      'depois siga para a compra automática.</p>' +
       '<div class="linha-form">' +
         '<div class="campo">' +
           '<label for="data-inicio">Data inicial</label>' +
@@ -200,7 +200,7 @@ function viewAnalise(alvo) {
     '</section>' +
     '<section class="painel" id="painel-lista" style="display:none">' +
       '<h2>Itens do período</h2>' +
-      '<p class="desc">Marque a caixa <b>Excluir</b> nos itens que não devem ' +
+      '<p class="desc">Marque a caixa <b>Comprar</b> nos itens que devem ' +
       'entrar na compra.</p>' +
       '<div class="tabela-wrap" id="tabela-lista"></div>' +
       '<div style="margin-top:16px">' +
@@ -288,7 +288,7 @@ function renderLista(itens) {
       ? it.descricao
       : '<span class="sem-desc">— ' + (it.motivo || 'sem descrição') + '</span>';
     return '<tr data-idx="' + i + '">' +
-      '<td style="text-align:center"><input type="checkbox" class="excluir" data-idx="' + i + '"></td>' +
+      '<td style="text-align:center"><input type="checkbox" class="sel-compra" data-idx="' + i + '"></td>' +
       '<td>' + (it.item || '—') + '</td>' +
       '<td>' + desc + '</td>' +
       '<td>' + (it.cliente ? it.cliente : '—') + '</td>' +
@@ -304,7 +304,7 @@ function renderLista(itens) {
 
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="text-align:center;width:5%;white-space:nowrap">Excluir</th>' +
+      '<th style="text-align:center;width:6%;white-space:nowrap">Comprar</th>' +
       '<th style="width:8%">Item</th>' +
       '<th style="width:17%">Descrição</th>' +
       '<th style="width:10%">Cliente</th>' +
@@ -314,7 +314,7 @@ function renderLista(itens) {
       '<th style="width:8%">Máquinas</th>' +
       '<th style="text-align:right;width:5%">Total (kg)</th>' +
       '<th style="width:9%">Data limite embarque</th>' +
-      '<th style="width:14%">Observação</th>' +
+      '<th style="width:13%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
 
@@ -350,13 +350,13 @@ function reaplicarDestaque() {
 
 function prosseguirCompra() {
   var msg = document.getElementById('prosseguir-msg');
-  var marcadas = document.querySelectorAll('#tabela-lista .excluir');
+  var caixas = document.querySelectorAll('#tabela-lista .sel-compra');
   var manter = [];
-  Array.prototype.forEach.call(marcadas, function (chk) {
-    if (!chk.checked) manter.push(estadoAnalise.itens[Number(chk.getAttribute('data-idx'))]);
+  Array.prototype.forEach.call(caixas, function (chk) {
+    if (chk.checked) manter.push(estadoAnalise.itens[Number(chk.getAttribute('data-idx'))]);
   });
   if (!manter.length) {
-    msg.innerHTML = '<div class="aviso erro">Todos os itens foram excluídos. Deixe ao menos um.</div>';
+    msg.innerHTML = '<div class="aviso erro">Marque ao menos um item para comprar.</div>';
     return;
   }
   var btn = document.getElementById('btn-prosseguir');
@@ -396,9 +396,11 @@ function renderRelacaoSalva(linhas) {
     SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
     SUGERIDO: 'Total (kg)', DATA_LIMITE: 'Data limite embarque', OBS: 'Observação'
   };
+  var numericas = { SALDO: 1, CONSUMO_MEDIO: 1, SUGERIDO: 1 };
   var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {
+      if (numericas[c]) return '<td>' + num(l[c]) + '</td>';
       var v = (c === 'DATA_LIMITE') ? soDataBR(l[c]) : l[c];
       return '<td>' + (v !== '' && v != null ? v : '—') + '</td>';
     }).join('') + '</tr>';
