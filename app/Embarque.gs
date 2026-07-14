@@ -34,29 +34,56 @@ function _codEmbarque(codigo) {
 
 /**
  * Interpreta o texto do PDF de embarque.
+ *
+ * A conversão do PDF para texto (via Drive → Google Doc) pode quebrar uma
+ * linha do relatório em duas ou mais linhas de texto (o PDF não tem essa
+ * quebra), então em vez de exigir cada item em uma única linha, os
+ * fragmentos são acumulados até formarem um item completo ("cor CÓDIGO -
+ * caixas cx - peso"). Linhas de total/cabeçalho/rodapé reiniciam o buffer.
+ *
  * @return {Object} { doc, data, linhas: [{descricao, tipo, codigo, quantidade, caixas, peso}] }
  */
 function _parseEmbarque(texto) {
-  var linhas = String(texto || '').split(/\r?\n/);
-  var doc = '', data = '', out = [];
+  var raw = String(texto || '');
+  var md = raw.match(/n[°ºo]\s*(\d+)/i);
+  var doc = md ? md[1] : '';
+  var mdt = raw.match(/(\d{2}\/\d{2}\/\d{4})/);
+  var data = mdt ? mdt[1] : '';
+
+  var linhas = raw.split(/\r?\n/);
+  var out = [];
+  var buffer = '';
+  var RE = /^(.*?)\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]+\s*(\d+)\s*cx\s*[-–—_.]+\s*([\d.,]+)/i;
+
   linhas.forEach(function (l) {
     l = l.trim();
     if (!l) return;
-    var md = l.match(/n[°ºo]\s*(\d+)/i); if (md && !doc) doc = md[1];
-    var mdt = l.match(/(\d{2}\/\d{2}\/\d{4})/); if (mdt && !data) data = mdt[1];
-    if (/^total/i.test(l)) return;
-    var m = l.match(/^(.*?)\bcor\s+([^\s-]+)\s*-+\s*(\d+)\s*cx\s*-+\s*([\d.,]+)/i);
-    if (!m) return;
-    var peso = parseFloat(String(m[4]).replace(',', '.'));
-    if (isNaN(peso)) peso = null;
-    out.push({
-      descricao: (m[1].trim() + ' cor ' + m[2]).replace(/\s+/g, ' '),
-      tipo: m[1].trim(),
-      codigo: m[2],
-      caixas: parseInt(m[3], 10),
-      peso: peso,
-      quantidade: peso != null ? Math.floor(peso) : null
-    });
+    // Linhas de cabeçalho/rodapé/total — mesmo que sejam só a continuação
+    // de uma dessas linhas após a quebra — não fazem parte de um item.
+    if (/^total\b/i.test(l) || /n[°ºo]\s*\d+/i.test(l) || /^>/.test(l) ||
+        /^\d{2}\/\d{2}\/\d{4}$/.test(l) || /\bcxs\b/i.test(l) || /r\$/i.test(l)) {
+      buffer = '';
+      return;
+    }
+    buffer = buffer ? (buffer + ' ' + l) : l;
+    var m = buffer.match(RE);
+    if (m) {
+      var peso = parseFloat(String(m[4]).replace(',', '.'));
+      if (isNaN(peso)) peso = null;
+      var tipo = m[1].replace(/^[^A-Za-zÀ-ÿ]+/, '').trim();
+      out.push({
+        descricao: (tipo + ' cor ' + m[2]).replace(/\s+/g, ' '),
+        tipo: tipo,
+        codigo: m[2],
+        caixas: parseInt(m[3], 10),
+        peso: peso,
+        quantidade: peso != null ? Math.floor(peso) : null
+      });
+      buffer = '';
+    } else if (buffer.length > 200) {
+      // Ruído acumulado sem formar um item — descarta e recomeça deste ponto.
+      buffer = l;
+    }
   });
   return { doc: doc, data: data, linhas: out };
 }
@@ -174,7 +201,8 @@ function analisarEmbarquePdf(token, base64, nome) {
     doc: p.doc,
     data: p.data,
     itens: itens,
-    naoReconhecidos: itens.filter(function (i) { return !i.ok; }).length
+    naoReconhecidos: itens.filter(function (i) { return !i.ok; }).length,
+    textoBruto: texto
   };
 }
 
