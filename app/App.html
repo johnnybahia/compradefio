@@ -91,21 +91,34 @@ var ROTULO_PAPEL = {
 var MENUS = {
   master: [
     { id: 'analise',    rotulo: 'Análise de Compra',  render: viewAnalise },
-    { id: 'tingimento', rotulo: 'Tingimento',          render: emConstrucao('Tingimento') },
+    { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
+    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
     { id: 'embarques',  rotulo: 'Embarques',           render: emConstrucao('Embarques (Almoxarifado 1)') },
     { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') },
     { id: 'usuarios',   rotulo: 'Usuários',            render: emConstrucao('Cadastro de usuários') }
   ],
   tingimento: [
-    { id: 'tingimento', rotulo: 'Tingimento',          render: emConstrucao('Painel de Tingimento') }
+    { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
+    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
   ],
   almoxarifado1: [
-    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: emConstrucao('Confirmação de Embarque') }
+    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: emConstrucao('Confirmação de Embarque') },
+    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
   ],
   almoxarifado2: [
-    { id: 'recebimento',rotulo: 'Confirmar Recebimento', render: emConstrucao('Confirmação de Recebimento') }
+    { id: 'recebimento',rotulo: 'Confirmar Recebimento', render: emConstrucao('Confirmação de Recebimento') },
+    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
   ]
 };
+
+/** Navega para um item de menu pelo id (usado após gerar a compra). */
+function irParaMenu(id) {
+  var itens = MENUS[sessao.papel] || [];
+  var botoes = document.querySelectorAll('#menu button');
+  for (var i = 0; i < itens.length; i++) {
+    if (itens[i].id === id) { selecionar(itens[i], botoes[i]); return; }
+  }
+}
 
 function abrirApp() {
   document.getElementById('splash').classList.add('oculto');
@@ -333,8 +346,8 @@ function prosseguirCompra() {
   chamar('gerarRelacaoDeCompra', sessao.token, { itens: manter })
     .then(function (r) {
       btn.disabled = false;
-      msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
-      carregarUltimaRelacao(); // reflete a seleção salva no painel abaixo
+      carregarUltimaRelacao();
+      irParaMenu('tingimento'); // abre a lista de tingimento com os itens escolhidos
     })
     .catch(function (err) {
       btn.disabled = false;
@@ -365,6 +378,107 @@ function renderRelacaoSalva(linhas) {
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {
       var v = l[c];
+      return '<td>' + (v !== '' && v != null ? v : '—') + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/* ------------------------- view: Tingimento ----------------------- */
+function viewTingimento(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Tingimento</h2>' +
+      '<p class="desc">Itens enviados para tingir (gerados na Análise de Compra).</p>' +
+      '<div id="ting-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-ting"></div>' +
+    '</section>';
+  var msg = document.getElementById('ting-msg');
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('obterListaTingimento', sessao.token)
+    .then(function (r) {
+      msg.innerHTML = '';
+      renderTingimento(r.linhas);
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderTingimento(linhas) {
+  var wrap = document.getElementById('tabela-ting');
+  if (!linhas || !linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum item para tingir. Gere uma relação na Análise de Compra.</div>';
+    return;
+  }
+  var body = linhas.map(function (l) {
+    return '<tr>' +
+      '<td>' + (l.item || '—') + '</td>' +
+      '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
+      '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
+      '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
+      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th>Item</th><th>Descrição</th><th>Cliente</th><th>Máquinas</th>' +
+      '<th style="text-align:right">Total (kg)</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/* --------------------- view: Consulta de Estoque ------------------ */
+function viewConsultaEstoque(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Consulta de Estoque</h2>' +
+      '<p class="desc">Busque um item para ver o histórico de movimentações, como está na aba ESTOQUE.</p>' +
+      '<div class="linha-form">' +
+        '<div class="campo" style="flex:1;min-width:220px">' +
+          '<label for="consulta-item">Item</label>' +
+          '<input type="text" id="consulta-item" placeholder="Digite o código/nome do item" autocomplete="off">' +
+        '</div>' +
+        '<button class="btn-principal" id="btn-consultar">Buscar</button>' +
+      '</div>' +
+      '<div id="consulta-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-consulta"></div>' +
+    '</section>';
+  document.getElementById('btn-consultar').onclick = consultarEstoque;
+  document.getElementById('consulta-item').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') consultarEstoque();
+  });
+}
+
+function consultarEstoque() {
+  var termo = document.getElementById('consulta-item').value.trim();
+  var msg = document.getElementById('consulta-msg');
+  var wrap = document.getElementById('tabela-consulta');
+  if (!termo) { msg.innerHTML = '<div class="aviso erro">Digite um item para buscar.</div>'; return; }
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Buscando…</span></div>';
+  wrap.innerHTML = '';
+  chamar('consultarHistoricoItem', sessao.token, termo)
+    .then(function (r) {
+      if (!r.linhas.length) {
+        msg.innerHTML = '<div class="aviso">Nenhum registro encontrado para "' + termo + '".</div>';
+        return;
+      }
+      msg.innerHTML = '<div class="aviso ok">' + r.total + ' registro(s)' +
+        (r.truncado ? ' (mostrando os 1000 mais recentes)' : '') + '.</div>';
+      renderHistorico(r.cabecalho, r.linhas);
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderHistorico(cabecalho, linhas) {
+  var wrap = document.getElementById('tabela-consulta');
+  var th = cabecalho.map(function (c) { return '<th>' + c + '</th>'; }).join('');
+  var body = linhas.map(function (row) {
+    return '<tr>' + row.map(function (v) {
       return '<td>' + (v !== '' && v != null ? v : '—') + '</td>';
     }).join('') + '</tr>';
   }).join('');
