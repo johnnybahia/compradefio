@@ -35,56 +35,49 @@ function _codEmbarque(codigo) {
 /**
  * Interpreta o texto do PDF de embarque.
  *
- * A conversão do PDF para texto (via Drive → Google Doc) pode quebrar uma
- * linha do relatório em duas ou mais linhas de texto (o PDF não tem essa
- * quebra), então em vez de exigir cada item em uma única linha, os
- * fragmentos são acumulados até formarem um item completo ("cor CÓDIGO -
- * caixas cx - peso"). Linhas de total/cabeçalho/rodapé reiniciam o buffer.
+ * A conversão do PDF para texto (via Drive → Google Doc) NÃO preserva as
+ * quebras de linha do relatório original: vários itens podem cair juntos
+ * numa mesma linha de texto (separados só por espaço), e um item pode
+ * ficar dividido em várias linhas. Por isso o texto inteiro é normalizado
+ * (todo espaço em branco vira um espaço só) e os itens são extraídos com
+ * uma busca global pelo padrão "cor CÓDIGO - caixas cx - peso", em vez de
+ * depender de onde estão as quebras de linha.
  *
  * @return {Object} { doc, data, linhas: [{descricao, tipo, codigo, quantidade, caixas, peso}] }
  */
 function _parseEmbarque(texto) {
-  var raw = String(texto || '');
-  var md = raw.match(/n[°ºo]\s*(\d+)/i);
+  var normalizado = String(texto || '').replace(/\s+/g, ' ').trim();
+
+  var md = normalizado.match(/n[°ºo]\s*(\d+)/i);
   var doc = md ? md[1] : '';
-  var mdt = raw.match(/(\d{2}\/\d{2}\/\d{4})/);
-  var data = mdt ? mdt[1] : '';
 
-  var linhas = raw.split(/\r?\n/);
-  var out = [];
-  var buffer = '';
-  var RE = /^(.*?)\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]+\s*(\d+)\s*cx\s*[-–—_.]+\s*([\d.,]+)/i;
+  // Remove a saudação fixa do relatório ("...que embarcou dia [data]") antes
+  // de procurar os itens, para essa frase não ser confundida com o tipo do
+  // 1º item; a data do embarque, quando presente no texto, vem logo ali.
+  var corte = normalizado.match(/embarcou\s+dia\s*/i);
+  var data = '', corpo = normalizado;
+  if (corte) {
+    var resto = normalizado.slice(corte.index + corte[0].length);
+    var mdt = resto.match(/^(\d{2}\/\d{2}\/\d{4})/);
+    if (mdt) { data = mdt[1]; resto = resto.slice(mdt[0].length); }
+    corpo = resto;
+  }
 
-  linhas.forEach(function (l) {
-    l = l.trim();
-    if (!l) return;
-    // Linhas de cabeçalho/rodapé/total — mesmo que sejam só a continuação
-    // de uma dessas linhas após a quebra — não fazem parte de um item.
-    if (/^total\b/i.test(l) || /n[°ºo]\s*\d+/i.test(l) || /^>/.test(l) ||
-        /^\d{2}\/\d{2}\/\d{4}$/.test(l) || /\bcxs\b/i.test(l) || /r\$/i.test(l)) {
-      buffer = '';
-      return;
-    }
-    buffer = buffer ? (buffer + ' ' + l) : l;
-    var m = buffer.match(RE);
-    if (m) {
-      var peso = parseFloat(String(m[4]).replace(',', '.'));
-      if (isNaN(peso)) peso = null;
-      var tipo = m[1].replace(/^[^A-Za-zÀ-ÿ]+/, '').trim();
-      out.push({
-        descricao: (tipo + ' cor ' + m[2]).replace(/\s+/g, ' '),
-        tipo: tipo,
-        codigo: m[2],
-        caixas: parseInt(m[3], 10),
-        peso: peso,
-        quantidade: peso != null ? Math.floor(peso) : null
-      });
-      buffer = '';
-    } else if (buffer.length > 200) {
-      // Ruído acumulado sem formar um item — descarta e recomeça deste ponto.
-      buffer = l;
-    }
-  });
+  var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,24}?)\s*\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
+  var out = [], m;
+  while ((m = RE.exec(corpo)) !== null) {
+    var peso = parseFloat(String(m[4]).replace(',', '.'));
+    if (isNaN(peso)) peso = null;
+    var tipo = m[1].trim();
+    out.push({
+      descricao: (tipo + ' cor ' + m[2]).replace(/\s+/g, ' '),
+      tipo: tipo,
+      codigo: m[2],
+      caixas: parseInt(m[3], 10),
+      peso: peso,
+      quantidade: peso != null ? Math.floor(peso) : null
+    });
+  }
   return { doc: doc, data: data, linhas: out };
 }
 
