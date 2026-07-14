@@ -512,7 +512,9 @@ function viewConsultaEstoque(alvo) {
       '<div class="linha-form">' +
         '<div class="campo" style="flex:1;min-width:220px">' +
           '<label for="consulta-item">Item</label>' +
-          '<input type="text" id="consulta-item" placeholder="Digite o código/nome do item" autocomplete="off">' +
+          '<input type="text" id="consulta-item" list="itens-estoque" ' +
+            'placeholder="Digite ou escolha um item" autocomplete="off">' +
+          '<datalist id="itens-estoque"></datalist>' +
         '</div>' +
         '<button class="btn-principal" id="btn-consultar">Buscar</button>' +
       '</div>' +
@@ -523,6 +525,16 @@ function viewConsultaEstoque(alvo) {
   document.getElementById('consulta-item').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') consultarEstoque();
   });
+  // Preenche o autocomplete com os itens do estoque.
+  chamar('listarItensEstoque', sessao.token)
+    .then(function (r) {
+      var dl = document.getElementById('itens-estoque');
+      if (!dl) return;
+      dl.innerHTML = (r.itens || []).map(function (it) {
+        return '<option value="' + escAttr(it) + '">';
+      }).join('');
+    })
+    .catch(function () { /* silencioso — a busca por texto continua funcionando */ });
 }
 
 function consultarEstoque() {
