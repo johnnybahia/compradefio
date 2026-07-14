@@ -15,14 +15,26 @@ function obterListaTingimento(token) {
   var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
   var linhas = regs.map(function (r) {
     return {
+      linha: r.__row,
       item: r.ITEM,
       descricao: r.DESCRICAO,
       cliente: r.CLIENTE,
       maquinas: r.MAQUINAS,
-      total: r.SUGERIDO
+      total: r.SUGERIDO,
+      dataLimite: _formatarCelula(r.DATA_LIMITE),
+      obs: r.OBS == null ? '' : String(r.OBS)
     };
   });
   return { ok: true, linhas: linhas };
+}
+
+/** Salva a observação digitada no painel de tingimento (na RELACAO_COMPRA). */
+function salvarObservacaoTingimento(token, linha, obs) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  atualizarCelula(CONFIG.SHEETS.RELACAO_COMPRA, linha, 'OBS', obs == null ? '' : String(obs));
+  return { ok: true };
 }
 
 /**

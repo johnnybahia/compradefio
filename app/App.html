@@ -407,6 +407,12 @@ function viewTingimento(alvo) {
     });
 }
 
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function renderTingimento(linhas) {
   var wrap = document.getElementById('tabela-ting');
   if (!linhas || !linhas.length) {
@@ -420,13 +426,32 @@ function renderTingimento(linhas) {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
+      '<td><input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) +
+        '" placeholder="anotação…"></td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
       '<th>Item</th><th>Descrição</th><th>Cliente</th><th>Máquinas</th>' +
       '<th style="text-align:right">Total (kg)</th>' +
+      '<th>Data limite embarque</th><th>Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
+
+  Array.prototype.forEach.call(wrap.querySelectorAll('.obs-input'), function (inp) {
+    inp.addEventListener('change', function () { salvarObs(inp); });
+  });
+}
+
+function salvarObs(inp) {
+  var linha = inp.getAttribute('data-linha');
+  inp.style.borderColor = '#CBD5E1';
+  chamar('salvarObservacaoTingimento', sessao.token, linha, inp.value)
+    .then(function () { inp.style.borderColor = '#1F9D55'; })
+    .catch(function (err) {
+      inp.style.borderColor = '#D0342C';
+      tratarErro(err);
+    });
 }
 
 /* --------------------- view: Consulta de Estoque ------------------ */
