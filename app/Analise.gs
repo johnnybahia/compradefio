@@ -26,10 +26,12 @@
 var RELACAO_COMPRA_HEADERS = [
   'ITEM',          // código do produto/cor
   'DESCRICAO',     // referência que identifica o item para o usuário
+  'CLIENTE',       // cliente vinculado (produção, coluna N)
   'TIPO_FIO',      // tipo de fio (poliéster, brilhante, reciclado/pet...)
   'SALDO',         // saldo final (último lançamento do item)
   'CONSUMO_MEDIO', // consumo médio mensal (saídas dos últimos 3 meses ÷ 3)
-  'SUGERIDO',      // quantidade sugerida pela análise (tabela de tingimento)
+  'MAQUINAS',      // máquinas de tingimento escolhidas (ex.: "80 + 27")
+  'SUGERIDO',      // total do tingimento em kg (soma das máquinas)
   'EM_ABERTO',     // já solicitado e ainda não recebido
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
   'STATUS'         // URGENTE / NORMAL / etc.
@@ -66,6 +68,7 @@ function listarItensParaAnalise(token, params) {
 
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
+  var tingimentoDe = _criarCalculadoraTingimento();
   var porItem = {};
 
   movimentos.forEach(function (mov) {
@@ -97,15 +100,23 @@ function listarItensParaAnalise(token, params) {
     var r = porItem[k];
     if (!r.noPeriodo) return;
     var d = descricaoDe(r.item);
+    var media = Math.round((r.saidas3m / 3) * 100) / 100;
+    var t = tingimentoDe(r.item, r.saldo, media);
     itens.push({
       item: r.item,
       descricao: d.descricao,
+      cliente: d.cliente,
       motivo: d.motivo,
       saldo: r.saldo,
-      consumoMedio: Math.round((r.saidas3m / 3) * 100) / 100
+      consumoMedio: media,
+      tipoFio: t.tipoFio,
+      alvo: t.alvo,
+      maquinas: t.maquinas.join(' + '),
+      totalTingimento: t.total
     });
   });
-  itens.sort(function (a, b) { return String(a.item).localeCompare(String(b.item)); });
+  // Do menor saldo para o maior (mais críticos primeiro).
+  itens.sort(function (a, b) { return Number(a.saldo) - Number(b.saldo); });
 
   var msg = itens.length
     ? itens.length + ' item(ns) lançado(s) no período.'
@@ -130,15 +141,17 @@ function gerarRelacaoDeCompra(token, params) {
   var itens = params.itens || [];
   if (!itens.length) throw new Error('Nenhum item selecionado para a compra.');
 
-  // Persiste a seleção como base da relação (colunas de compra em branco por ora).
+  // Persiste a seleção como base da relação (EM_ABERTO/A_COMPRAR/STATUS por ora vazios).
   var linhas = itens.map(function (it) {
     return [
       it.item || '',
       it.descricao || '',
-      '',                       // TIPO_FIO (a definir)
+      it.cliente || '',
+      it.tipoFio || '',
       it.saldo != null ? it.saldo : '',
       it.consumoMedio != null ? it.consumoMedio : '',
-      '',                       // SUGERIDO (tabela de tingimento)
+      it.maquinas || '',
+      it.totalTingimento != null ? it.totalTingimento : '',
       '',                       // EM_ABERTO (pedidos em aberto)
       '',                       // A_COMPRAR
       ''                        // STATUS
@@ -230,30 +243,35 @@ function _criarLocalizadorDescricao() {
       }
     });
   }
-  // PEDIDO DE FIO: normalizado(O) → M (descrição da produção)
-  var oToM = {};
+  // PEDIDO DE FIO: normalizado(O) → { descrição (M), cliente (N) }
+  var oInfo = {};
   var shP = _aba(CONFIG.SHEETS.PEDIDO_FIO);
   if (shP && shP.getLastRow() > 1) {
     var vp = shP.getRange(1, 13, shP.getLastRow(), 3).getValues(); // colunas M, N, O
     vp.forEach(function (row) {
       var o = _norm(row[2]); // O
-      var m = row[0];        // M
-      if (o && m !== '' && m != null && !(o in oToM)) oToM[o] = String(m).trim();
+      var m = row[0];        // M (descrição)
+      var n = row[1];        // N (cliente)
+      if (o && m !== '' && m != null && !(o in oInfo)) {
+        oInfo[o] = { descricao: String(m).trim(), cliente: (n == null ? '' : String(n).trim()) };
+      }
     });
   }
   return function (codigo) {
     var vl = _norm(codigo);
-    if (!vl) return { descricao: '', motivo: '' };
+    if (!vl) return { descricao: '', cliente: '', motivo: '' };
     var achouAssoc = false;
     for (var i = 0; i < assocMaps.length; i++) {
       if (vl in assocMaps[i]) {
         achouAssoc = true;
         var cod = _norm(assocMaps[i][vl]);
-        if (cod in oToM) return { descricao: oToM[cod], motivo: '' };
+        if (cod in oInfo) {
+          return { descricao: oInfo[cod].descricao, cliente: oInfo[cod].cliente, motivo: '' };
+        }
       }
     }
     return {
-      descricao: '',
+      descricao: '', cliente: '',
       motivo: achouAssoc ? 'cadastrado, sem descrição na produção' : 'sem cadastro na ASSOCIAÇÃO'
     };
   };
