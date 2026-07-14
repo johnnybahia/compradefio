@@ -171,11 +171,12 @@
   table.dados tbody tr.destaque td:nth-child(5) { color: #C0392B; font-weight: 700; }
   .vazio { padding: 26px; text-align: center; color: var(--texto-fraco); font-size: 14px; }
   .sem-desc { color: #94A3B8; font-style: italic; font-size: 12px; }
-  .obs-input {
+  .obs-input, .data-input {
     width: 100%; min-width: 130px; padding: 5px 8px;
     border: 1px solid var(--borda); border-radius: 6px; font-size: 13px;
   }
-  .obs-input:focus { outline: none; border-color: var(--azul-claro); }
+  .data-input { min-width: 150px; }
+  .obs-input:focus, .data-input:focus { outline: none; border-color: var(--azul-claro); }
 
   .em-construcao {
     text-align: center; color: var(--texto-fraco); padding: 40px 20px;

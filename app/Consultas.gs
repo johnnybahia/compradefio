@@ -28,12 +28,16 @@ function obterListaTingimento(token) {
   return { ok: true, linhas: linhas };
 }
 
-/** Salva a observação digitada no painel de tingimento (na RELACAO_COMPRA). */
-function salvarObservacaoTingimento(token, linha, obs) {
+/** Campos editáveis no painel de tingimento. */
+var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
+
+/** Salva um campo editável do painel de tingimento (na RELACAO_COMPRA). */
+function salvarCampoTingimento(token, linha, campo, valor) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
-  atualizarCelula(CONFIG.SHEETS.RELACAO_COMPRA, linha, 'OBS', obs == null ? '' : String(obs));
+  if (CAMPOS_TINGIMENTO_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
+  atualizarCelula(CONFIG.SHEETS.RELACAO_COMPRA, linha, campo, valor == null ? '' : String(valor));
   return { ok: true };
 }
 

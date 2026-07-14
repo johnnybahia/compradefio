@@ -426,7 +426,8 @@ function renderTingimento(linhas) {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
-      '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
+      '<td><input type="date" class="data-input" data-linha="' + l.linha + '" value="' +
+        brParaISO(l.dataLimite) + '"></td>' +
       '<td><input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) +
         '" placeholder="anotação…"></td>' +
     '</tr>';
@@ -439,14 +440,27 @@ function renderTingimento(linhas) {
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.obs-input'), function (inp) {
-    inp.addEventListener('change', function () { salvarObs(inp); });
+    inp.addEventListener('change', function () { salvarCampoTing(inp, 'OBS', inp.value); });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
+    inp.addEventListener('change', function () { salvarCampoTing(inp, 'DATA_LIMITE', isoParaBR(inp.value)); });
   });
 }
 
-function salvarObs(inp) {
-  var linha = inp.getAttribute('data-linha');
+/** dd/MM/aaaa → aaaa-MM-dd (para o input date); '' se não reconhecer. */
+function brParaISO(s) {
+  var m = String(s == null ? '' : s).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+}
+/** aaaa-MM-dd → dd/MM/aaaa (para gravar como na planilha); '' se vazio. */
+function isoParaBR(s) {
+  var m = String(s == null ? '' : s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
+}
+
+function salvarCampoTing(inp, campo, valor) {
   inp.style.borderColor = '#CBD5E1';
-  chamar('salvarObservacaoTingimento', sessao.token, linha, inp.value)
+  chamar('salvarCampoTingimento', sessao.token, inp.getAttribute('data-linha'), campo, valor)
     .then(function () { inp.style.borderColor = '#1F9D55'; })
     .catch(function (err) {
       inp.style.borderColor = '#D0342C';
