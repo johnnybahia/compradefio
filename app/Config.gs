@@ -46,6 +46,7 @@ var CONFIG = {
     ESTOQUE: 'ESTOQUE',               // razão de movimentos (fonte da análise)
     ASSOCIACAO: 'ASSOCIAÇÃO',         // tradução código ↔ cadastro (descrição)
     PEDIDO_FIO: 'PEDIDO DE FIO',      // catálogo da produção (código → descrição)
+    BASE_TINGIMENTO: 'BASE TINGIMENTO', // capacidades das máquinas por tipo de fio
     RELACAO_COMPRA: 'RELACAO_COMPRA'  // resultado da análise de compra
     // Demais tabelas (FIO_CRU, PEDIDOS, TINGIMENTO, EMBARQUES...)
     // serão adicionadas conforme definirmos as regras de negócio.

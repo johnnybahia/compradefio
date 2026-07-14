@@ -281,6 +281,9 @@ function renderLista(itens) {
       '<td>' + (it.cliente ? it.cliente : '—') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
       '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
+      '<td>' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
+      '<td>' + (it.maquinas ? it.maquinas : '—') + '</td>' +
+      '<td style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
     '</tr>';
   }).join('');
 
@@ -289,6 +292,8 @@ function renderLista(itens) {
       '<th style="text-align:center">Excluir</th><th>Item</th><th>Descrição</th><th>Cliente</th>' +
       '<th style="text-align:right">Saldo final</th>' +
       '<th style="text-align:right">Consumo médio</th>' +
+      '<th>Tipo de fio</th><th>Máquinas</th>' +
+      '<th style="text-align:right">Total (kg)</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
   reaplicarDestaque();
@@ -351,8 +356,11 @@ function renderRelacaoSalva(linhas) {
   if (!painel || !wrap) return;
   if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
-  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'SALDO', 'CONSUMO_MEDIO'];
-  var rot = { ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio' };
+  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'CONSUMO_MEDIO', 'MAQUINAS', 'SUGERIDO'];
+  var rot = {
+    ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', TIPO_FIO: 'Tipo de fio',
+    SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas', SUGERIDO: 'Total (kg)'
+  };
   var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {

@@ -30,7 +30,8 @@ var RELACAO_COMPRA_HEADERS = [
   'TIPO_FIO',      // tipo de fio (poliéster, brilhante, reciclado/pet...)
   'SALDO',         // saldo final (último lançamento do item)
   'CONSUMO_MEDIO', // consumo médio mensal (saídas dos últimos 3 meses ÷ 3)
-  'SUGERIDO',      // quantidade sugerida pela análise (tabela de tingimento)
+  'MAQUINAS',      // máquinas de tingimento escolhidas (ex.: "80 + 27")
+  'SUGERIDO',      // total do tingimento em kg (soma das máquinas)
   'EM_ABERTO',     // já solicitado e ainda não recebido
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
   'STATUS'         // URGENTE / NORMAL / etc.
@@ -67,6 +68,7 @@ function listarItensParaAnalise(token, params) {
 
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
+  var tingimentoDe = _criarCalculadoraTingimento();
   var porItem = {};
 
   movimentos.forEach(function (mov) {
@@ -98,13 +100,19 @@ function listarItensParaAnalise(token, params) {
     var r = porItem[k];
     if (!r.noPeriodo) return;
     var d = descricaoDe(r.item);
+    var media = Math.round((r.saidas3m / 3) * 100) / 100;
+    var t = tingimentoDe(r.item, r.saldo, media);
     itens.push({
       item: r.item,
       descricao: d.descricao,
       cliente: d.cliente,
       motivo: d.motivo,
       saldo: r.saldo,
-      consumoMedio: Math.round((r.saidas3m / 3) * 100) / 100
+      consumoMedio: media,
+      tipoFio: t.tipoFio,
+      alvo: t.alvo,
+      maquinas: t.maquinas.join(' + '),
+      totalTingimento: t.total
     });
   });
   // Do menor saldo para o maior (mais críticos primeiro).
@@ -133,16 +141,17 @@ function gerarRelacaoDeCompra(token, params) {
   var itens = params.itens || [];
   if (!itens.length) throw new Error('Nenhum item selecionado para a compra.');
 
-  // Persiste a seleção como base da relação (colunas de compra em branco por ora).
+  // Persiste a seleção como base da relação (EM_ABERTO/A_COMPRAR/STATUS por ora vazios).
   var linhas = itens.map(function (it) {
     return [
       it.item || '',
       it.descricao || '',
       it.cliente || '',
-      '',                       // TIPO_FIO (a definir)
+      it.tipoFio || '',
       it.saldo != null ? it.saldo : '',
       it.consumoMedio != null ? it.consumoMedio : '',
-      '',                       // SUGERIDO (tabela de tingimento)
+      it.maquinas || '',
+      it.totalTingimento != null ? it.totalTingimento : '',
       '',                       // EM_ABERTO (pedidos em aberto)
       '',                       // A_COMPRAR
       ''                        // STATUS
