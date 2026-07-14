@@ -656,6 +656,10 @@ function viewImportarEmbarque(alvo) {
         '<button class="btn-principal" id="btn-gravar-embarque">Confirmar e gravar</button>' +
       '</div>' +
       '<div id="gravar-embarque-msg"></div>' +
+      '<details style="margin-top:18px">' +
+        '<summary style="cursor:pointer;color:var(--texto-fraco);font-size:12px">Ver texto lido do PDF (conferência)</summary>' +
+        '<pre id="embarque-texto-bruto" style="white-space:pre-wrap;font-size:11px;background:#F7FAFD;border:1px solid var(--borda);border-radius:8px;padding:10px;margin-top:8px;max-height:260px;overflow:auto"></pre>' +
+      '</details>' +
     '</section>';
 
   document.getElementById('btn-ler-pdf').onclick = lerArquivoPdf;
@@ -691,6 +695,7 @@ function lerArquivoPdf() {
           : '<div class="aviso ok">' + embarqueItens.length + ' itens lidos. Confira e grave.</div>';
         msg.innerHTML = aviso;
         renderPreviewEmbarque(embarqueItens);
+        document.getElementById('embarque-texto-bruto').textContent = r.textoBruto || '';
         document.getElementById('painel-embarque').style.display = '';
       })
       .catch(function (err) {
