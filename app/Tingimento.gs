@@ -4,9 +4,9 @@
  * as capacidades das máquinas do fornecedor (aba BASE TINGIMENTO).
  *
  * Regra do alvo (kg a tingir), validada com os exemplos do cliente:
- *   - saldo < 0            → alvo = 2 × |saldo|      (dobro do déficit)
- *   - saldo > média mensal → alvo = média            (só repõe ~1 mês)
- *   - 0 ≤ saldo ≤ média    → alvo = menor máquina     (mínimo)
+ *   - saldo < 0            → alvo = MAX(2 × |saldo|, média)  (cobre o déficit, nunca menos que a média)
+ *   - saldo > média mensal → alvo = média                    (só repõe ~1 mês)
+ *   - 0 ≤ saldo ≤ média    → alvo = menor máquina             (mínimo)
  *
  * Seleção de máquinas: escolhe capacidades (repetição permitida) cuja soma
  * fique o mais perto possível do alvo, usando o MENOR número de máquinas
@@ -17,7 +17,7 @@
 function _alvoTingimento(saldo, media, minCap) {
   saldo = Number(saldo) || 0;
   media = Number(media) || 0;
-  if (saldo < 0) return 2 * Math.abs(saldo);
+  if (saldo < 0) return Math.max(2 * Math.abs(saldo), media);
   if (saldo > media) return media;
   return minCap;
 }
