@@ -15,14 +15,30 @@ function obterListaTingimento(token) {
   var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
   var linhas = regs.map(function (r) {
     return {
+      linha: r.__row,
       item: r.ITEM,
       descricao: r.DESCRICAO,
       cliente: r.CLIENTE,
       maquinas: r.MAQUINAS,
-      total: r.SUGERIDO
+      total: r.SUGERIDO,
+      dataLimite: _soData(r.DATA_LIMITE),
+      obs: r.OBS == null ? '' : String(r.OBS)
     };
   });
   return { ok: true, linhas: linhas };
+}
+
+/** Campos editáveis no painel de tingimento. */
+var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
+
+/** Salva um campo editável do painel de tingimento (na RELACAO_COMPRA). */
+function salvarCampoTingimento(token, linha, campo, valor) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  if (CAMPOS_TINGIMENTO_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
+  atualizarCelula(CONFIG.SHEETS.RELACAO_COMPRA, linha, campo, valor == null ? '' : String(valor));
+  return { ok: true };
 }
 
 /**
@@ -64,6 +80,20 @@ function consultarHistoricoItem(token, termo) {
   var linhas = achadas.map(function (row) { return row.map(_formatarCelula); });
 
   return { ok: true, cabecalho: cabecalho, linhas: linhas, total: linhas.length, truncado: truncado };
+}
+
+/** Extrai só a data (dd/MM/aaaa) de um Date/serial/texto; '' quando vazio. */
+function _soData(v) {
+  if (v === '' || v == null) return '';
+  if (v instanceof Date) {
+    return isNaN(v.getTime()) ? '' : Utilities.formatDate(v, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  }
+  var s = String(v);
+  var m = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) return m[0];
+  var iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[3] + '/' + iso[2] + '/' + iso[1];
+  return s;
 }
 
 /** Formata valores de célula para exibição (datas em dd/MM/aaaa HH:mm:ss). */

@@ -297,18 +297,38 @@ function renderLista(itens) {
       '<td>' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
       '<td>' + (it.maquinas ? it.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
+      '<td><input type="date" class="data-input" data-idx="' + i + '" value="' + brParaISO(it.dataLimite) + '"></td>' +
+      '<td><input class="obs-input" data-idx="' + i + '" value="' + escAttr(it.obs || '') + '" placeholder="anotação…"></td>' +
     '</tr>';
   }).join('');
 
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="text-align:center">Excluir</th><th>Item</th><th>Descrição</th><th>Cliente</th>' +
-      '<th style="text-align:right">Saldo final</th>' +
-      '<th style="text-align:right">Consumo médio</th>' +
-      '<th>Tipo de fio</th><th>Máquinas</th>' +
-      '<th style="text-align:right">Total (kg)</th>' +
+      '<th style="text-align:center;width:5%;white-space:nowrap">Excluir</th>' +
+      '<th style="width:8%">Item</th>' +
+      '<th style="width:17%">Descrição</th>' +
+      '<th style="width:10%">Cliente</th>' +
+      '<th style="text-align:right;width:6%">Saldo final</th>' +
+      '<th style="text-align:right;width:7%">Consumo médio</th>' +
+      '<th style="width:11%">Tipo de fio</th>' +
+      '<th style="width:8%">Máquinas</th>' +
+      '<th style="text-align:right;width:5%">Total (kg)</th>' +
+      '<th style="width:9%">Data limite embarque</th>' +
+      '<th style="width:14%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
+
+  // Edições da análise ficam só na memória (persistem ao "Prosseguir").
+  Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
+    inp.addEventListener('change', function () {
+      estadoAnalise.itens[Number(inp.getAttribute('data-idx'))].dataLimite = isoParaBR(inp.value);
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.obs-input'), function (inp) {
+    inp.addEventListener('change', function () {
+      estadoAnalise.itens[Number(inp.getAttribute('data-idx'))].obs = inp.value;
+    });
+  });
   reaplicarDestaque();
 }
 
@@ -369,15 +389,17 @@ function renderRelacaoSalva(linhas) {
   if (!painel || !wrap) return;
   if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
-  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'CONSUMO_MEDIO', 'MAQUINAS', 'SUGERIDO'];
+  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'CONSUMO_MEDIO',
+              'MAQUINAS', 'SUGERIDO', 'DATA_LIMITE', 'OBS'];
   var rot = {
     ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', TIPO_FIO: 'Tipo de fio',
-    SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas', SUGERIDO: 'Total (kg)'
+    SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
+    SUGERIDO: 'Total (kg)', DATA_LIMITE: 'Data limite embarque', OBS: 'Observação'
   };
   var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {
-      var v = l[c];
+      var v = (c === 'DATA_LIMITE') ? soDataBR(l[c]) : l[c];
       return '<td>' + (v !== '' && v != null ? v : '—') + '</td>';
     }).join('') + '</tr>';
   }).join('');
@@ -407,6 +429,12 @@ function viewTingimento(alvo) {
     });
 }
 
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function renderTingimento(linhas) {
   var wrap = document.getElementById('tabela-ting');
   if (!linhas || !linhas.length) {
@@ -420,13 +448,57 @@ function renderTingimento(linhas) {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td><input type="date" class="data-input" data-linha="' + l.linha + '" value="' +
+        brParaISO(l.dataLimite) + '"></td>' +
+      '<td><input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) +
+        '" placeholder="anotação…"></td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th>Item</th><th>Descrição</th><th>Cliente</th><th>Máquinas</th>' +
-      '<th style="text-align:right">Total (kg)</th>' +
+      '<th style="width:10%">Item</th><th style="width:26%">Descrição</th>' +
+      '<th style="width:14%">Cliente</th><th style="width:12%">Máquinas</th>' +
+      '<th style="text-align:right;width:8%">Total (kg)</th>' +
+      '<th style="width:14%">Data limite embarque</th><th style="width:16%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
+
+  Array.prototype.forEach.call(wrap.querySelectorAll('.obs-input'), function (inp) {
+    inp.addEventListener('change', function () { salvarCampoTing(inp, 'OBS', inp.value); });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
+    inp.addEventListener('change', function () { salvarCampoTing(inp, 'DATA_LIMITE', isoParaBR(inp.value)); });
+  });
+}
+
+/** Extrai só a data (dd/MM/aaaa) de um valor que pode vir como ISO/Date/texto. */
+function soDataBR(v) {
+  var s = String(v == null ? '' : v);
+  var m = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) return m[0];
+  var iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[3] + '/' + iso[2] + '/' + iso[1];
+  return s;
+}
+
+/** dd/MM/aaaa → aaaa-MM-dd (para o input date); '' se não reconhecer. */
+function brParaISO(s) {
+  var m = String(s == null ? '' : s).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+}
+/** aaaa-MM-dd → dd/MM/aaaa (para gravar como na planilha); '' se vazio. */
+function isoParaBR(s) {
+  var m = String(s == null ? '' : s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
+}
+
+function salvarCampoTing(inp, campo, valor) {
+  inp.style.borderColor = '#CBD5E1';
+  chamar('salvarCampoTingimento', sessao.token, inp.getAttribute('data-linha'), campo, valor)
+    .then(function () { inp.style.borderColor = '#1F9D55'; })
+    .catch(function (err) {
+      inp.style.borderColor = '#D0342C';
+      tratarErro(err);
+    });
 }
 
 /* --------------------- view: Consulta de Estoque ------------------ */

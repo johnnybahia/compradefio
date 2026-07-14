@@ -32,6 +32,8 @@ var RELACAO_COMPRA_HEADERS = [
   'CONSUMO_MEDIO', // consumo médio mensal (saídas dos últimos 3 meses ÷ 3)
   'MAQUINAS',      // máquinas de tingimento escolhidas (ex.: "80 + 27")
   'SUGERIDO',      // total do tingimento em kg (soma das máquinas)
+  'DATA_LIMITE',   // data limite de embarque (PRIORIDADES DE FIO)
+  'OBS',           // observação digitada no painel de tingimento
   'EM_ABERTO',     // já solicitado e ainda não recebido
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
   'STATUS'         // URGENTE / NORMAL / etc.
@@ -69,6 +71,7 @@ function listarItensParaAnalise(token, params) {
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
   var tingimentoDe = _criarCalculadoraTingimento();
+  var dataLimiteDe = _criarLocalizadorDataLimite();
   var porItem = {};
 
   movimentos.forEach(function (mov) {
@@ -112,7 +115,8 @@ function listarItensParaAnalise(token, params) {
       tipoFio: t.tipoFio,
       alvo: t.alvo,
       maquinas: t.maquinas.join(' + '),
-      totalTingimento: t.total
+      totalTingimento: t.total,
+      dataLimite: dataLimiteDe(r.item)
     });
   });
   // Do menor saldo para o maior (mais críticos primeiro).
@@ -152,6 +156,8 @@ function gerarRelacaoDeCompra(token, params) {
       it.consumoMedio != null ? it.consumoMedio : '',
       it.maquinas || '',
       it.totalTingimento != null ? it.totalTingimento : '',
+      it.dataLimite || '',      // DATA_LIMITE
+      it.obs || '',             // OBS (pode já vir editada na análise)
       '',                       // EM_ABERTO (pedidos em aberto)
       '',                       // A_COMPRAR
       ''                        // STATUS
@@ -275,6 +281,40 @@ function _criarLocalizadorDescricao() {
       motivo: achouAssoc ? 'cadastrado, sem descrição na produção' : 'sem cadastro na ASSOCIAÇÃO'
     };
   };
+}
+
+/**
+ * Cria o localizador da DATA LIMITE DE EMBARQUE, reproduzindo a fórmula da
+ * coluna F de PEDIDO DE FIO: procura o código do item na coluna A da
+ * PRIORIDADES DE FIO (importada nas colunas K/L) e devolve a data (coluna B).
+ * Devolve uma função dataLimite(codigo) → string 'dd/MM/aaaa' ('' se não há).
+ */
+function _criarLocalizadorDataLimite() {
+  var mapa = {};
+  var sh = _aba(CONFIG.SHEETS.PEDIDO_FIO);
+  if (sh && sh.getLastRow() > 1) {
+    var vals = sh.getRange(1, 11, sh.getLastRow(), 2).getValues(); // colunas K, L
+    vals.forEach(function (row) {
+      var k = _norm(row[0]); // K = código (CORES)
+      var l = row[1];        // L = data limite
+      if (k && k !== 'cores' && l !== '' && l != null && !(k in mapa)) mapa[k] = l;
+    });
+  }
+  return function (codigo) {
+    var k = _norm(codigo);
+    return _formatarDataLimite(k in mapa ? mapa[k] : '');
+  };
+}
+
+/** Formata a data limite (Date ou serial) como dd/MM/aaaa; '' quando vazio. */
+function _formatarDataLimite(v) {
+  if (v === '' || v == null) return '';
+  var d = v;
+  if (typeof v === 'number') d = new Date(Math.round((v - 25569) * 86400000)); // serial do Sheets → Date
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  }
+  return String(v);
 }
 
 /** Normaliza texto para comparação (minúsculas, sem acento, sem espaços extras). */
