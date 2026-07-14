@@ -63,7 +63,7 @@ function _parseEmbarque(texto) {
     corpo = resto;
   }
 
-  var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,24}?)\s*\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]+\s*(\d+)\s*cx\s*[-–—_.]+\s*([\d.,]+)/gi;
+  var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,24}?)\s*\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
   var out = [], m;
   while ((m = RE.exec(corpo)) !== null) {
     var peso = parseFloat(String(m[4]).replace(',', '.'));
