@@ -21,7 +21,7 @@ function obterListaTingimento(token) {
       cliente: r.CLIENTE,
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
-      dataLimite: _formatarCelula(r.DATA_LIMITE),
+      dataLimite: _soData(r.DATA_LIMITE),
       obs: r.OBS == null ? '' : String(r.OBS)
     };
   });
@@ -80,6 +80,20 @@ function consultarHistoricoItem(token, termo) {
   var linhas = achadas.map(function (row) { return row.map(_formatarCelula); });
 
   return { ok: true, cabecalho: cabecalho, linhas: linhas, total: linhas.length, truncado: truncado };
+}
+
+/** Extrai só a data (dd/MM/aaaa) de um Date/serial/texto; '' quando vazio. */
+function _soData(v) {
+  if (v === '' || v == null) return '';
+  if (v instanceof Date) {
+    return isNaN(v.getTime()) ? '' : Utilities.formatDate(v, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  }
+  var s = String(v);
+  var m = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) return m[0];
+  var iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[3] + '/' + iso[2] + '/' + iso[1];
+  return s;
 }
 
 /** Formata valores de célula para exibição (datas em dd/MM/aaaa HH:mm:ss). */

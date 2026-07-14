@@ -157,7 +157,7 @@ function gerarRelacaoDeCompra(token, params) {
       it.maquinas || '',
       it.totalTingimento != null ? it.totalTingimento : '',
       it.dataLimite || '',      // DATA_LIMITE
-      '',                       // OBS (preenchida no painel de tingimento)
+      it.obs || '',             // OBS (pode já vir editada na análise)
       '',                       // EM_ABERTO (pedidos em aberto)
       '',                       // A_COMPRAR
       ''                        // STATUS
