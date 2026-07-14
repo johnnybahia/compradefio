@@ -29,6 +29,7 @@ var RELACAO_COMPRA_HEADERS = [
   'CLIENTE',       // cliente vinculado (produção, coluna N)
   'TIPO_FIO',      // tipo de fio (poliéster, brilhante, reciclado/pet...)
   'SALDO',         // saldo final (último lançamento do item)
+  'EM_VIAGEM',     // embarcado e ainda não chegado (aba EMBARQUES, sem "chegou")
   'CONSUMO_MEDIO', // consumo médio mensal (saídas dos últimos 3 meses ÷ 3)
   'MAQUINAS',      // máquinas de tingimento escolhidas (ex.: "80 + 27")
   'SUGERIDO',      // total do tingimento em kg (soma das máquinas)
@@ -68,6 +69,12 @@ function listarItensParaAnalise(token, params) {
   // da produção antes de montar a lista (para já saírem com descrição).
   var novosCadastrados = registrarItensNovos(token).adicionados;
 
+  // Concilia embarques: marca "CHEGOU" quando o item já foi lançado na aba
+  // ESTOQUE dentro do período (evita contar a mesma mercadoria duas vezes),
+  // e soma o que ainda está em viagem para cada item.
+  var chegadas = _atualizarChegadasEmbarque(inicio, fim);
+  var emViagemPorItem = _emViagemPorItem();
+
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
   var tingimentoDe = _criarCalculadoraTingimento();
@@ -104,13 +111,16 @@ function listarItensParaAnalise(token, params) {
     if (!r.noPeriodo) return;
     var d = descricaoDe(r.item);
     var media = Math.ceil(r.saidas3m / 3); // consumo médio arredondado para cima
-    var t = tingimentoDe(r.item, r.saldo, media);
+    var emViagem = emViagemPorItem[k] || 0;
+    var saldoAjustado = r.saldo + emViagem; // considera o que já está a caminho, para não pedir compra à toa
+    var t = tingimentoDe(r.item, saldoAjustado, media);
     itens.push({
       item: r.item,
       descricao: d.descricao,
       cliente: d.cliente,
       motivo: d.motivo,
       saldo: r.saldo,
+      emViagem: emViagem,
       consumoMedio: media,
       tipoFio: t.tipoFio,
       alvo: t.alvo,
@@ -119,14 +129,17 @@ function listarItensParaAnalise(token, params) {
       dataLimite: dataLimiteDe(r.item)
     });
   });
-  // Do menor saldo para o maior (mais críticos primeiro).
-  itens.sort(function (a, b) { return Number(a.saldo) - Number(b.saldo); });
+  // Do saldo (já somado ao que está em viagem) menor para o maior — mais críticos primeiro.
+  itens.sort(function (a, b) { return (Number(a.saldo) + Number(a.emViagem)) - (Number(b.saldo) + Number(b.emViagem)); });
 
   var msg = itens.length
     ? itens.length + ' item(ns) lançado(s) no período.'
     : 'Nenhum item teve lançamento no período informado.';
   if (novosCadastrados > 0) {
     msg += ' ' + novosCadastrados + ' item(ns) novo(s) cadastrado(s) automaticamente na ASSOCIAÇÃO.';
+  }
+  if (chegadas.marcados > 0) {
+    msg += ' ' + chegadas.marcados + ' embarque(s) confirmado(s) como chegado(s) no período (não contam mais como em viagem).';
   }
   return { ok: true, itens: itens, novosCadastrados: novosCadastrados, mensagem: msg };
 }
@@ -153,6 +166,7 @@ function gerarRelacaoDeCompra(token, params) {
       it.cliente || '',
       it.tipoFio || '',
       it.saldo != null ? it.saldo : '',
+      it.emViagem != null ? it.emViagem : '',
       it.consumoMedio != null ? it.consumoMedio : '',
       it.maquinas || '',
       it.totalTingimento != null ? it.totalTingimento : '',

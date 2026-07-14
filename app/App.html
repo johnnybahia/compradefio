@@ -179,9 +179,10 @@ function viewAnalise(alvo) {
       '<h2>Análise de Estoque para Compra</h2>' +
       '<p class="desc">Escolha o período. O sistema lista o <b>saldo final</b> de ' +
       'todos os itens que tiveram lançamento nesse período e o <b>consumo médio</b> ' +
-      '(saídas dos últimos 3 meses ÷ 3). Itens com saldo <b>igual ou abaixo</b> do ' +
-      'valor base (kg) ficam destacados. <b>Marque</b> os itens que quer comprar e ' +
-      'depois siga para a compra automática.</p>' +
+      '(saídas dos últimos 3 meses ÷ 3). O que já está <b>em viagem</b> (embarcado ' +
+      'e ainda não chegado) é somado ao saldo para não pedir compra à toa. Itens com ' +
+      'saldo <b>igual ou abaixo</b> do valor base (kg) ficam destacados. <b>Marque</b> ' +
+      'os itens que quer comprar e depois siga para a compra automática.</p>' +
       '<div class="linha-form">' +
         '<div class="campo">' +
           '<label for="data-inicio">Data inicial</label>' +
@@ -232,6 +233,30 @@ function viewAnalise(alvo) {
   carregarUltimaRelacao();
 }
 
+/** Modal simples de confirmação (evita depender de confirm()/alert() nativos, que o
+ * sandbox do HtmlService pode bloquear). callback(true) se clicar no botão em
+ * destaque (rotuloDestaque), callback(false) se clicar no outro (rotuloSecundario). */
+function confirmarModal(titulo, texto, rotuloDestaque, rotuloSecundario, callback) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;' +
+      'padding:26px 26px 22px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
+      '<h3 style="margin:0 0 10px;color:#0B4576;font-size:17px">' + titulo + '</h3>' +
+      '<p style="margin:0 0 22px;color:#475569;font-size:14px;line-height:1.5">' + texto + '</p>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+        '<button id="modal-btn-secundario" style="padding:10px 16px;border:1px solid #D8E0E8;' +
+          'border-radius:8px;background:#fff;cursor:pointer;font-size:14px">' + rotuloSecundario + '</button>' +
+        '<button id="modal-btn-destaque" style="padding:10px 18px;border:none;border-radius:8px;' +
+          'background:#0F5FA0;color:#fff;cursor:pointer;font-size:14px;font-weight:600">' + rotuloDestaque + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.querySelector('#modal-btn-destaque').onclick = function () { document.body.removeChild(overlay); callback(true); };
+  overlay.querySelector('#modal-btn-secundario').onclick = function () { document.body.removeChild(overlay); callback(false); };
+}
+
 function analisarEstoque() {
   var btn = document.getElementById('btn-analisar');
   var dataInicio = document.getElementById('data-inicio').value;
@@ -243,6 +268,24 @@ function analisarEstoque() {
   if (dataInicio > dataFim) {
     msg.innerHTML = '<div class="aviso erro">A data inicial não pode ser maior que a final.</div>'; return;
   }
+  confirmarModal(
+    'Relatório de embarque pendente?',
+    'Você tem algum relatório de embarque (PDF) para lançar antes de continuar? ' +
+    'Se tiver, importe primeiro em <b>"Importar Embarque"</b> e volte aqui depois. ' +
+    'Se não, a análise segue normalmente — o sistema já confere sozinho quais ' +
+    'embarques chegaram.',
+    'Não tenho, pode analisar', 'Sim, tenho',
+    function (semPendencia) {
+      if (!semPendencia) {
+        msg.innerHTML = '<div class="aviso">Importe o relatório em "Importar Embarque" e volte aqui depois para analisar.</div>';
+        return;
+      }
+      prosseguirAnalisarEstoque(dataInicio, dataFim, btn, msg);
+    }
+  );
+}
+
+function prosseguirAnalisarEstoque(dataInicio, dataFim, btn, msg) {
   btn.disabled = true;
   msg.innerHTML = '<div class="aviso"><span class="carregando">Lendo o estoque…</span></div>';
   document.getElementById('painel-lista').style.display = 'none';
@@ -294,6 +337,7 @@ function renderLista(itens) {
       '<td>' + desc + '</td>' +
       '<td>' + (it.cliente ? it.cliente : '—') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
+      '<td style="text-align:right">' + (it.emViagem ? num(it.emViagem) : '—') + '</td>' +
       '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
       '<td>' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
       '<td>' + (it.maquinas ? it.maquinas : '—') + '</td>' +
@@ -307,15 +351,16 @@ function renderLista(itens) {
     '<table class="dados"><thead><tr>' +
       '<th style="text-align:center;width:6%;white-space:nowrap">Comprar</th>' +
       '<th style="width:8%">Item</th>' +
-      '<th style="width:17%">Descrição</th>' +
-      '<th style="width:10%">Cliente</th>' +
+      '<th style="width:14%">Descrição</th>' +
+      '<th style="width:9%">Cliente</th>' +
       '<th style="text-align:right;width:6%">Saldo final</th>' +
+      '<th style="text-align:right;width:6%">Em viagem</th>' +
       '<th style="text-align:right;width:7%">Consumo médio</th>' +
       '<th style="width:11%">Tipo de fio</th>' +
       '<th style="width:8%">Máquinas</th>' +
       '<th style="text-align:right;width:5%">Total (kg)</th>' +
       '<th style="width:9%">Data limite embarque</th>' +
-      '<th style="width:13%">Observação</th>' +
+      '<th style="width:10%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
 
@@ -340,7 +385,7 @@ function reaplicarDestaque() {
   var linhas = document.querySelectorAll('#tabela-lista tbody tr');
   Array.prototype.forEach.call(linhas, function (tr) {
     var it = estadoAnalise.itens[Number(tr.getAttribute('data-idx'))];
-    var saldo = it ? Number(it.saldo) : NaN;
+    var saldo = it ? Number(it.saldo) + Number(it.emViagem || 0) : NaN;
     if (!isNaN(base) && !isNaN(saldo) && saldo <= base) {
       tr.classList.add('destaque');
     } else {
@@ -390,14 +435,14 @@ function renderRelacaoSalva(linhas) {
   if (!painel || !wrap) return;
   if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
-  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'CONSUMO_MEDIO',
+  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'EM_VIAGEM', 'CONSUMO_MEDIO',
               'MAQUINAS', 'SUGERIDO', 'DATA_LIMITE', 'OBS'];
   var rot = {
     ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', TIPO_FIO: 'Tipo de fio',
-    SALDO: 'Saldo final', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
+    SALDO: 'Saldo final', EM_VIAGEM: 'Em viagem', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
     SUGERIDO: 'Total (kg)', DATA_LIMITE: 'Data limite embarque', OBS: 'Observação'
   };
-  var numericas = { SALDO: 1, CONSUMO_MEDIO: 1, SUGERIDO: 1 };
+  var numericas = { SALDO: 1, EM_VIAGEM: 1, CONSUMO_MEDIO: 1, SUGERIDO: 1 };
   var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {

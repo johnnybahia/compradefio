@@ -233,3 +233,116 @@ function _parseDataBR(s) {
   if (!m) return null;
   return new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
 }
+
+/* -------------------- conciliação: embarque já chegou? ------------------- */
+/**
+ * Um item "em viagem" (embarcado mas ainda não chegado) continua contando
+ * como parte do estoque para a análise de compra — só não deve ser somado
+ * de novo depois que a mercadoria já foi lançada na aba ESTOQUE (senão o
+ * saldo consideraria a mesma entrada duas vezes). Por isso, antes de gerar
+ * a análise, o sistema confere se algum embarque pendente (coluna SITUAÇÃO
+ * sem "chegou") já foi recebido: procura, na aba ESTOQUE, um lançamento no
+ * mesmo período cuja coluna NF contenha o número do embarque (coluna
+ * EMBARQUE) e cujo item bata — se achar, marca "CHEGOU" na aba EMBARQUES
+ * (ela deixa de ser considerada em viagem a partir daí).
+ */
+
+/** Normaliza um número (célula) para comparação de texto, sem casas decimais/zeros à esquerda. */
+function _normNumero(v) {
+  if (v === '' || v == null) return '';
+  var s = String(v).trim();
+  if (!s) return '';
+  var n = parseFloat(s.replace(',', '.'));
+  return (!isNaN(n) && /^-?\d+([.,]\d+)?$/.test(s)) ? String(Math.round(n)) : s;
+}
+
+/**
+ * Confere, dentro do período informado, quais embarques pendentes já foram
+ * lançados na aba ESTOQUE (NF contém o nº do embarque + item confere) e
+ * marca "CHEGOU" na aba EMBARQUES. Devolve { marcados }.
+ */
+function _atualizarChegadasEmbarque(inicio, fim) {
+  var shEmb = _aba(CONFIG.SHEETS.EMBARQUES);
+  if (!shEmb) return { marcados: 0 };
+  var lastEmb = shEmb.getLastRow();
+  if (lastEmb < 2) return { marcados: 0 };
+
+  var valsEmb = shEmb.getRange(1, 1, lastEmb, shEmb.getLastColumn()).getValues();
+  var headerEmb = valsEmb.shift().map(_norm);
+  var iItemEmb = headerEmb.indexOf('cores'); if (iItemEmb < 0) iItemEmb = 0;
+  var iEmbarque = headerEmb.indexOf('embarque'); if (iEmbarque < 0) iEmbarque = 2;
+  var iSituacao = headerEmb.indexOf('situacao'); if (iSituacao < 0) iSituacao = 4;
+
+  // Embarques ainda não marcados como chegados, agrupados pelo nº do embarque.
+  var pendentes = {};
+  valsEmb.forEach(function (row, i) {
+    if (_norm(row[iSituacao]).indexOf('chegou') !== -1) return;
+    var numEmb = _normNumero(row[iEmbarque]);
+    if (!numEmb) return;
+    if (!pendentes[numEmb]) pendentes[numEmb] = [];
+    pendentes[numEmb].push({ linha: i + 2, itemNorm: _norm(row[iItemEmb]) });
+  });
+  var numeros = Object.keys(pendentes);
+  if (!numeros.length) return { marcados: 0 };
+
+  var shEst = _aba(CONFIG.SHEETS.ESTOQUE);
+  if (!shEst) return { marcados: 0 };
+  var lastEst = shEst.getLastRow();
+  if (lastEst < 2) return { marcados: 0 };
+  var valsEst = shEst.getRange(1, 1, lastEst, shEst.getLastColumn()).getValues();
+  var headerEst = valsEst.shift().map(_norm);
+  var iItemEst = headerEst.indexOf('item');
+  var iDataEst = headerEst.indexOf('data');
+  var iNfEst = headerEst.indexOf('nf');
+  if (iItemEst < 0 || iDataEst < 0 || iNfEst < 0) return { marcados: 0 };
+
+  var linhasParaMarcar = {};
+  valsEst.forEach(function (row) {
+    var data = _parseData(row[iDataEst]);
+    if (!data || data.getTime() < inicio.getTime() || data.getTime() > fim.getTime()) return;
+    var nf = _normNumero(row[iNfEst]);
+    if (!nf) return;
+    var itemNorm = _norm(row[iItemEst]);
+    numeros.forEach(function (numEmb) {
+      if (nf.indexOf(numEmb) === -1) return; // NF precisa CONTER o nº do embarque
+      pendentes[numEmb].forEach(function (p) {
+        if (p.itemNorm === itemNorm) linhasParaMarcar[p.linha] = true;
+      });
+    });
+  });
+
+  var linhas = Object.keys(linhasParaMarcar);
+  linhas.forEach(function (linha) {
+    shEmb.getRange(parseInt(linha, 10), iSituacao + 1).setValue('CHEGOU');
+  });
+  return { marcados: linhas.length };
+}
+
+/**
+ * Soma, por item (normalizado), a quantidade ainda "em viagem" na aba
+ * EMBARQUES — isto é, embarcada mas cuja coluna SITUAÇÃO ainda não tem
+ * "chegou". Deve ser chamada depois de _atualizarChegadasEmbarque, para já
+ * refletir as chegadas confirmadas no período.
+ */
+function _emViagemPorItem() {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES);
+  var mapa = {};
+  if (!sh) return mapa;
+  var last = sh.getLastRow();
+  if (last < 2) return mapa;
+
+  var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
+  var header = vals.shift().map(_norm);
+  var iItem = header.indexOf('cores'); if (iItem < 0) iItem = 0;
+  var iPeso = header.indexOf('peso'); if (iPeso < 0) iPeso = 1;
+  var iSituacao = header.indexOf('situacao'); if (iSituacao < 0) iSituacao = 4;
+
+  vals.forEach(function (row) {
+    var item = row[iItem];
+    if (item === '' || item == null) return;
+    if (_norm(row[iSituacao]).indexOf('chegou') !== -1) return; // já chegou: não conta mais
+    var chave = _norm(item);
+    mapa[chave] = (mapa[chave] || 0) + (parseFloat(row[iPeso]) || 0);
+  });
+  return mapa;
+}
