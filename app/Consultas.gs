@@ -28,6 +28,73 @@ function obterListaTingimento(token) {
   return { ok: true, linhas: linhas };
 }
 
+/* ----------------------- E-mail / impressão ---------------------- */
+
+/** Devolve os e-mails de destino salvos (string, separados por ;). */
+function obterDestinatarios(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  return { ok: true, emails: _destinatariosCompra() };
+}
+
+/** Salva os e-mails de destino (separados por ; ou ,). */
+function salvarDestinatarios(token, emails) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  PropertiesService.getScriptProperties()
+    .setProperty('EMAILS_COMPRA', String(emails == null ? '' : emails).trim());
+  return { ok: true };
+}
+
+function _destinatariosCompra() {
+  return PropertiesService.getScriptProperties().getProperty('EMAILS_COMPRA') || '';
+}
+
+/**
+ * Envia a relação de compra (tingimento) por e-mail para os destinatários
+ * salvos. Retorna { ok, destinatarios } ou lança erro claro.
+ */
+function enviarRelatorioCompra(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  var lista = _destinatariosCompra().split(/[;,]/)
+    .map(function (e) { return e.trim(); })
+    .filter(function (e) { return e && e.indexOf('@') !== -1; });
+  if (!lista.length) {
+    throw new Error('Informe pelo menos um e-mail de destino (separados por ;).');
+  }
+  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
+  if (!regs.length) {
+    throw new Error('Não há relação de compra para enviar. Gere a compra primeiro.');
+  }
+  var assunto = 'Relação de compra / tingimento - ' +
+    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  MailApp.sendEmail({ to: lista.join(','), subject: assunto, htmlBody: _relatorioCompraHTML(regs) });
+  return { ok: true, destinatarios: lista.length };
+}
+
+/** Monta o HTML do relatório de compra (usado no e-mail). */
+function _relatorioCompraHTML(regs) {
+  var cols = [
+    ['ITEM', 'Item'], ['DESCRICAO', 'Descrição'], ['CLIENTE', 'Cliente'],
+    ['MAQUINAS', 'Máquinas'], ['SUGERIDO', 'Total (kg)'],
+    ['DATA_LIMITE', 'Data limite'], ['OBS', 'Observação']
+  ];
+  var th = cols.map(function (c) {
+    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
+      'color:#fff;text-align:left;font-size:13px">' + c[1] + '</th>';
+  }).join('');
+  var rows = regs.map(function (r) {
+    return '<tr>' + cols.map(function (c) {
+      var v = (c[0] === 'DATA_LIMITE') ? _soData(r[c[0]]) : r[c[0]];
+      if (v === '' || v == null) v = '';
+      return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
+    '<h2 style="color:#0B4576">Relação de compra / tingimento</h2>' +
+    '<table style="border-collapse:collapse">' +
+    '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+}
+
 /** Campos editáveis no painel de tingimento. */
 var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
 
@@ -61,6 +128,7 @@ function consultarHistoricoItem(token, termo) {
   var normHeader = header.map(function (h) { return _norm(h); });
   var iItem = normHeader.indexOf('item');
   if (iItem < 0) iItem = 1; // fallback: coluna B
+  var iData = normHeader.indexOf('data');
 
   var alvo = _norm(termo);
   var achadas = [];
@@ -69,9 +137,20 @@ function consultarHistoricoItem(token, termo) {
     if (it && it.indexOf(alvo) !== -1) achadas.push(vals[r]);
   }
 
+  // Ordena da data mais recente para a mais antiga.
+  if (iData >= 0) {
+    achadas.sort(function (a, b) {
+      var da = _parseData(a[iData]);
+      var db = _parseData(b[iData]);
+      return (db ? db.getTime() : -Infinity) - (da ? da.getTime() : -Infinity);
+    });
+  } else {
+    achadas.reverse(); // sem coluna Data: assume ordem cronológica na planilha
+  }
+
   var LIMITE = 1000;
   var truncado = achadas.length > LIMITE;
-  if (truncado) achadas = achadas.slice(achadas.length - LIMITE); // as mais recentes
+  if (truncado) achadas = achadas.slice(0, LIMITE); // já ordenado: as mais recentes
 
   var cabecalho = header.map(function (h, i) {
     var t = (h == null ? '' : String(h)).trim();
@@ -80,6 +159,38 @@ function consultarHistoricoItem(token, termo) {
   var linhas = achadas.map(function (row) { return row.map(_formatarCelula); });
 
   return { ok: true, cabecalho: cabecalho, linhas: linhas, total: linhas.length, truncado: truncado };
+}
+
+/**
+ * Lista os itens distintos da aba ESTOQUE (para o autocomplete da consulta).
+ * Usa cache de 30 min para não reler a aba a cada abertura da tela.
+ */
+function listarItensEstoque(token) {
+  exigirSessao(token);
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('itensEstoque');
+  if (cached) return { ok: true, itens: JSON.parse(cached) };
+
+  var sh = _aba(CONFIG.SHEETS.ESTOQUE);
+  if (!sh) return { ok: true, itens: [] };
+  var last = sh.getLastRow();
+  if (last < 2) return { ok: true, itens: [] };
+
+  var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
+  var normHeader = vals.shift().map(function (h) { return _norm(h); });
+  var iItem = normHeader.indexOf('item');
+  if (iItem < 0) iItem = 1;
+
+  var visto = {};
+  vals.forEach(function (r) {
+    var it = r[iItem];
+    if (it === '' || it == null) return;
+    var s = String(it).trim();
+    if (s) visto[s] = true;
+  });
+  var itens = Object.keys(visto).sort(function (a, b) { return a.localeCompare(b); });
+  try { cache.put('itensEstoque', JSON.stringify(itens), 1800); } catch (e) {}
+  return { ok: true, itens: itens };
 }
 
 /** Extrai só a data (dd/MM/aaaa) de um Date/serial/texto; '' quando vazio. */
