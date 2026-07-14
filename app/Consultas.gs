@@ -28,6 +28,73 @@ function obterListaTingimento(token) {
   return { ok: true, linhas: linhas };
 }
 
+/* ----------------------- E-mail / impressão ---------------------- */
+
+/** Devolve os e-mails de destino salvos (string, separados por ;). */
+function obterDestinatarios(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  return { ok: true, emails: _destinatariosCompra() };
+}
+
+/** Salva os e-mails de destino (separados por ; ou ,). */
+function salvarDestinatarios(token, emails) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  PropertiesService.getScriptProperties()
+    .setProperty('EMAILS_COMPRA', String(emails == null ? '' : emails).trim());
+  return { ok: true };
+}
+
+function _destinatariosCompra() {
+  return PropertiesService.getScriptProperties().getProperty('EMAILS_COMPRA') || '';
+}
+
+/**
+ * Envia a relação de compra (tingimento) por e-mail para os destinatários
+ * salvos. Retorna { ok, destinatarios } ou lança erro claro.
+ */
+function enviarRelatorioCompra(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  var lista = _destinatariosCompra().split(/[;,]/)
+    .map(function (e) { return e.trim(); })
+    .filter(function (e) { return e && e.indexOf('@') !== -1; });
+  if (!lista.length) {
+    throw new Error('Informe pelo menos um e-mail de destino (separados por ;).');
+  }
+  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
+  if (!regs.length) {
+    throw new Error('Não há relação de compra para enviar. Gere a compra primeiro.');
+  }
+  var assunto = 'Relação de compra / tingimento - ' +
+    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  MailApp.sendEmail({ to: lista.join(','), subject: assunto, htmlBody: _relatorioCompraHTML(regs) });
+  return { ok: true, destinatarios: lista.length };
+}
+
+/** Monta o HTML do relatório de compra (usado no e-mail). */
+function _relatorioCompraHTML(regs) {
+  var cols = [
+    ['ITEM', 'Item'], ['DESCRICAO', 'Descrição'], ['CLIENTE', 'Cliente'],
+    ['MAQUINAS', 'Máquinas'], ['SUGERIDO', 'Total (kg)'],
+    ['DATA_LIMITE', 'Data limite'], ['OBS', 'Observação']
+  ];
+  var th = cols.map(function (c) {
+    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
+      'color:#fff;text-align:left;font-size:13px">' + c[1] + '</th>';
+  }).join('');
+  var rows = regs.map(function (r) {
+    return '<tr>' + cols.map(function (c) {
+      var v = (c[0] === 'DATA_LIMITE') ? _soData(r[c[0]]) : r[c[0]];
+      if (v === '' || v == null) v = '';
+      return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
+    '<h2 style="color:#0B4576">Relação de compra / tingimento</h2>' +
+    '<table style="border-collapse:collapse">' +
+    '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+}
+
 /** Campos editáveis no painel de tingimento. */
 var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
 

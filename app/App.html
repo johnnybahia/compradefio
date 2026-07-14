@@ -413,11 +413,30 @@ function renderRelacaoSalva(linhas) {
 function viewTingimento(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
-      '<h2>Tingimento</h2>' +
-      '<p class="desc">Itens enviados para tingir (gerados na Análise de Compra).</p>' +
+      '<h2>Relação de compra / Tingimento</h2>' +
+      '<p class="desc no-print">Itens enviados para tingir (gerados na Análise de Compra).</p>' +
+      '<div class="linha-form no-print">' +
+        '<div class="campo" style="flex:1;min-width:260px">' +
+          '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
+          '<input type="text" id="emails-compra" placeholder="fulano@empresa.com; ciclano@empresa.com">' +
+        '</div>' +
+        '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>' +
+        '<button class="btn-principal" id="btn-imprimir">Imprimir</button>' +
+        '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>' +
+      '</div>' +
       '<div id="ting-msg"></div>' +
+      '<h3 class="so-print">Relação de compra / tingimento</h3>' +
       '<div class="tabela-wrap" id="tabela-ting"></div>' +
     '</section>';
+
+  document.getElementById('btn-imprimir').onclick = function () { window.print(); };
+  document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
+  document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
+
+  chamar('obterDestinatarios', sessao.token)
+    .then(function (r) { document.getElementById('emails-compra').value = r.emails || ''; })
+    .catch(function () {});
+
   var msg = document.getElementById('ting-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
   chamar('obterListaTingimento', sessao.token)
@@ -426,6 +445,36 @@ function viewTingimento(alvo) {
       renderTingimento(r.linhas);
     })
     .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function salvarEmailsCompra() {
+  var msg = document.getElementById('ting-msg');
+  var emails = document.getElementById('emails-compra').value;
+  chamar('salvarDestinatarios', sessao.token, emails)
+    .then(function () { msg.innerHTML = '<div class="aviso ok">E-mails salvos.</div>'; })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function enviarEmailCompra() {
+  var btn = document.getElementById('btn-enviar-email');
+  var msg = document.getElementById('ting-msg');
+  var emails = document.getElementById('emails-compra').value;
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Enviando…</span></div>';
+  chamar('salvarDestinatarios', sessao.token, emails)
+    .then(function () { return chamar('enviarRelatorioCompra', sessao.token); })
+    .then(function (r) {
+      btn.disabled = false;
+      msg.innerHTML = '<div class="aviso ok">Relação enviada para ' + r.destinatarios + ' destinatário(s).</div>';
+    })
+    .catch(function (err) {
+      btn.disabled = false;
       var m = tratarErro(err);
       if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
