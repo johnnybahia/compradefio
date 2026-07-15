@@ -210,7 +210,10 @@ function viewAnalise(alvo) {
     '<section class="painel" id="painel-lista" style="display:none">' +
       '<h2>Itens do período</h2>' +
       '<p class="desc">Marque a caixa <b>Comprar</b> nos itens que devem ' +
-      'entrar na compra.</p>' +
+      'entrar na compra. Use o botão ↻ ao lado da <b>data limite de embarque</b> ' +
+      'para reconsultar só aquele item, caso a data tenha sido alterada na ' +
+      'outra planilha depois que esta lista foi carregada.</p>' +
+      '<div id="lista-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-lista"></div>' +
       '<div style="margin-top:16px">' +
         '<button class="btn-principal" id="btn-prosseguir" style="display:none">' +
@@ -388,7 +391,11 @@ function renderLista(itens) {
       '<td>' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
       '<td>' + (it.maquinas ? it.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
-      '<td><input type="date" class="data-input" data-idx="' + i + '" value="' + brParaISO(it.dataLimite) + '"></td>' +
+      '<td><div class="data-limite-cel">' +
+        '<input type="date" class="data-input" data-idx="' + i + '" value="' + brParaISO(it.dataLimite) + '">' +
+        '<button type="button" class="btn-atualizar-data no-print" data-idx="' + i + '" ' +
+        'title="Reconsultar a data limite deste item">↻</button>' +
+      '</div></td>' +
       '<td><input class="obs-input" data-idx="' + i + '" value="' + escAttr(it.obs || '') + '" placeholder="anotação…"></td>' +
     '</tr>';
   }).join('');
@@ -406,8 +413,8 @@ function renderLista(itens) {
       '<th style="width:10%">Tipo de fio</th>' +
       '<th style="width:7%">Máquinas</th>' +
       '<th style="text-align:right;width:5%">Total (kg)</th>' +
-      '<th style="width:8%">Data limite embarque</th>' +
-      '<th style="width:9%">Observação</th>' +
+      '<th style="width:10%">Data limite embarque</th>' +
+      '<th style="width:7%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
 
@@ -422,7 +429,37 @@ function renderLista(itens) {
       estadoAnalise.itens[Number(inp.getAttribute('data-idx'))].obs = inp.value;
     });
   });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-atualizar-data'), function (btn) {
+    btn.addEventListener('click', function () {
+      atualizarDataLimiteLinha(Number(btn.getAttribute('data-idx')), btn);
+    });
+  });
   reaplicarDestaque();
+}
+
+/** Reconsulta, na hora, a data limite de embarque de UM item (vem de outra
+ * planilha e pode ter mudado enquanto esta lista já estava na tela). */
+function atualizarDataLimiteLinha(idx, btn) {
+  var it = estadoAnalise.itens[idx];
+  if (!it || !it.item) return;
+  var msg = document.getElementById('lista-msg');
+  btn.disabled = true;
+  btn.textContent = '…';
+  chamar('consultarDataLimiteItem', sessao.token, it.item)
+    .then(function (r) {
+      btn.disabled = false;
+      btn.textContent = '↻';
+      it.dataLimite = r.dataLimite || '';
+      var inp = document.querySelector('.data-input[data-idx="' + idx + '"]');
+      if (inp) inp.value = brParaISO(it.dataLimite);
+      if (msg) msg.innerHTML = '';
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = '↻';
+      var m = tratarErro(err);
+      if (m && msg) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
 }
 
 /** Realça as linhas cujo saldo final é ≤ ao valor base (kg), sem recriar a tabela. */

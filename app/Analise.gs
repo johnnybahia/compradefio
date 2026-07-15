@@ -175,6 +175,22 @@ function listarItensParaAnalise(token, params) {
 }
 
 /**
+ * Reconsulta a DATA LIMITE DE EMBARQUE de UM item, direto da aba PEDIDO DE FIO
+ * — sem rodar a análise inteira de novo. Essa data vem de outra planilha
+ * (PRIORIDADES DE FIO) e pode ser alterada por alguém enquanto a lista já
+ * analisada continua aberta na tela; o botão de atualizar (na Análise de
+ * Compra) chama esta função para trazer só o valor mais recente daquele item.
+ * @return {Object} { ok, dataLimite: 'dd/MM/aaaa' | '' }
+ */
+function consultarDataLimiteItem(token, item) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  item = String(item == null ? '' : item).trim();
+  if (!item) throw new Error('Informe o item.');
+  var dataLimiteDe = _criarLocalizadorDataLimite();
+  return { ok: true, dataLimite: dataLimiteDe(item) };
+}
+
+/**
  * ETAPA 2 — Recebe os itens que o master manteve (após excluir os indesejados)
  * e prepara a relação de compra. A conversão pela tabela de tingimento e o
  * desconto de pedidos em aberto serão implementados nas próximas etapas.
