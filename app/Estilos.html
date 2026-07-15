@@ -222,8 +222,16 @@
     }
     .obs-input::placeholder { color: transparent !important; }
     input[type="date"]::-webkit-calendar-picker-indicator { display: none !important; }
+    /* .tabela-wrap rola por causa da tela; o cabeçalho da tabela fica "sticky"
+       (fixo) enquanto rola. Nenhum dos dois se dá bem com o "Salvar como PDF"
+       do navegador — o cabeçalho pode sair fixado numa posição errada,
+       bagunçando a ordem do conteúdo na folha. Desliga os dois só na impressão. */
+    .tabela-wrap { overflow: visible !important; }
     table.dados { font-size: 11px; }
-    table.dados thead th { background: #eef2f6 !important; color: #0B4576 !important; }
+    table.dados thead th {
+      background: #eef2f6 !important; color: #0B4576 !important;
+      position: static !important; top: auto !important;
+    }
     /* O destaque de saldo crítico é só para conferência na tela antes de
        imprimir/enviar — não deve sair na folha impressa. */
     #tabela-ting tr.destaque { background: none !important; }
