@@ -202,7 +202,10 @@
 
   /* Impressão: mostra só o relatório (tabela), sem topo/menu/botões. */
   .so-print { display: none; }
+  .cabecalho-relatorio h1 { margin: 0 0 6px; font-size: 20px; letter-spacing: .02em; }
+  .cabecalho-relatorio p { margin: 0 0 16px; font-size: 13px; color: #334155; }
   @media print {
+    @page { margin: 16mm 14mm; }
     .topo, .usuario-box, #menu, .no-print, #ting-msg { display: none !important; }
     .so-print { display: block; color: #0B4576; margin: 0 0 10px; }
     body { background: #fff; }
