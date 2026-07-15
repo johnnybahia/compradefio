@@ -219,13 +219,21 @@ function viewAnalise(alvo) {
       '<div id="prosseguir-msg"></div>' +
     '</section>' +
     '<section class="painel" id="painel-relacao" style="display:none">' +
-      '<h2>Relação de compra (última gerada)</h2>' +
-      '<p class="desc">Seleção salva no banco. Gere de novo para atualizar.</p>' +
+      '<h2>Relação de compra (histórico acumulado)</h2>' +
+      '<p class="desc">Cada compra gerada se <b>acrescenta</b> aqui — o tingimento nem sempre ' +
+      'consegue fazer tudo de uma vez, então os pedidos vão se acumulando até serem ' +
+      'processados. Use "Excluir relatório" só quando quiser mesmo apagar tudo e recomeçar do zero.</p>' +
       '<div class="tabela-wrap" id="tabela-relacao"></div>' +
+      '<div style="margin-top:16px">' +
+        '<button class="btn-sair" id="btn-excluir-relacao" style="color:var(--erro);border-color:#F2C6C3">' +
+        'Excluir relatório e começar do zero</button>' +
+      '</div>' +
+      '<div id="excluir-relacao-msg"></div>' +
     '</section>';
 
   document.getElementById('btn-analisar').onclick = analisarEstoque;
   document.getElementById('btn-prosseguir').onclick = prosseguirCompra;
+  document.getElementById('btn-excluir-relacao').onclick = excluirRelacao;
   document.getElementById('kg-base').addEventListener('input', function () {
     estadoAnalise.kgBase = document.getElementById('kg-base').value;
     reaplicarDestaque();
@@ -475,23 +483,68 @@ function renderRelacaoSalva(linhas) {
   if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
   var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'EM_VIAGEM', 'CONSUMO_MEDIO',
-              'MAQUINAS', 'SUGERIDO', 'DATA_LIMITE', 'OBS'];
+              'MAQUINAS', 'SUGERIDO', 'DATA_LIMITE', 'OBS', 'STATUS', 'GERADO_EM'];
   var rot = {
     ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', TIPO_FIO: 'Tipo de fio',
     SALDO: 'Saldo final', EM_VIAGEM: 'Em viagem', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
-    SUGERIDO: 'Total (kg)', DATA_LIMITE: 'Data limite embarque', OBS: 'Observação'
+    SUGERIDO: 'Total (kg)', DATA_LIMITE: 'Data limite embarque', OBS: 'Observação',
+    STATUS: 'Status', GERADO_EM: 'Gerado em'
   };
   var numericas = { SALDO: 1, EM_VIAGEM: 1, CONSUMO_MEDIO: 1, SUGERIDO: 1 };
   var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {
       if (numericas[c]) return '<td>' + num(l[c]) + '</td>';
-      var v = (c === 'DATA_LIMITE') ? soDataBR(l[c]) : l[c];
+      var v = l[c];
+      if (c === 'DATA_LIMITE') v = soDataBR(v);
+      else if (c === 'GERADO_EM') v = soDataHoraBR(v);
       return '<td>' + (v !== '' && v != null ? v : '—') + '</td>';
     }).join('') + '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/** aaaa-MM-ddTHH:mm... (ISO) → dd/MM/aaaa HH:mm; devolve o valor original se não reconhecer. */
+function soDataHoraBR(v) {
+  var s = String(v == null ? '' : v);
+  if (!s) return '';
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  var dd = String(d.getDate()).padStart(2, '0');
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var hh = String(d.getHours()).padStart(2, '0');
+  var mi = String(d.getMinutes()).padStart(2, '0');
+  return dd + '/' + mm + '/' + d.getFullYear() + ' ' + hh + ':' + mi;
+}
+
+/** Apaga TODA a relação de compra acumulada — ação explícita, com confirmação. */
+function excluirRelacao() {
+  var msg = document.getElementById('excluir-relacao-msg');
+  confirmarModal(
+    'Excluir todo o relatório?',
+    'Isso apaga <b>todo o histórico</b> da relação de compra/tingimento — inclusive itens ainda ' +
+    'em aberto que o tingimento não processou. Use só quando quiser mesmo recomeçar do zero. ' +
+    'Esta ação não pode ser desfeita.',
+    'Excluir tudo', 'Cancelar',
+    function (confirmou) {
+      if (!confirmou) return;
+      var btn = document.getElementById('btn-excluir-relacao');
+      btn.disabled = true;
+      msg.innerHTML = '<div class="aviso"><span class="carregando">Excluindo…</span></div>';
+      chamar('excluirRelacaoDeCompra', sessao.token)
+        .then(function (r) {
+          btn.disabled = false;
+          msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
+          carregarUltimaRelacao();
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          var m = tratarErro(err);
+          if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+        });
+    }
+  );
 }
 
 /* ------------------------- view: Tingimento ----------------------- */

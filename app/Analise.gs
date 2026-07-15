@@ -22,7 +22,18 @@
  *   7. Grava em RELACAO_COMPRA e devolve para a tela.
  */
 
-/** Colunas da relação de compra (contrato com a interface e o banco). */
+/**
+ * Colunas da relação de compra (contrato com a interface e o banco).
+ *
+ * IMPORTANTE: a relação é um HISTÓRICO que ACUMULA — cada vez que o master
+ * gera uma compra, os itens são ACRESCENTADOS (não substituem os
+ * anteriores). É a partir dela que o tingimento vai trabalhando aos poucos
+ * (nem sempre dá conta de tudo de uma vez) e é dali que, no futuro, será
+ * dada baixa no fio cru. Por isso cada item carrega o STATUS (ABERTO até
+ * ser processado) e a data/hora em que aquele pedido foi gerado. Zerar o
+ * histórico é uma ação explícita do master (excluirRelacaoDeCompra), não
+ * algo que acontece sozinho a cada nova análise.
+ */
 var RELACAO_COMPRA_HEADERS = [
   'ITEM',          // código do produto/cor
   'DESCRICAO',     // referência que identifica o item para o usuário
@@ -37,7 +48,8 @@ var RELACAO_COMPRA_HEADERS = [
   'OBS',           // observação digitada no painel de tingimento
   'EM_ABERTO',     // já solicitado e ainda não recebido
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
-  'STATUS'         // URGENTE / NORMAL / etc.
+  'STATUS',        // ABERTO (aguardando tingimento) / FECHADO (baixa dada — uso futuro)
+  'GERADO_EM'      // data/hora em que este pedido foi gerado
 ];
 
 /**
@@ -176,7 +188,10 @@ function gerarRelacaoDeCompra(token, params) {
   var itens = params.itens || [];
   if (!itens.length) throw new Error('Nenhum item selecionado para a compra.');
 
-  // Persiste a seleção como base da relação (EM_ABERTO/A_COMPRAR/STATUS por ora vazios).
+  var agora = new Date();
+  // ACRESCENTA à relação (não substitui) — cada geração é um novo pedido que
+  // se soma aos que ainda estão em aberto. EM_ABERTO/A_COMPRAR ficam vazios
+  // por ora (uso futuro); STATUS nasce ABERTO.
   var linhas = itens.map(function (it) {
     return [
       it.item || '',
@@ -192,26 +207,69 @@ function gerarRelacaoDeCompra(token, params) {
       it.obs || '',             // OBS (pode já vir editada na análise)
       '',                       // EM_ABERTO (pedidos em aberto)
       '',                       // A_COMPRAR
-      ''                        // STATUS
+      'ABERTO',                 // STATUS
+      agora                     // GERADO_EM
     ];
   });
-  reescreverAba(CONFIG.SHEETS.RELACAO_COMPRA, RELACAO_COMPRA_HEADERS, linhas);
+  var sh = _prepararRelacaoCompra();
+  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, RELACAO_COMPRA_HEADERS.length).setValues(linhas);
 
   return {
     ok: true,
-    mensagem: itens.length + ' item(ns) selecionado(s) e gravado(s) na base da compra. ' +
-      'A compra automática (tabela de tingimento + pedidos em aberto) será ' +
-      'ativada na próxima etapa.'
+    mensagem: itens.length + ' item(ns) acrescentado(s) à relação de compra (pedido de ' +
+      Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + ').'
   };
 }
 
 /**
- * Carrega a última relação de compra gravada (para exibir sem recalcular).
+ * Carrega a relação de compra acumulada (histórico completo de pedidos).
  */
 function obterRelacaoDeCompra(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   var registros = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
   return { ok: true, colunas: RELACAO_COMPRA_HEADERS, linhas: registros };
+}
+
+/**
+ * Apaga TODA a relação de compra acumulada e começa do zero. Ação explícita
+ * do master — a relação nunca se apaga sozinha ao gerar uma nova compra.
+ */
+function excluirRelacaoDeCompra(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  reescreverAba(CONFIG.SHEETS.RELACAO_COMPRA, RELACAO_COMPRA_HEADERS, []);
+  return { ok: true, mensagem: 'Relação de compra excluída. Gere uma nova compra para começar do zero.' };
+}
+
+/**
+ * Confere se o cabeçalho da aba RELACAO_COMPRA já existente bate com
+ * RELACAO_COMPRA_HEADERS (a estrutura pode ter ganhado colunas novas desde
+ * a última vez que a aba foi criada). Se não bater e já houver dados
+ * gravados, recusa (para não desalinhar linhas antigas com colunas novas) e
+ * pede para excluir o relatório antes. Se não houver dados ainda, corrige o
+ * cabeçalho sozinho.
+ */
+function _prepararRelacaoCompra() {
+  var sh = _aba(CONFIG.SHEETS.RELACAO_COMPRA, RELACAO_COMPRA_HEADERS);
+  var largura = sh.getLastColumn();
+  var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+  var igual = atuais.length === RELACAO_COMPRA_HEADERS.length &&
+    atuais.every(function (h, i) { return h === RELACAO_COMPRA_HEADERS[i]; });
+  if (igual) return sh;
+
+  if (sh.getLastRow() > 1) {
+    throw new Error(
+      'A estrutura da aba RELACAO_COMPRA mudou (ganhou coluna nova) e já existem dados no formato ' +
+      'antigo. Para não misturar dados incompatíveis, exclua o relatório atual ("Excluir relatório ' +
+      'e começar do zero", na Análise de Compra) antes de gerar uma nova compra.'
+    );
+  }
+  // Ainda sem dados: pode corrigir o cabeçalho com segurança.
+  sh.getRange(1, 1, 1, RELACAO_COMPRA_HEADERS.length).setValues([RELACAO_COMPRA_HEADERS])
+    .setFontWeight('bold').setBackground('#0F5FA0').setFontColor('#FFFFFF');
+  if (largura > RELACAO_COMPRA_HEADERS.length) {
+    sh.getRange(1, RELACAO_COMPRA_HEADERS.length + 1, 1, largura - RELACAO_COMPRA_HEADERS.length).clearContent();
+  }
+  return sh;
 }
 
 /* ------------------------------ auxiliares ----------------------------- */

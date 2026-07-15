@@ -6,13 +6,21 @@
  * - consultarHistoricoItem: histórico de um item, como está na aba ESTOQUE.
  */
 
+/** Um registro da RELACAO_COMPRA está em aberto (ainda não processado pelo tingimento). */
+function _emAberto(r) {
+  var s = _norm(r.STATUS);
+  return !s || s === 'aberto'; // vazio conta como aberto (compatibilidade com pedidos antigos)
+}
+
 /**
  * Lista para o painel de Tingimento (a partir da RELACAO_COMPRA gravada).
+ * A relação acumula pedidos ao longo do tempo — aqui só entram os itens
+ * ainda EM ABERTO (o tingimento pode não dar conta de tudo de uma vez).
  * Acessível ao master e ao papel tingimento.
  */
 function obterListaTingimento(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
-  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
+  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto);
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
@@ -60,9 +68,9 @@ function enviarRelatorioCompra(token) {
   if (!lista.length) {
     throw new Error('Informe pelo menos um e-mail de destino (separados por ;).');
   }
-  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
+  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto);
   if (!regs.length) {
-    throw new Error('Não há relação de compra para enviar. Gere a compra primeiro.');
+    throw new Error('Não há itens em aberto na relação de compra para enviar. Gere a compra primeiro.');
   }
   var assunto = 'Relação de compra / tingimento - ' +
     Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy');
