@@ -631,11 +631,16 @@ function excluirRelacao() {
 }
 
 /* ------------------------- view: Tingimento ----------------------- */
+// Número do pedido (peek) + data de emissão, para o cabeçalho da impressão.
+// Só avança de verdade depois que o e-mail é enviado (obterNumeroPedido nunca consome).
+var pedidoInfo = { numero: null, data: null };
+
 function viewTingimento(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Relação de compra / Tingimento</h2>' +
-      '<p class="desc no-print">Itens enviados para tingir (gerados na Análise de Compra).</p>' +
+      '<p class="desc no-print">Itens enviados para tingir (gerados na Análise de Compra). ' +
+      'O número do pedido só avança depois que o e-mail é enviado.</p>' +
       '<div class="linha-form no-print">' +
         '<div class="campo" style="flex:1;min-width:260px">' +
           '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
@@ -646,17 +651,22 @@ function viewTingimento(alvo) {
         '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>' +
       '</div>' +
       '<div id="ting-msg"></div>' +
-      '<h3 class="so-print">Relação de compra / tingimento</h3>' +
+      '<div class="cabecalho-relatorio so-print">' +
+        '<h1>PEDIDO DE FIO MARFIM CEARÁ</h1>' +
+        '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
+      '</div>' +
       '<div class="tabela-wrap" id="tabela-ting"></div>' +
     '</section>';
 
-  document.getElementById('btn-imprimir').onclick = function () { window.print(); };
+  document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
   document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
   document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
 
   chamar('obterDestinatarios', sessao.token)
     .then(function (r) { document.getElementById('emails-compra').value = r.emails || ''; })
     .catch(function () {});
+
+  carregarNumeroPedido();
 
   var msg = document.getElementById('ting-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
@@ -669,6 +679,24 @@ function viewTingimento(alvo) {
       var m = tratarErro(err);
       if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
+}
+
+/** Busca o número do pedido pendente e a data de hoje, para o cabeçalho da impressão. */
+function carregarNumeroPedido() {
+  return chamar('obterNumeroPedido', sessao.token)
+    .then(function (r) {
+      pedidoInfo = { numero: r.numero, data: r.data };
+      var elNum = document.getElementById('rel-numero');
+      var elData = document.getElementById('rel-data');
+      if (elNum) elNum.textContent = pedidoInfo.numero != null ? pedidoInfo.numero : '—';
+      if (elData) elData.textContent = pedidoInfo.data || '—';
+    })
+    .catch(function () {});
+}
+
+/** Reconsulta o número antes de imprimir (pode ter avançado num envio de outra sessão) e imprime. */
+function imprimirRelatorioTingimento() {
+  carregarNumeroPedido().then(function () { window.print(); });
 }
 
 function salvarEmailsCompra() {
@@ -687,12 +715,14 @@ function enviarEmailCompra() {
   var msg = document.getElementById('ting-msg');
   var emails = document.getElementById('emails-compra').value;
   btn.disabled = true;
-  msg.innerHTML = '<div class="aviso"><span class="carregando">Enviando…</span></div>';
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Gerando PDF e enviando…</span></div>';
   chamar('salvarDestinatarios', sessao.token, emails)
     .then(function () { return chamar('enviarRelatorioCompra', sessao.token); })
     .then(function (r) {
       btn.disabled = false;
-      msg.innerHTML = '<div class="aviso ok">Relação enviada para ' + r.destinatarios + ' destinatário(s).</div>';
+      msg.innerHTML = '<div class="aviso ok">Pedido nº ' + r.numero + ' enviado (PDF em anexo) para ' +
+        r.destinatarios + ' destinatário(s).</div>';
+      carregarNumeroPedido(); // já mostra o próximo número, que só foi liberado agora
     })
     .catch(function (err) {
       btn.disabled = false;

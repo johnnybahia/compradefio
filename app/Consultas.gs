@@ -57,8 +57,39 @@ function _destinatariosCompra() {
 }
 
 /**
+ * Número do PEDIDO DE FIO. Começa em 784 e só avança quando o e-mail é
+ * EFETIVAMENTE enviado (_avancarNumeroPedido, chamada só depois do
+ * MailApp.sendEmail dar certo) — imprimir ou só abrir a tela não consome o
+ * número; ele fica parado até o próximo envio.
+ */
+var NUMERO_PEDIDO_INICIAL = 784;
+
+function _numeroPedidoAtual() {
+  var v = PropertiesService.getScriptProperties().getProperty('NUMERO_PEDIDO_FIO');
+  var n = parseInt(v, 10);
+  return (v && !isNaN(n)) ? n : NUMERO_PEDIDO_INICIAL;
+}
+
+function _avancarNumeroPedido() {
+  PropertiesService.getScriptProperties().setProperty('NUMERO_PEDIDO_FIO', String(_numeroPedidoAtual() + 1));
+}
+
+/** Número do pedido pendente (sem consumir) e a data de hoje — para o cabeçalho
+ * do relatório (impressão) antes mesmo de enviar o e-mail. */
+function obterNumeroPedido(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  return {
+    ok: true,
+    numero: _numeroPedidoAtual(),
+    data: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy')
+  };
+}
+
+/**
  * Envia a relação de compra (tingimento) por e-mail para os destinatários
- * salvos. Retorna { ok, destinatarios } ou lança erro claro.
+ * salvos, em anexo um PDF no formato "PEDIDO DE FIO MARFIM CEARÁ" (com data
+ * de emissão e número do pedido). O número só avança depois do envio dar
+ * certo. Retorna { ok, destinatarios, numero } ou lança erro claro.
  */
 function enviarRelatorioCompra(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
@@ -72,14 +103,28 @@ function enviarRelatorioCompra(token) {
   if (!regs.length) {
     throw new Error('Não há itens em aberto na relação de compra para enviar. Gere a compra primeiro.');
   }
-  var assunto = 'Relação de compra / tingimento - ' +
-    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy');
-  MailApp.sendEmail({ to: lista.join(','), subject: assunto, htmlBody: _relatorioCompraHTML(regs) });
-  return { ok: true, destinatarios: lista.length };
+
+  var numero = _numeroPedidoAtual();
+  var agora = new Date();
+  var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  var html = _relatorioCompraHTML(regs, numero, dataFmt);
+  var pdf = Utilities.newBlob(html, MimeType.HTML, 'pedido.html').getAs(MimeType.PDF)
+    .setName('Pedido de Fio Marfim Ceara no ' + numero + '.pdf');
+
+  var assunto = 'Pedido de Fio Marfim Ceará nº ' + numero + ' - ' + dataFmt;
+  MailApp.sendEmail({
+    to: lista.join(','),
+    subject: assunto,
+    htmlBody: '<p style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">Segue em anexo o Pedido ' +
+      'de Fio Marfim Ceará nº <b>' + numero + '</b>, emitido em <b>' + dataFmt + '</b>.</p>',
+    attachments: [pdf]
+  });
+  _avancarNumeroPedido(); // só agora — o e-mail já saiu
+  return { ok: true, destinatarios: lista.length, numero: numero };
 }
 
-/** Monta o HTML do relatório de compra (usado no e-mail). */
-function _relatorioCompraHTML(regs) {
+/** Monta o HTML do relatório de compra (usado no e-mail e no PDF anexado). */
+function _relatorioCompraHTML(regs, numero, dataFmt) {
   var cols = [
     ['ITEM', 'Item'], ['DESCRICAO', 'Descrição'], ['CLIENTE', 'Cliente'],
     ['MAQUINAS', 'Máquinas'], ['SUGERIDO', 'Total (kg)'],
@@ -97,7 +142,9 @@ function _relatorioCompraHTML(regs) {
     }).join('') + '</tr>';
   }).join('');
   return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
-    '<h2 style="color:#0B4576">Relação de compra / tingimento</h2>' +
+    '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">PEDIDO DE FIO MARFIM CEARÁ</h1>' +
+    '<p style="margin:0 0 16px;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
+    ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>' +
     '<table style="border-collapse:collapse">' +
     '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
