@@ -9,14 +9,53 @@ var CONFIG = {
   APP_NOME: 'Marfim · Gestão de Compras',
 
   /**
-   * ID da planilha usada como banco de dados.
-   * Defina em: Configurações do projeto → Propriedades do script → SPREADSHEET_ID.
-   * (Mantido fora do código para não expor o ID no repositório.)
+   * Unidades (fábricas/empresas) que este mesmo Web App atende. Cada uma tem
+   * sua própria planilha (banco de dados), configurada numa Propriedade do
+   * script própria — assim dá pra trocar de unidade num clique, sem precisar
+   * de uma implantação separada por empresa.
    */
-  getSpreadsheetId: function () {
-    var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  UNIDADES: [
+    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA' },
+    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA' }
+  ],
+
+  /** Unidade usada quando o login ainda não escolheu nenhuma. */
+  UNIDADE_PADRAO: 'CEARA',
+
+  /** Devolve a configuração de uma unidade pelo id, ou lança erro se inválida. */
+  getUnidadeInfo: function (id) {
+    var alvo = id || this.UNIDADE_PADRAO;
+    var u = this.UNIDADES.filter(function (x) { return x.id === alvo; })[0];
+    if (!u) throw new Error('Unidade desconhecida: ' + id);
+    return u;
+  },
+
+  /**
+   * ID da planilha usada como banco de dados da unidade informada (ou da
+   * padrão, se `unidadeId` vier vazio).
+   * Defina em: Configurações do projeto → Propriedades do script →
+   * SPREADSHEET_ID_CEARA / SPREADSHEET_ID_BAHIA.
+   * (Mantido fora do código para não expor o ID no repositório.)
+   * Compatibilidade: SÓ para a unidade padrão, se a propriedade específica
+   * não existir, cai para a antiga `SPREADSHEET_ID` única (instalação de
+   * unidade só) — assim uma implantação já em produção continua
+   * funcionando sem mudar nada até configurar as propriedades por unidade.
+   * As demais unidades NUNCA caem nesse fallback — melhor falhar alto a
+   * silenciosamente abrir a planilha errada (ex.: escolher "Bahia" no
+   * seletor e cair sem querer nos dados do Ceará).
+   */
+  getSpreadsheetId: function (unidadeId) {
+    var u = this.getUnidadeInfo(unidadeId);
+    var props = PropertiesService.getScriptProperties();
+    var id = props.getProperty(u.propSpreadsheet);
+    if (!id && u.id === this.UNIDADE_PADRAO) {
+      id = props.getProperty('SPREADSHEET_ID');
+    }
     if (!id) {
-      throw new Error('SPREADSHEET_ID não configurado. Defina nas Propriedades do script.');
+      throw new Error(
+        'Planilha da unidade "' + u.rotulo + '" não configurada. Defina ' +
+        u.propSpreadsheet + ' nas Propriedades do script.'
+      );
     }
     return id;
   },

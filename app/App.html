@@ -4,7 +4,7 @@
    ============================================================ */
 
 var TOKEN_KEY = 'marfim_token';
-var sessao = { token: null, nome: null, papel: null };
+var sessao = { token: null, nome: null, papel: null, unidade: null, unidades: [] };
 
 /* ---- ponte com o servidor (google.script.run → Promise) ---- */
 function chamar(fn) {
@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (!t) return mostrarLogin();
   chamar('validarSessao', t).then(function (r) {
     if (r && r.ok) {
-      sessao = { token: t, nome: r.nome, papel: r.papel };
+      sessao = { token: t, nome: r.nome, papel: r.papel, unidade: r.unidade, unidades: r.unidades || [] };
       abrirApp();
     } else {
       localStorage.removeItem(TOKEN_KEY);
@@ -53,7 +53,7 @@ function aoEntrar(e) {
     btn.disabled = false;
     btn.textContent = 'Entrar';
     if (r.ok) {
-      sessao = { token: r.token, nome: r.nome, papel: r.papel };
+      sessao = { token: r.token, nome: r.nome, papel: r.papel, unidade: r.unidade, unidades: r.unidades || [] };
       localStorage.setItem(TOKEN_KEY, r.token);
       document.getElementById('in-senha').value = '';
       abrirApp();
@@ -127,6 +127,7 @@ function abrirApp() {
   document.getElementById('app').classList.remove('oculto');
   document.getElementById('lbl-nome').textContent = sessao.nome || '';
   document.getElementById('lbl-papel').textContent = ROTULO_PAPEL[sessao.papel] || sessao.papel;
+  renderSeletorUnidade();
 
   var itens = MENUS[sessao.papel] || [];
   var nav = document.getElementById('menu');
@@ -137,6 +138,43 @@ function abrirApp() {
     b.onclick = function () { selecionar(item, b); };
     nav.appendChild(b);
     if (i === 0) selecionar(item, b);
+  });
+}
+
+/* ------------------------- seletor de unidade ------------------------- */
+/* Uma unidade = uma planilha/empresa (Ceará, Bahia...). Trocar não recarrega
+ * a página: pega um token novo já com a unidade escolhida e volta pro app. */
+function renderSeletorUnidade() {
+  var sel = document.getElementById('sel-unidade');
+  var unidades = sessao.unidades || [];
+  if (unidades.length < 2) { sel.style.display = 'none'; return; }
+  sel.style.display = '';
+  sel.innerHTML = unidades.map(function (u) {
+    return '<option value="' + u.id + '">' + u.rotulo + '</option>';
+  }).join('');
+  sel.value = sessao.unidade ? sessao.unidade.id : unidades[0].id;
+  sel.onchange = function () { trocarUnidadeAtiva(sel.value); };
+}
+
+function trocarUnidadeAtiva(unidadeId) {
+  var sel = document.getElementById('sel-unidade');
+  sel.disabled = true;
+  chamar('trocarUnidade', sessao.token, unidadeId).then(function (r) {
+    sel.disabled = false;
+    if (!r || !r.ok) return;
+    sessao.token = r.token;
+    sessao.unidade = r.unidade;
+    localStorage.setItem(TOKEN_KEY, r.token);
+    // Zera os dados carregados da unidade anterior antes de reabrir — cada
+    // unidade tem seu próprio estoque/pedidos, não faz sentido misturar.
+    estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '' };
+    estadoTingimento = { linhas: [] };
+    pedidoInfo = { numero: null, data: null };
+    abrirApp();
+  }).catch(function (err) {
+    sel.disabled = false;
+    alert((err && err.message) ? err.message : 'Não foi possível trocar de unidade.');
+    sel.value = sessao.unidade ? sessao.unidade.id : sel.value;
   });
 }
 
@@ -659,7 +697,7 @@ function viewTingimento(alvo) {
       '<div class="cabecalho-relatorio so-print">' +
         '<img id="rel-logo" class="logo-relatorio" alt="" style="display:none">' +
         '<div>' +
-          '<h1>PEDIDO DE FIO MARFIM CEARÁ</h1>' +
+          '<h1>PEDIDO DE FIO MARFIM ' + (sessao.unidade ? sessao.unidade.rotulo.toUpperCase() : '') + '</h1>' +
           '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
         '</div>' +
       '</div>' +

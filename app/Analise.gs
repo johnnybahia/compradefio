@@ -332,18 +332,15 @@ function _lerEstoque() {
 
   var valores = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var header = valores.shift().map(_norm);
-  function col(nomes) {
-    for (var i = 0; i < header.length; i++) {
-      if (nomes.indexOf(header[i]) !== -1) return i;
-    }
-    return -1;
-  }
-  var iItem = col(['item']);
-  var iData = col(['data']);
-  var iEntrada = col(['entrada']);
-  var iSaida = col(['saida']);   // "Saída" → "saida"
-  var iSaldo = col(['saldo']);   // "Saldo" (não confundir com "saldo anterior")
-  var iObs = col(['obs']);       // coluna E da aba ESTOQUE
+  // Aceita tanto o cabeçalho do Ceará (Item/Data/Saldo/Obs) quanto o da Bahia
+  // (Descrição/Data Lançamento/Saldo de Estoque/Observações) — mesma aba,
+  // duas convenções de nome herdadas de scripts diferentes.
+  var iItem = _colPorNomes(header, ['item', 'descricao']);
+  var iData = _colPorNomes(header, ['data', 'data lancamento']);
+  var iEntrada = _colPorNomes(header, ['entrada']);
+  var iSaida = _colPorNomes(header, ['saida']);   // "Saída" → "saida"
+  var iSaldo = _colPorNomes(header, ['saldo', 'saldo de estoque']);
+  var iObs = _colPorNomes(header, ['obs', 'observacoes']);
   if (iItem < 0 || iData < 0 || iSaldo < 0) {
     throw new Error('A aba ESTOQUE precisa ter as colunas Item, Data e Saldo no cabeçalho.');
   }

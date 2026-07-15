@@ -13,6 +13,22 @@ próprio e telas por papel de usuário.
 | `almoxarifado1` | Confirmar embarque |
 | `almoxarifado2` | Confirmar recebimento (kg reais que chegaram) |
 
+## Unidades (múltiplas empresas/planilhas no mesmo Web App)
+
+Um único projeto/implantação atende mais de uma unidade (ex.: Ceará e
+Bahia) — cada uma com sua própria planilha, configurada em
+`CONFIG.UNIDADES` (`app/Config.gs`). O usuário troca de unidade num clique
+no seletor que aparece no topo da tela (some sozinho se só houver uma
+unidade configurada). A troca não recarrega a página: pega um token novo já
+com a unidade escolhida e a partir daí toda leitura/gravação usa a
+planilha certa (ver `_definirUnidadeAtiva` em `app/Db.gs`).
+
+A aba `USUARIOS` (login) é **global** — as mesmas credenciais valem para
+todas as unidades — e mora sempre na planilha da unidade padrão, a menos
+que `SPREADSHEET_ID_AUTH` aponte para outra. Já a lista de e-mails de envio
+da compra e a numeração do Pedido de Fio são **por unidade** (cada uma com
+sua própria Propriedade do script).
+
 ## Arquitetura
 
 - **Web App** publicado com *Executar como: eu (dono)* e *Acesso: qualquer
@@ -42,13 +58,21 @@ próprio e telas por papel de usuário.
 1. Crie um projeto em <https://script.google.com> e adicione os arquivos desta
    pasta (ou use `clasp` com `rootDir` apontando para `app/`).
 2. Em **Configurações do projeto → Propriedades do script**, crie:
-   - `SPREADSHEET_ID` = ID da planilha que será o banco de dados.
+   - `SPREADSHEET_ID_CEARA` = ID da planilha do Ceará.
+   - `SPREADSHEET_ID_BAHIA` = ID da planilha da Bahia.
+     (Compatibilidade: se só existir a antiga `SPREADSHEET_ID`, ela vale
+     como planilha da unidade padrão até as novas serem configuradas.)
+   - *(opcional)* `SPREADSHEET_ID_AUTH` = planilha onde a aba `USUARIOS`
+     deve morar, se quiser separá-la das planilhas de dados (por padrão usa
+     a planilha da unidade padrão).
    - *(opcional)* `SENHA_MASTER_INICIAL` = senha inicial do master.
 3. Rode a função **`inicializarSistema`** uma vez (menu Executar). Ela cria a
    aba `USUARIOS` e o usuário **`master`** (a senha aparece no log de execução;
    troque-a depois).
 4. **Implantar → Nova implantação → App da Web**
    (*Executar como: eu*, *Acesso: qualquer pessoa*). Copie a URL e distribua.
+5. Rode **`diagnostico`** (menu Executar) para conferir, unidade por
+   unidade, se a planilha está configurada e as abas certas existem.
 
 ## Estado atual (nesta etapa)
 

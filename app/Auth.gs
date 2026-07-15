@@ -14,6 +14,18 @@
 var USUARIOS_HEADERS = ['USUARIO', 'NOME', 'PAPEL', 'SALT', 'SENHA_HASH', 'ATIVO'];
 var HASH_ITERACOES = 1000;
 
+/**
+ * A aba USUARIOS é global (as mesmas credenciais servem para todas as
+ * unidades) — por isso mora sempre na mesma planilha, independente de qual
+ * unidade está ativa no momento. Por padrão usa a planilha da unidade
+ * padrão (CONFIG.UNIDADE_PADRAO); defina SPREADSHEET_ID_AUTH nas
+ * Propriedades do script para guardar os usuários num lugar à parte.
+ */
+function _ssAutenticacao() {
+  var idFixo = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID_AUTH');
+  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
+}
+
 /* ---------------------------- Hash de senha ---------------------------- */
 
 function _bytesParaHex(bytes) {
@@ -54,10 +66,11 @@ function _assinar(texto) {
   return Utilities.base64EncodeWebSafe(bytes);
 }
 
-function _criarToken(usuario, papel) {
+function _criarToken(usuario, papel, unidade) {
   var payload = {
     u: usuario,
     p: papel,
+    un: unidade || CONFIG.UNIDADE_PADRAO,
     exp: Date.now() + CONFIG.SESSAO_HORAS * 3600 * 1000
   };
   var corpo = Utilities.base64EncodeWebSafe(JSON.stringify(payload));
@@ -65,7 +78,8 @@ function _criarToken(usuario, papel) {
 }
 
 /**
- * Valida o token e devolve { usuario, papel } ou null se inválido/expirado.
+ * Valida o token e devolve { usuario, papel, unidade } ou null se
+ * inválido/expirado.
  */
 function _validarToken(token) {
   if (!token || typeof token !== 'string' || token.indexOf('.') === -1) return null;
@@ -77,7 +91,7 @@ function _validarToken(token) {
     var payload = JSON.parse(
       Utilities.newBlob(Utilities.base64DecodeWebSafe(corpo)).getDataAsString());
     if (!payload.exp || Date.now() > payload.exp) return null;
-    return { usuario: payload.u, papel: payload.p };
+    return { usuario: payload.u, papel: payload.p, unidade: payload.un || CONFIG.UNIDADE_PADRAO };
   } catch (e) {
     return null;
   }
@@ -94,7 +108,7 @@ function login(usuario, senha) {
   senha = (senha || '').toString();
   if (!usuario || !senha) return { ok: false, erro: 'Informe usuário e senha.' };
 
-  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS);
+  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS, _ssAutenticacao());
   var u = registros.filter(function (r) {
     return String(r.USUARIO).trim().toLowerCase() === usuario;
   })[0];
@@ -109,22 +123,25 @@ function login(usuario, senha) {
     return { ok: false, erro: 'Usuário ou senha inválidos.' };
   }
 
+  var unidade = CONFIG.UNIDADE_PADRAO;
   return {
     ok: true,
-    token: _criarToken(usuario, String(u.PAPEL).trim()),
+    token: _criarToken(usuario, String(u.PAPEL).trim(), unidade),
     nome: String(u.NOME || u.USUARIO),
-    papel: String(u.PAPEL).trim()
+    papel: String(u.PAPEL).trim(),
+    unidade: CONFIG.getUnidadeInfo(unidade),
+    unidades: CONFIG.UNIDADES
   };
 }
 
 /**
  * Revalida um token existente (usado quando o usuário recarrega a página).
- * Retorna { ok, nome, papel } ou { ok:false }.
+ * Retorna { ok, nome, papel, unidade, unidades } ou { ok:false }.
  */
 function validarSessao(token) {
   var s = _validarToken(token);
   if (!s) return { ok: false };
-  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS);
+  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS, _ssAutenticacao());
   var u = registros.filter(function (r) {
     return String(r.USUARIO).trim().toLowerCase() === s.usuario;
   })[0];
@@ -132,14 +149,19 @@ function validarSessao(token) {
   return {
     ok: true,
     nome: String(u.NOME || u.USUARIO),
-    papel: String(u.PAPEL).trim()
+    papel: String(u.PAPEL).trim(),
+    unidade: CONFIG.getUnidadeInfo(s.unidade),
+    unidades: CONFIG.UNIDADES
   };
 }
 
 /**
  * Garante, no servidor, que a requisição tem token válido e (opcionalmente)
- * um dos papéis permitidos. Retorna { usuario, papel } ou lança erro.
- * Toda função de dados deve chamar isto antes de ler/gravar.
+ * um dos papéis permitidos. Retorna { usuario, papel, unidade } ou lança
+ * erro. Toda função de dados deve chamar isto antes de ler/gravar — de
+ * quebra, ela também ativa a unidade da sessão (`_definirUnidadeAtiva`)
+ * para que as próximas leituras/gravações desta mesma chamada usem a
+ * planilha certa.
  */
 function exigirSessao(token, papeisPermitidos) {
   var s = _validarToken(token);
@@ -148,7 +170,31 @@ function exigirSessao(token, papeisPermitidos) {
       papeisPermitidos.indexOf(s.papel) === -1 && s.papel !== CONFIG.PAPEIS.MASTER) {
     throw new Error('Você não tem permissão para esta ação.');
   }
+  _definirUnidadeAtiva(s.unidade);
   return s;
+}
+
+/**
+ * Lista as unidades configuradas no sistema, para o seletor da interface.
+ */
+function listarUnidades(token) {
+  var s = exigirSessao(token);
+  return { ok: true, unidades: CONFIG.UNIDADES, atual: s.unidade };
+}
+
+/**
+ * Troca a unidade ativa da sessão (o "banco de dados" que as próximas
+ * chamadas vão usar) e devolve um token novo já com a unidade nova —
+ * o cliente troca o token guardado e recarrega a tela atual.
+ */
+function trocarUnidade(token, unidadeId) {
+  var s = exigirSessao(token);
+  var u = CONFIG.getUnidadeInfo(unidadeId); // lança erro se a unidade não existir
+  return {
+    ok: true,
+    token: _criarToken(s.usuario, s.papel, u.id),
+    unidade: u
+  };
 }
 
 /* ----------------------- Administração de usuários --------------------- */
@@ -166,8 +212,9 @@ function salvarUsuario(dados) {
 
   var salt = _gerarSalt();
   var hash = _hashSenha(String(dados.senha || ''), salt);
-  var sh = _aba(CONFIG.SHEETS.USUARIOS, USUARIOS_HEADERS);
-  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS);
+  var ssAuth = _ssAutenticacao();
+  var sh = _aba(CONFIG.SHEETS.USUARIOS, USUARIOS_HEADERS, ssAuth);
+  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS, ssAuth);
   var existente = registros.filter(function (r) {
     return String(r.USUARIO).trim().toLowerCase() === usuario;
   })[0];
@@ -188,10 +235,10 @@ function salvarUsuario(dados) {
       linha.SENHA_HASH = existente.SENHA_HASH;
     }
     USUARIOS_HEADERS.forEach(function (col) {
-      atualizarCelula(CONFIG.SHEETS.USUARIOS, existente.__row, col, linha[col]);
+      atualizarCelula(CONFIG.SHEETS.USUARIOS, existente.__row, col, linha[col], ssAuth);
     });
   } else {
-    acrescentarRegistro(CONFIG.SHEETS.USUARIOS, linha, USUARIOS_HEADERS);
+    acrescentarRegistro(CONFIG.SHEETS.USUARIOS, linha, USUARIOS_HEADERS, ssAuth);
   }
   return { ok: true };
 }
@@ -203,8 +250,9 @@ function salvarUsuario(dados) {
  * se não existir, usa 'marfim@123' (TROQUE assim que entrar).
  */
 function inicializarSistema() {
-  _aba(CONFIG.SHEETS.USUARIOS, USUARIOS_HEADERS);
-  var jaExiste = lerRegistros(CONFIG.SHEETS.USUARIOS).some(function (r) {
+  var ssAuth = _ssAutenticacao();
+  _aba(CONFIG.SHEETS.USUARIOS, USUARIOS_HEADERS, ssAuth);
+  var jaExiste = lerRegistros(CONFIG.SHEETS.USUARIOS, ssAuth).some(function (r) {
     return String(r.PAPEL).trim() === CONFIG.PAPEIS.MASTER;
   });
   if (jaExiste) {

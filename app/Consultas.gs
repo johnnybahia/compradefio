@@ -64,6 +64,16 @@ function obterListaTingimento(token) {
 
 /* ----------------------- E-mail / impressão ---------------------- */
 
+/**
+ * Propriedades do script que variam por unidade (e-mails de destino, número
+ * do pedido) levam o id da unidade ativa no nome — assim Ceará e Bahia não
+ * compartilham a mesma lista de e-mail nem a mesma numeração de pedido,
+ * mesmo rodando no mesmo projeto/implantação.
+ */
+function _propUnidade(base) {
+  return base + '_' + (_unidadeAtivaId || CONFIG.UNIDADE_PADRAO);
+}
+
 /** Devolve os e-mails de destino salvos (string, separados por ;). */
 function obterDestinatarios(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
@@ -74,12 +84,12 @@ function obterDestinatarios(token) {
 function salvarDestinatarios(token, emails) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   PropertiesService.getScriptProperties()
-    .setProperty('EMAILS_COMPRA', String(emails == null ? '' : emails).trim());
+    .setProperty(_propUnidade('EMAILS_COMPRA'), String(emails == null ? '' : emails).trim());
   return { ok: true };
 }
 
 function _destinatariosCompra() {
-  return PropertiesService.getScriptProperties().getProperty('EMAILS_COMPRA') || '';
+  return PropertiesService.getScriptProperties().getProperty(_propUnidade('EMAILS_COMPRA')) || '';
 }
 
 /**
@@ -91,13 +101,14 @@ function _destinatariosCompra() {
 var NUMERO_PEDIDO_INICIAL = 784;
 
 function _numeroPedidoAtual() {
-  var v = PropertiesService.getScriptProperties().getProperty('NUMERO_PEDIDO_FIO');
+  var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('NUMERO_PEDIDO_FIO'));
   var n = parseInt(v, 10);
   return (v && !isNaN(n)) ? n : NUMERO_PEDIDO_INICIAL;
 }
 
 function _avancarNumeroPedido() {
-  PropertiesService.getScriptProperties().setProperty('NUMERO_PEDIDO_FIO', String(_numeroPedidoAtual() + 1));
+  PropertiesService.getScriptProperties()
+    .setProperty(_propUnidade('NUMERO_PEDIDO_FIO'), String(_numeroPedidoAtual() + 1));
 }
 
 /** Número do pedido pendente (sem consumir) e a data de hoje — para o cabeçalho
@@ -111,14 +122,19 @@ function obterNumeroPedido(token) {
   };
 }
 
+/** Remove acentos preservando maiúsculas/minúsculas (usado no nome do arquivo do PDF). */
+function _semAcento(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 /**
  * Envia a relação de compra (tingimento) por e-mail para os destinatários
- * salvos, em anexo um PDF no formato "PEDIDO DE FIO MARFIM CEARÁ" (com data
- * de emissão e número do pedido). O número só avança depois do envio dar
- * certo. Retorna { ok, destinatarios, numero } ou lança erro claro.
+ * salvos, em anexo um PDF no formato "PEDIDO DE FIO MARFIM <UNIDADE>" (com
+ * data de emissão e número do pedido). O número só avança depois do envio
+ * dar certo. Retorna { ok, destinatarios, numero } ou lança erro claro.
  */
 function enviarRelatorioCompra(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   var lista = _destinatariosCompra().split(/[;,]/)
     .map(function (e) { return e.trim(); })
     .filter(function (e) { return e && e.indexOf('@') !== -1; });
@@ -130,19 +146,20 @@ function enviarRelatorioCompra(token) {
     throw new Error('Não há itens em aberto na relação de compra para enviar. Gere a compra primeiro.');
   }
 
+  var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var numero = _numeroPedidoAtual();
   var agora = new Date();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
   var html = _relatorioCompraHTML(regs, numero, dataFmt);
   var pdf = Utilities.newBlob(html, MimeType.HTML, 'pedido.html').getAs(MimeType.PDF)
-    .setName('Pedido de Fio Marfim Ceara no ' + numero + '.pdf');
+    .setName('Pedido de Fio Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
 
-  var assunto = 'Pedido de Fio Marfim Ceará nº ' + numero + ' - ' + dataFmt;
+  var assunto = 'Pedido de Fio Marfim ' + unidade + ' nº ' + numero + ' - ' + dataFmt;
   MailApp.sendEmail({
     to: lista.join(','),
     subject: assunto,
     htmlBody: '<p style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">Segue em anexo o Pedido ' +
-      'de Fio Marfim Ceará nº <b>' + numero + '</b>, emitido em <b>' + dataFmt + '</b>.</p>',
+      'de Fio Marfim ' + unidade + ' nº <b>' + numero + '</b>, emitido em <b>' + dataFmt + '</b>.</p>',
     attachments: [pdf]
   });
   _avancarNumeroPedido(); // só agora — o e-mail já saiu

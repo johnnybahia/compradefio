@@ -1,3 +1,10 @@
+> **Atualização:** as decisões abaixo já foram tomadas e implementadas —
+> ver "Status" no fim de cada seção. Resumo: o código passou a aceitar os
+> dois padrões de cabeçalho de `ESTOQUE` (nada muda na planilha real), e o
+> sistema virou **multiunidade**: um seletor no topo da tela troca entre
+> Ceará e Bahia (ou qualquer unidade em `CONFIG.UNIDADES`) sem precisar de
+> uma implantação separada por empresa. Detalhes em `app/README.md`.
+
 # Análise da planilha "BAHIA ESTOQUE ONLINE CONSULTAS" para replicar o projeto `app/`
 
 > Objetivo: usar o Web App já construído em `app/` (hoje desenhado a partir da
@@ -74,6 +81,14 @@ planilha de produção é do cliente e uma edição de cabeçalho pode ser
 revertida por proteção/script antigo sem eu perceber; ajustar o código é
 reversível e fica versionado aqui.
 
+**Status: implementado (opção 2).** `_lerEstoque` (`Analise.gs`) e as
+funções de conciliação de embarque (`Embarque.gs`) agora usam
+`_colPorNomes` (`Db.gs`), que tenta cada convenção de nome em ordem —
+`item`/`descricao`, `data`/`data lancamento`, `saldo`/`saldo de estoque`,
+`obs`/`observacoes`, `nf`/`nota fiscal/pedido`. Nada muda na planilha real;
+o `codigo.gs` antigo pode continuar rodando na Bahia sem conflito, já que
+o Web App só lê `ESTOQUE`.
+
 ## 3. Único ponto de "branding" fixo no código (Ceará hardcoded)
 
 `app/Consultas.gs` (linhas ~116–145) e `app/App.html` (linha ~662) têm o
@@ -89,32 +104,51 @@ planilha**, porque vive em Propriedades do Script (não no código):
 número inicial do Pedido de Fio (`NUMERO_PEDIDO_FIO`), senha inicial do
 master.
 
-## 4. O que falta decidir antes de ligar o sistema na Bahia
+**Status: implementado.** O texto agora vem de `CONFIG.getUnidadeInfo(...)`
+(unidade ativa da sessão) em vez de "CEARÁ" fixo — tanto no PDF/e-mail
+(`Consultas.gs`) quanto na impressão (`App.html`). `EMAILS_COMPRA` e
+`NUMERO_PEDIDO_FIO` também passaram a ser por unidade (sufixo `_CEARA`/
+`_BAHIA` na Propriedade do script), já que as duas passaram a rodar no
+mesmo projeto.
 
-1. Preciso do **ID (ou link) da planilha Google real** da Bahia — o `.xlsx`
-   que temos é só uma exportação estática; para o Web App funcionar preciso
-   configurar `SPREADSHEET_ID` apontando pro arquivo Google Sheets de
-   verdade (não dá pra usar o `.xlsx` como banco).
-2. O **`codigo.gs` antigo (menu "GESTÃO DO ESTOQUE") ainda está rodando**
-   nessa planilha da Bahia hoje? Se sim, seus lançamentos de estoque
-   continuam sendo feitos por ele — o Web App novo vai só **ler** a mesma
-   aba `ESTOQUE`, sem conflito, mas convém confirmar se dá pra deixar os
-   dois coexistindo por um tempo (transição) ou se a ideia é já substituir
-   o menu antigo pelo Web App na Bahia também.
-3. **Um único projeto Apps Script servindo as duas unidades** (mesmo código,
-   dois `SPREADSHEET_ID`/duas implantações) **ou um projeto separado** por
-   unidade (cópia)? Recomendo um só projeto com config por unidade — menos
-   código para manter — mas confirmo com você antes de mexer.
-4. Quem serão os usuários (master/tingimento/almoxarifado1/almoxarifado2)
-   da Bahia — mesmas pessoas do Ceará ou uma equipe própria?
+## 4. Arquitetura implementada: um Web App, várias unidades
+
+Em vez de "um projeto por unidade" ou "renomear planilha", ficou definido
+(ver conversa) que o **mesmo Web App atende as duas empresas**, com um
+seletor de unidade no topo da tela — clicar troca qual planilha o sistema
+usa, sem sair do sistema nem recarregar a página.
+
+- `CONFIG.UNIDADES` (`Config.gs`) lista as unidades (id, rótulo, nome da
+  Propriedade do script com o ID da planilha). Adicionar uma nova unidade
+  no futuro é só acrescentar uma entrada aqui + configurar a Propriedade.
+- A sessão (token assinado) carrega qual unidade está ativa. Trocar de
+  unidade (`trocarUnidade`) emite um token novo; todas as leituras/gravações
+  daquela chamada em diante usam a planilha certa (`_definirUnidadeAtiva`
+  em `Db.gs`, acionado por `exigirSessao`).
+- A aba `USUARIOS` (login) é **global** — não muda com a unidade — para as
+  mesmas credenciais servirem os dois times, a menos que se prefira
+  separar (`SPREADSHEET_ID_AUTH`).
+
+O que ainda falta, puramente operacional (não é mais decisão de arquitetura):
+
+1. **ID real da planilha Google da Bahia** — o `.xlsx` analisado aqui é só
+   uma exportação estática; para o Web App funcionar preciso do ID (ou
+   link) do arquivo Google Sheets de verdade, para configurar
+   `SPREADSHEET_ID_BAHIA` nas Propriedades do script.
+2. Confirmado: o `codigo.gs` antigo (menu "GESTÃO DO ESTOQUE") continua
+   ativo na planilha da Bahia — sem conflito, já que o Web App só lê
+   `ESTOQUE` (não grava nela).
+3. Quem serão os usuários (master/tingimento/almoxarifado1/almoxarifado2)
+   que vão operar a unidade Bahia — mesmas pessoas do Ceará ou equipe própria
+   (cadastro via `salvarUsuario`/tela de usuários)?
 
 ## 5. Conclusão
 
 A planilha da Bahia **tem todos os elementos de dados** que o sistema
 precisa (estoque, associação de cores, pedidos de fio, base de tingimento,
 embarques) — a estrutura é a mesma família da planilha que já usamos para
-construir `app/`. O único item que **bloqueia** de fato é o cabeçalho de
-`ESTOQUE` (nomes de coluna diferentes do Ceará), fácil de resolver no
-código. Fora isso, é sobretudo trabalho de configuração (ID da planilha
-real, usuários, e-mails, texto "Bahia" em vez de "Ceará"), não de
-reconstrução do sistema.
+construir `app/`. O bloqueio de cabeçalho de `ESTOQUE` e o texto "Ceará"
+fixo já foram resolvidos no código (§2 e §3); o sistema agora é
+multiunidade por desenho (§4). O que resta é puramente operacional: o ID
+real da planilha Google da Bahia e a definição dos usuários que vão operar
+essa unidade.
