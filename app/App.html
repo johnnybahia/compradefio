@@ -200,6 +200,13 @@ function viewAnalise(alvo) {
       '</div>' +
       '<div id="analise-msg"></div>' +
     '</section>' +
+    '<section class="painel" id="painel-pendencias" style="display:none">' +
+      '<h2>Pendências de embarque</h2>' +
+      '<p class="desc">Embarques com item(ns) já lançado(s) no estoque, mas outro(s) do ' +
+      'mesmo nº ainda não — pode ser esquecimento na entrada do estoque ou erro de digitação. ' +
+      'Some ao lançar o item no estoque para sair sozinho desta lista.</p>' +
+      '<div class="tabela-wrap" id="tabela-pendencias"></div>' +
+    '</section>' +
     '<section class="painel" id="painel-lista" style="display:none">' +
       '<h2>Itens do período</h2>' +
       '<p class="desc">Marque a caixa <b>Comprar</b> nos itens que devem ' +
@@ -231,6 +238,35 @@ function viewAnalise(alvo) {
     renderLista(estadoAnalise.itens);
   }
   carregarUltimaRelacao();
+  carregarPendencias();
+}
+
+/** Carrega a aba de pendências de embarque a qualquer momento (sem precisar rodar a análise). */
+function carregarPendencias() {
+  chamar('listarPendenciasEmbarque', sessao.token)
+    .then(function (r) { renderPendencias(r.linhas); })
+    .catch(function () { /* silencioso — só não mostra o painel */ });
+}
+
+function renderPendencias(linhas) {
+  var painel = document.getElementById('painel-pendencias');
+  var wrap = document.getElementById('tabela-pendencias');
+  if (!painel || !wrap) return;
+  if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
+  painel.style.display = '';
+  var body = linhas.map(function (l) {
+    return '<tr class="destaque">' +
+      '<td>' + (l.item || '—') + '</td>' +
+      '<td>' + (l.embarque || '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.quantidade) + '</td>' +
+      '<td>' + (l.dataEmbarque || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:20%">Item</th><th style="width:15%">Embarque</th>' +
+      '<th style="text-align:right;width:15%">Quantidade</th><th style="width:20%">Data do embarque</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 
 /** Modal simples de confirmação (evita depender de confirm()/alert() nativos, que o
@@ -301,6 +337,7 @@ function prosseguirAnalisarEstoque(dataInicio, dataFim, btn, msg) {
       estadoAnalise.mensagem = r.mensagem || '';
       msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
       renderLista(estadoAnalise.itens);
+      renderPendencias(r.pendencias);
     })
     .catch(function (err) {
       btn.disabled = false;

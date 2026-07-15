@@ -74,6 +74,9 @@ function listarItensParaAnalise(token, params) {
   // e soma o que ainda está em viagem para cada item.
   var chegadas = _atualizarChegadasEmbarque(inicio, fim);
   var emViagemPorItem = _emViagemPorItem();
+  // Itens do mesmo embarque que ficaram para trás (outros já chegaram, este não):
+  // vão para a aba de pendências, para o master acompanhar.
+  var pendencias = _atualizarPendenciasEmbarque();
 
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
@@ -141,7 +144,14 @@ function listarItensParaAnalise(token, params) {
   if (chegadas.marcados > 0) {
     msg += ' ' + chegadas.marcados + ' embarque(s) confirmado(s) como chegado(s) no período (não contam mais como em viagem).';
   }
-  return { ok: true, itens: itens, novosCadastrados: novosCadastrados, mensagem: msg };
+  if (pendencias.pendentes > 0) {
+    msg += ' Atenção: ' + pendencias.pendentes + ' item(ns) de embarques parcialmente lançados ' +
+      'ficaram em pendência (veja abaixo).';
+  }
+  return {
+    ok: true, itens: itens, novosCadastrados: novosCadastrados, mensagem: msg,
+    pendencias: pendencias.linhas
+  };
 }
 
 /**

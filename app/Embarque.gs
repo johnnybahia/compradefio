@@ -346,3 +346,90 @@ function _emViagemPorItem() {
   });
   return mapa;
 }
+
+/* ------------------- pendências: embarque parcialmente lançado ------------------ */
+/**
+ * Quando ALGUNS itens de um mesmo nº de embarque já foram confirmados como
+ * chegados (achados na aba ESTOQUE) mas OUTROS itens do mesmo embarque
+ * ainda não, é sinal de que a mercadoria provavelmente já chegou por
+ * inteiro — os itens que ficaram para trás podem ter sido esquecidos na
+ * entrada do estoque, ou o número/código foi digitado errado. Esses itens
+ * vão para a aba PENDÊNCIAS EMBARQUE para o master acompanhar; assim que o
+ * item for encontrado no estoque (em qualquer análise futura), ele some
+ * sozinho dessa lista.
+ */
+var PENDENCIAS_EMBARQUE_HEADERS = ['ITEM', 'EMBARQUE', 'QUANTIDADE', 'DATA_EMBARQUE', 'OBSERVACAO'];
+
+/**
+ * Recalcula a aba PENDÊNCIAS EMBARQUE a partir do estado atual da aba
+ * EMBARQUES (chamar depois de _atualizarChegadasEmbarque). Devolve
+ * { pendentes, linhas } — linhas para exibir de imediato na tela.
+ */
+function _atualizarPendenciasEmbarque() {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES);
+  if (!sh || sh.getLastRow() < 2) {
+    reescreverAba(CONFIG.SHEETS.PENDENCIAS_EMBARQUE, PENDENCIAS_EMBARQUE_HEADERS, []);
+    return { pendentes: 0, linhas: [] };
+  }
+
+  var vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+  var header = vals.shift().map(_norm);
+  var iItem = header.indexOf('cores'); if (iItem < 0) iItem = 0;
+  var iPeso = header.indexOf('peso'); if (iPeso < 0) iPeso = 1;
+  var iEmbarque = header.indexOf('embarque'); if (iEmbarque < 0) iEmbarque = 2;
+  var iData = header.indexOf('data'); if (iData < 0) iData = 3;
+  var iSituacao = header.indexOf('situacao'); if (iSituacao < 0) iSituacao = 4;
+
+  var grupos = {}; // nº do embarque → { chegou: bool, pendentes: [{item, peso, data}] }
+  vals.forEach(function (row) {
+    var numEmb = _normNumero(row[iEmbarque]);
+    var item = row[iItem];
+    if (!numEmb || item === '' || item == null) return;
+    if (!grupos[numEmb]) grupos[numEmb] = { chegou: false, pendentes: [] };
+    if (_norm(row[iSituacao]).indexOf('chegou') !== -1) {
+      grupos[numEmb].chegou = true;
+    } else {
+      grupos[numEmb].pendentes.push({
+        item: String(item).trim(),
+        peso: parseFloat(row[iPeso]) || 0,
+        data: row[iData] || ''
+      });
+    }
+  });
+
+  var linhas = [];
+  Object.keys(grupos).forEach(function (numEmb) {
+    var g = grupos[numEmb];
+    if (!g.chegou || !g.pendentes.length) return; // só é pendência quando o embarque está parcial
+    g.pendentes.forEach(function (p) {
+      linhas.push([
+        p.item, numEmb, p.peso, p.data,
+        'Embarque ' + numEmb + ' já tem item(ns) lançado(s) no estoque, mas este ainda não foi encontrado.'
+      ]);
+    });
+  });
+
+  reescreverAba(CONFIG.SHEETS.PENDENCIAS_EMBARQUE, PENDENCIAS_EMBARQUE_HEADERS, linhas);
+  return {
+    pendentes: linhas.length,
+    linhas: linhas.map(function (l) {
+      return { item: l[0], embarque: l[1], quantidade: l[2], dataEmbarque: _soData(l[3]) };
+    })
+  };
+}
+
+/** Lista a aba PENDÊNCIAS EMBARQUE (para exibir a qualquer momento, sem rodar a análise). */
+function listarPendenciasEmbarque(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIAS_EMBARQUE);
+  var linhas = regs.map(function (r) {
+    return {
+      item: r.ITEM,
+      embarque: r.EMBARQUE,
+      quantidade: r.QUANTIDADE,
+      dataEmbarque: _soData(r.DATA_EMBARQUE),
+      observacao: r.OBSERVACAO
+    };
+  });
+  return { ok: true, linhas: linhas };
+}

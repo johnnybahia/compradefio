@@ -49,6 +49,7 @@ var CONFIG = {
     BASE_TINGIMENTO: 'BASE TINGIMENTO', // capacidades das máquinas por tipo de fio
     EMBARQUES: 'EMBARQUES',           // embarques (preenchido pela leitura do PDF)
     MAPA_EMBARQUE: 'MAPA_EMBARQUE',   // aprendizado: descrição do PDF → item
+    PENDENCIAS_EMBARQUE: 'PENDENCIAS EMBARQUE', // itens de embarque parcialmente lançados no estoque
     RELACAO_COMPRA: 'RELACAO_COMPRA'  // resultado da análise de compra
     // Demais tabelas (FIO_CRU, PEDIDOS, TINGIMENTO, EMBARQUES...)
     // serão adicionadas conforme definirmos as regras de negócio.
