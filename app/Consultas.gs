@@ -167,10 +167,22 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
       return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
     }).join('') + '</tr>';
   }).join('');
+  // _logoDataUri() está em Codigo.gs (mesmo logo do topo da tela); PDF sai sem
+  // logo, sem quebrar, se por algum motivo o arquivo Logo não estiver disponível.
+  var logo = _logoDataUri();
+  var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">' +
+    'PEDIDO DE FIO MARFIM CEARÁ</h1>' +
+    '<p style="margin:0;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
+    ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
+  var cabecalho = logo
+    ? '<table style="border-collapse:collapse;margin-bottom:16px"><tr>' +
+        '<td style="padding:0 14px 0 0;vertical-align:middle">' +
+          '<img src="' + logo + '" style="height:56px;width:auto;display:block"></td>' +
+        '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
+      '</tr></table>'
+    : '<div style="margin-bottom:16px">' + tituloTxt + '</div>';
   return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
-    '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">PEDIDO DE FIO MARFIM CEARÁ</h1>' +
-    '<p style="margin:0 0 16px;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
-    ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>' +
+    cabecalho +
     '<table style="border-collapse:collapse">' +
     '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';

@@ -657,8 +657,11 @@ function viewTingimento(alvo) {
       '</div>' +
       '<div id="ting-msg"></div>' +
       '<div class="cabecalho-relatorio so-print">' +
-        '<h1>PEDIDO DE FIO MARFIM CEARÁ</h1>' +
-        '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
+        '<img id="rel-logo" class="logo-relatorio" alt="" style="display:none">' +
+        '<div>' +
+          '<h1>PEDIDO DE FIO MARFIM CEARÁ</h1>' +
+          '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
+        '</div>' +
       '</div>' +
       '<p class="legenda-critico no-print" id="legenda-critico" style="display:none">' +
         'Linhas destacadas: saldo de estoque negativo ou zero (aviso só na tela, ' +
@@ -679,6 +682,7 @@ function viewTingimento(alvo) {
     .catch(function () {});
 
   carregarNumeroPedido();
+  carregarLogoRelatorio();
 
   var msg = document.getElementById('ting-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
@@ -710,6 +714,16 @@ function carregarNumeroPedido() {
 /** Reconsulta o número antes de imprimir (pode ter avançado num envio de outra sessão) e imprime. */
 function imprimirRelatorioTingimento() {
   carregarNumeroPedido().then(function () { window.print(); });
+}
+
+/** Reaproveita o mesmo logo já carregado no topo da tela (evita nova ida ao servidor). */
+function carregarLogoRelatorio() {
+  var elTopo = document.querySelector('.topo .marca img');
+  var elRel = document.getElementById('rel-logo');
+  if (elTopo && elRel && elTopo.src && elTopo.src.indexOf('data:') === 0) {
+    elRel.src = elTopo.src;
+    elRel.style.display = '';
+  }
 }
 
 function salvarEmailsCompra() {

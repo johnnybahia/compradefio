@@ -206,12 +206,15 @@
 
   /* Impressão: mostra só o relatório (tabela), sem topo/menu/botões. */
   .so-print { display: none; }
+  .cabecalho-relatorio { align-items: center; gap: 14px; }
+  .cabecalho-relatorio .logo-relatorio { height: 48px; width: auto; }
   .cabecalho-relatorio h1 { margin: 0 0 6px; font-size: 20px; letter-spacing: .02em; }
   .cabecalho-relatorio p { margin: 0 0 16px; font-size: 13px; color: #334155; }
   @media print {
     @page { margin: 16mm 14mm; }
     .topo, .usuario-box, #menu, .no-print, #ting-msg, #legenda-critico { display: none !important; }
     .so-print { display: block; color: #0B4576; margin: 0 0 10px; }
+    .cabecalho-relatorio.so-print { display: flex; }
     body { background: #fff; }
     main.conteudo { max-width: 100%; padding: 0; }
     .painel { box-shadow: none; border: none; padding: 0; margin: 0; }
