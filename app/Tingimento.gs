@@ -4,9 +4,8 @@
  * as capacidades das máquinas do fornecedor (aba BASE TINGIMENTO).
  *
  * Regra do alvo (kg a tingir), validada com os exemplos do cliente:
- *   - saldo < 0            → alvo = MAX(2 × |saldo|, média)  (cobre o déficit, nunca menos que a média)
- *   - saldo > média mensal → alvo = média                    (só repõe ~1 mês)
- *   - 0 ≤ saldo ≤ média    → alvo = menor máquina             (mínimo)
+ *   - saldo < 0  → alvo = MAX(2 × |saldo|, média)  (cobre o déficit, nunca menos que a média)
+ *   - saldo ≥ 0  → alvo = média                    (repõe ~1 mês de consumo)
  *
  * Seleção de máquinas: escolhe capacidades (repetição permitida) cuja soma
  * fique o mais perto possível do alvo, usando o MENOR número de máquinas
@@ -14,12 +13,11 @@
  */
 
 /** Alvo em kg a ser coberto pelo tingimento. */
-function _alvoTingimento(saldo, media, minCap) {
+function _alvoTingimento(saldo, media) {
   saldo = Number(saldo) || 0;
   media = Number(media) || 0;
   if (saldo < 0) return Math.max(2 * Math.abs(saldo), media);
-  if (saldo > media) return media;
-  return minCap;
+  return media;
 }
 
 /**
@@ -133,7 +131,7 @@ function _criarCalculadoraTingimento() {
     });
     if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
     if (!achado) return { tipoFio: '', alvo: 0, maquinas: [], total: 0 };
-    var alvo = _alvoTingimento(saldo, media, achado.minCap);
+    var alvo = _alvoTingimento(saldo, media);
     var sel = _selecionarMaquinas(alvo, achado.caps);
     return { tipoFio: achado.tipoFio, alvo: alvo, maquinas: sel.maquinas, total: sel.total };
   };

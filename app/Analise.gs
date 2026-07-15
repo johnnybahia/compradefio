@@ -89,14 +89,15 @@ function listarItensParaAnalise(token, params) {
     var chave = _norm(mov.item);
     if (!chave) return;
     if (!porItem[chave]) {
-      porItem[chave] = { item: String(mov.item).trim(), ultimo: null, saldo: 0, noPeriodo: false, saidas3m: 0 };
+      porItem[chave] = { item: String(mov.item).trim(), ultimo: null, saldo: 0, obsEstoque: '', noPeriodo: false, saidas3m: 0 };
     }
     var reg = porItem[chave];
 
-    // saldo final = saldo do lançamento mais recente do item
+    // saldo final = saldo do lançamento mais recente do item (e a OBS desse mesmo lançamento)
     if (!reg.ultimo || mov.data.getTime() > reg.ultimo.getTime()) {
       reg.ultimo = mov.data;
       reg.saldo = mov.saldo;
+      reg.obsEstoque = mov.obs;
     }
     // item entra na lista se teve lançamento dentro do período
     if (mov.data.getTime() >= inicio.getTime() && mov.data.getTime() <= fim.getTime()) {
@@ -123,6 +124,7 @@ function listarItensParaAnalise(token, params) {
       cliente: d.cliente,
       motivo: d.motivo,
       saldo: r.saldo,
+      obsEstoque: r.obsEstoque,
       emViagem: emViagem,
       consumoMedio: media,
       tipoFio: t.tipoFio,
@@ -216,8 +218,8 @@ function obterRelacaoDeCompra(token) {
 
 /**
  * Lê a aba ESTOQUE e devolve uma lista de movimentos
- * { item, data, entrada, saida, saldo }. As colunas são localizadas pelo
- * nome do cabeçalho (sem depender de acentos, maiúsculas ou posição).
+ * { item, data, entrada, saida, saldo, obs }. As colunas são localizadas
+ * pelo nome do cabeçalho (sem depender de acentos, maiúsculas ou posição).
  */
 function _lerEstoque() {
   var sh = _aba(CONFIG.SHEETS.ESTOQUE);
@@ -238,6 +240,7 @@ function _lerEstoque() {
   var iEntrada = col(['entrada']);
   var iSaida = col(['saida']);   // "Saída" → "saida"
   var iSaldo = col(['saldo']);   // "Saldo" (não confundir com "saldo anterior")
+  var iObs = col(['obs']);       // coluna E da aba ESTOQUE
   if (iItem < 0 || iData < 0 || iSaldo < 0) {
     throw new Error('A aba ESTOQUE precisa ter as colunas Item, Data e Saldo no cabeçalho.');
   }
@@ -251,7 +254,8 @@ function _lerEstoque() {
       data: _parseData(r[iData]),
       entrada: iEntrada >= 0 ? (parseFloat(r[iEntrada]) || 0) : 0,
       saida: iSaida >= 0 ? (parseFloat(r[iSaida]) || 0) : 0,
-      saldo: parseFloat(r[iSaldo]) || 0
+      saldo: parseFloat(r[iSaldo]) || 0,
+      obs: iObs >= 0 ? (r[iObs] == null ? '' : String(r[iObs]).trim()) : ''
     });
   });
   return out;
