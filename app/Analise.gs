@@ -132,8 +132,14 @@ function listarItensParaAnalise(token, params) {
       dataLimite: dataLimiteDe(r.item)
     });
   });
-  // Do saldo (já somado ao que está em viagem) menor para o maior — mais críticos primeiro.
-  itens.sort(function (a, b) { return (Number(a.saldo) + Number(a.emViagem)) - (Number(b.saldo) + Number(b.emViagem)); });
+  // Itens de fio primeiro (do saldo menor para o maior, mais críticos primeiro);
+  // os que não são fio (sem tipo de fio identificado) ficam no fim da lista.
+  itens.sort(function (a, b) {
+    var aNaoFio = a.tipoFio ? 0 : 1;
+    var bNaoFio = b.tipoFio ? 0 : 1;
+    if (aNaoFio !== bNaoFio) return aNaoFio - bNaoFio;
+    return (Number(a.saldo) + Number(a.emViagem)) - (Number(b.saldo) + Number(b.emViagem));
+  });
 
   var msg = itens.length
     ? itens.length + ' item(ns) lançado(s) no período.'
