@@ -29,6 +29,14 @@ function _ordenarPorDataLimite(regs) {
   });
 }
 
+/** true quando o SALDO gravado no registro é negativo ou zero — usado só para
+ * destacar a linha (não expõe o número em si, que continua fora desta tela). */
+function _saldoCritico(r) {
+  if (r.SALDO === '' || r.SALDO == null) return false;
+  var n = Number(r.SALDO);
+  return !isNaN(n) && n <= 0;
+}
+
 /**
  * Lista para o painel de Tingimento (a partir da RELACAO_COMPRA gravada).
  * A relação acumula pedidos ao longo do tempo — aqui só entram os itens
@@ -47,7 +55,8 @@ function obterListaTingimento(token) {
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
       dataLimite: _soData(r.DATA_LIMITE),
-      obs: r.OBS == null ? '' : String(r.OBS)
+      obs: r.OBS == null ? '' : String(r.OBS),
+      saldoCritico: _saldoCritico(r)
     };
   });
   return { ok: true, linhas: linhas };
@@ -152,7 +161,8 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
       'color:#fff;text-align:left;font-size:13px">' + c[1] + '</th>';
   }).join('');
   var rows = regs.map(function (r) {
-    return '<tr>' + cols.map(function (c) {
+    var trStyle = _saldoCritico(r) ? ' style="background:#FBEAE9"' : '';
+    return '<tr' + trStyle + '>' + cols.map(function (c) {
       var v = (c[0] === 'DATA_LIMITE') ? _soData(r[c[0]]) : r[c[0]];
       if (v === '' || v == null) v = '';
       return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
@@ -164,7 +174,9 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
     ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>' +
     '<table style="border-collapse:collapse">' +
     '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+    '<p style="font-size:12px;color:#C0342C;margin-top:10px">Linhas destacadas: saldo de estoque ' +
+    'negativo ou zero.</p>' +
+    '<p style="color:#64748b;font-size:12px;margin-top:6px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
 /** Campos editáveis no painel de tingimento. */
