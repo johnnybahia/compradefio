@@ -113,10 +113,16 @@ function _lerBaseTingimento() {
  * Cria a calculadora de tingimento (lê a base uma vez).
  * Devolve uma função calc(item, saldo, media) →
  *   { tipoFio, alvo, maquinas:[...], total }.
- * O tipo de fio é achado pelo padrão (mais longo) contido no nome do item.
+ * O tipo de fio é achado pelo padrão (mais longo) contido no código do item —
+ * exceto o poliéster, que (diferente dos outros tipos) não tem sufixo no
+ * código (ex.: "5233", "106"), então é usado como padrão-reserva quando o
+ * código é só números e nenhum padrão mais específico bateu.
  */
 function _criarCalculadoraTingimento() {
   var base = _lerBaseTingimento();
+  var poliester = null;
+  base.forEach(function (b) { if (b.patternNorm === 'poliester') poliester = b; });
+
   return function (item, saldo, media) {
     var it = _norm(item);
     var achado = null;
@@ -125,6 +131,7 @@ function _criarCalculadoraTingimento() {
         if (!achado || b.patternNorm.length > achado.patternNorm.length) achado = b;
       }
     });
+    if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
     if (!achado) return { tipoFio: '', alvo: 0, maquinas: [], total: 0 };
     var alvo = _alvoTingimento(saldo, media, achado.minCap);
     var sel = _selecionarMaquinas(alvo, achado.caps);
