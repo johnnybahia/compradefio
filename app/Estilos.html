@@ -210,7 +210,7 @@
   .cabecalho-relatorio p { margin: 0 0 16px; font-size: 13px; color: #334155; }
   @media print {
     @page { margin: 16mm 14mm; }
-    .topo, .usuario-box, #menu, .no-print, #ting-msg { display: none !important; }
+    .topo, .usuario-box, #menu, .no-print, #ting-msg, #legenda-critico { display: none !important; }
     .so-print { display: block; color: #0B4576; margin: 0 0 10px; }
     body { background: #fff; }
     main.conteudo { max-width: 100%; padding: 0; }
@@ -224,5 +224,9 @@
     input[type="date"]::-webkit-calendar-picker-indicator { display: none !important; }
     table.dados { font-size: 11px; }
     table.dados thead th { background: #eef2f6 !important; color: #0B4576 !important; }
+    /* O destaque de saldo crítico é só para conferência na tela antes de
+       imprimir/enviar — não deve sair na folha impressa. */
+    #tabela-ting tr.destaque { background: none !important; }
+    #tabela-ting tr.destaque td:nth-child(5) { color: inherit !important; font-weight: normal !important; }
   }
 </style>

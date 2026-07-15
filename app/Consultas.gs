@@ -161,8 +161,7 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
       'color:#fff;text-align:left;font-size:13px">' + c[1] + '</th>';
   }).join('');
   var rows = regs.map(function (r) {
-    var trStyle = _saldoCritico(r) ? ' style="background:#FBEAE9"' : '';
-    return '<tr' + trStyle + '>' + cols.map(function (c) {
+    return '<tr>' + cols.map(function (c) {
       var v = (c[0] === 'DATA_LIMITE') ? _soData(r[c[0]]) : r[c[0]];
       if (v === '' || v == null) v = '';
       return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
@@ -174,9 +173,7 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
     ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>' +
     '<table style="border-collapse:collapse">' +
     '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<p style="font-size:12px;color:#C0342C;margin-top:10px">Linhas destacadas: saldo de estoque ' +
-    'negativo ou zero.</p>' +
-    '<p style="color:#64748b;font-size:12px;margin-top:6px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
 /** Campos editáveis no painel de tingimento. */
