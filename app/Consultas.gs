@@ -13,6 +13,23 @@ function _emAberto(r) {
 }
 
 /**
+ * Ordena os registros pela DATA_LIMITE (data limite de embarque) — a mais
+ * próxima primeiro, para o tingimento priorizar quem embarca antes. Itens
+ * sem data ficam por último (não são urgência de prazo). Usado tanto na
+ * tela quanto no relatório (PDF/e-mail), para os dois seguirem a mesma ordem.
+ */
+function _ordenarPorDataLimite(regs) {
+  return regs.slice().sort(function (a, b) {
+    var da = _parseData(a.DATA_LIMITE);
+    var db = _parseData(b.DATA_LIMITE);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da.getTime() - db.getTime();
+  });
+}
+
+/**
  * Lista para o painel de Tingimento (a partir da RELACAO_COMPRA gravada).
  * A relação acumula pedidos ao longo do tempo — aqui só entram os itens
  * ainda EM ABERTO (o tingimento pode não dar conta de tudo de uma vez).
@@ -20,7 +37,7 @@ function _emAberto(r) {
  */
 function obterListaTingimento(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
-  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto);
+  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto));
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
@@ -99,7 +116,7 @@ function enviarRelatorioCompra(token) {
   if (!lista.length) {
     throw new Error('Informe pelo menos um e-mail de destino (separados por ;).');
   }
-  var regs = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto);
+  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto));
   if (!regs.length) {
     throw new Error('Não há itens em aberto na relação de compra para enviar. Gere a compra primeiro.');
   }
