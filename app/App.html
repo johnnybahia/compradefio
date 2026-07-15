@@ -374,6 +374,7 @@ function renderLista(itens) {
       '<td>' + desc + '</td>' +
       '<td>' + (it.cliente ? it.cliente : '—') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
+      '<td>' + (it.obsEstoque ? it.obsEstoque : '—') + '</td>' +
       '<td style="text-align:right">' + (it.emViagem ? num(it.emViagem) : '—') + '</td>' +
       '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
       '<td>' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
@@ -387,17 +388,18 @@ function renderLista(itens) {
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
       '<th style="text-align:center;width:6%;white-space:nowrap">Comprar</th>' +
-      '<th style="width:8%">Item</th>' +
-      '<th style="width:14%">Descrição</th>' +
-      '<th style="width:9%">Cliente</th>' +
+      '<th style="width:7%">Item</th>' +
+      '<th style="width:12%">Descrição</th>' +
+      '<th style="width:8%">Cliente</th>' +
       '<th style="text-align:right;width:6%">Saldo final</th>' +
+      '<th style="width:9%">Obs. estoque</th>' +
       '<th style="text-align:right;width:6%">Em viagem</th>' +
-      '<th style="text-align:right;width:7%">Consumo médio</th>' +
-      '<th style="width:11%">Tipo de fio</th>' +
-      '<th style="width:8%">Máquinas</th>' +
+      '<th style="text-align:right;width:6%">Consumo médio</th>' +
+      '<th style="width:10%">Tipo de fio</th>' +
+      '<th style="width:7%">Máquinas</th>' +
       '<th style="text-align:right;width:5%">Total (kg)</th>' +
-      '<th style="width:9%">Data limite embarque</th>' +
-      '<th style="width:10%">Observação</th>' +
+      '<th style="width:8%">Data limite embarque</th>' +
+      '<th style="width:9%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
 
