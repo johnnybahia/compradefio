@@ -176,6 +176,15 @@
     border: 1px solid var(--borda); border-radius: 6px; font-size: 12px;
   }
   .obs-input:focus, .data-input:focus { outline: none; border-color: var(--azul-claro); }
+  .data-limite-cel { display: flex; align-items: center; gap: 4px; }
+  .data-limite-cel .data-input { flex: 1; min-width: 0; }
+  .btn-atualizar-data {
+    flex: none; width: 24px; height: 24px; padding: 0; box-sizing: border-box;
+    border: 1px solid var(--borda); border-radius: 6px; background: #fff;
+    color: var(--azul); cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  .btn-atualizar-data:hover { background: var(--azul-suave); }
+  .btn-atualizar-data:disabled { opacity: .5; cursor: default; }
 
   .em-construcao {
     text-align: center; color: var(--texto-fraco); padding: 40px 20px;
