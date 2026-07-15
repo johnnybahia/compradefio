@@ -29,6 +29,14 @@ function _ordenarPorDataLimite(regs) {
   });
 }
 
+/** true quando o SALDO gravado no registro é negativo ou zero — usado só para
+ * destacar a linha (não expõe o número em si, que continua fora desta tela). */
+function _saldoCritico(r) {
+  if (r.SALDO === '' || r.SALDO == null) return false;
+  var n = Number(r.SALDO);
+  return !isNaN(n) && n <= 0;
+}
+
 /**
  * Lista para o painel de Tingimento (a partir da RELACAO_COMPRA gravada).
  * A relação acumula pedidos ao longo do tempo — aqui só entram os itens
@@ -47,7 +55,8 @@ function obterListaTingimento(token) {
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
       dataLimite: _soData(r.DATA_LIMITE),
-      obs: r.OBS == null ? '' : String(r.OBS)
+      obs: r.OBS == null ? '' : String(r.OBS),
+      saldoCritico: _saldoCritico(r)
     };
   });
   return { ok: true, linhas: linhas };

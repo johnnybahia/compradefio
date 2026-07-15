@@ -660,6 +660,9 @@ function viewTingimento(alvo) {
         '<h1>PEDIDO DE FIO MARFIM CEARÁ</h1>' +
         '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
       '</div>' +
+      '<p class="legenda-critico no-print" id="legenda-critico" style="display:none">' +
+        'Linhas destacadas: saldo de estoque negativo ou zero (aviso só na tela, ' +
+        'não sai na impressão nem no e-mail).</p>' +
       '<div class="tabela-wrap" id="tabela-ting"></div>' +
     '</section>';
 
@@ -749,12 +752,17 @@ function escAttr(s) {
 
 function renderTingimento(linhas) {
   var wrap = document.getElementById('tabela-ting');
+  var legenda = document.getElementById('legenda-critico');
   if (!linhas || !linhas.length) {
     wrap.innerHTML = '<div class="vazio">Nenhum item para tingir. Gere uma relação na Análise de Compra.</div>';
+    if (legenda) legenda.style.display = 'none';
     return;
   }
+  var temCritico = linhas.some(function (l) { return l.saldoCritico; });
+  if (legenda) legenda.style.display = temCritico ? '' : 'none';
+
   var body = linhas.map(function (l) {
-    return '<tr>' +
+    return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + '>' +
       '<td>' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
