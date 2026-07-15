@@ -41,6 +41,7 @@ var RELACAO_COMPRA_HEADERS = [
   'TIPO_FIO',      // tipo de fio (poliéster, brilhante, reciclado/pet...)
   'SALDO',         // saldo final (último lançamento do item)
   'EM_VIAGEM',     // embarcado e ainda não chegado (aba EMBARQUES, sem "chegou")
+  'ESTOQUE_ENCONTRADO', // contagem avulsa digitada na análise (fora de qualquer controle)
   'CONSUMO_MEDIO', // consumo médio mensal (saídas dos últimos 3 meses ÷ 3)
   'MAQUINAS',      // máquinas de tingimento escolhidas (ex.: "80 + 27")
   'SUGERIDO',      // total do tingimento em kg (soma das máquinas)
@@ -138,6 +139,7 @@ function listarItensParaAnalise(token, params) {
       saldo: r.saldo,
       obsEstoque: r.obsEstoque,
       emViagem: emViagem,
+      estoqueEncontrado: 0,
       consumoMedio: media,
       tipoFio: t.tipoFio,
       alvo: t.alvo,
@@ -191,6 +193,32 @@ function consultarDataLimiteItem(token, item) {
 }
 
 /**
+ * Reconsulta, na hora, o pedido de tingimento (máquinas/total) de UM item
+ * somando o "estoque encontrado" (contagem avulsa, digitada manualmente na
+ * Análise de Compra para um valor que apareceu mas não está em nenhum
+ * controle já implementado) ao saldo + em viagem — sem rodar a análise
+ * inteira de novo. Recalcula a necessidade de compra em tempo real.
+ * @param {Object} params { item, saldo, emViagem, estoqueEncontrado, consumoMedio }
+ * @return {Object} { ok, tipoFio, maquinas, totalTingimento }
+ */
+function recalcularTingimentoItem(token, params) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  params = params || {};
+  var item = String(params.item || '').trim();
+  if (!item) throw new Error('Informe o item.');
+
+  var saldo = Number(params.saldo) || 0;
+  var emViagem = Number(params.emViagem) || 0;
+  var estoqueEncontrado = Number(params.estoqueEncontrado) || 0;
+  var media = Number(params.consumoMedio) || 0;
+  var saldoAjustado = saldo + emViagem + estoqueEncontrado;
+
+  var tingimentoDe = _criarCalculadoraTingimento();
+  var t = tingimentoDe(item, saldoAjustado, media);
+  return { ok: true, tipoFio: t.tipoFio, maquinas: t.maquinas.join(' + '), totalTingimento: t.total };
+}
+
+/**
  * ETAPA 2 — Recebe os itens que o master manteve (após excluir os indesejados)
  * e prepara a relação de compra. A conversão pela tabela de tingimento e o
  * desconto de pedidos em aberto serão implementados nas próximas etapas.
@@ -216,6 +244,7 @@ function gerarRelacaoDeCompra(token, params) {
       it.tipoFio || '',
       it.saldo != null ? it.saldo : '',
       it.emViagem != null ? it.emViagem : '',
+      it.estoqueEncontrado ? it.estoqueEncontrado : '', // ESTOQUE_ENCONTRADO
       it.consumoMedio != null ? it.consumoMedio : '',
       it.maquinas || '',
       it.totalTingimento != null ? it.totalTingimento : '',

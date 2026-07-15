@@ -171,11 +171,12 @@
   table.dados tbody tr.destaque td:nth-child(5) { color: #C0392B; font-weight: 700; }
   .vazio { padding: 26px; text-align: center; color: var(--texto-fraco); font-size: 14px; }
   .sem-desc { color: #94A3B8; font-style: italic; font-size: 12px; }
-  .obs-input, .data-input {
+  .obs-input, .data-input, .estoque-input {
     width: 100%; min-width: 0; padding: 5px 6px; box-sizing: border-box;
     border: 1px solid var(--borda); border-radius: 6px; font-size: 12px;
   }
-  .obs-input:focus, .data-input:focus { outline: none; border-color: var(--azul-claro); }
+  .obs-input:focus, .data-input:focus, .estoque-input:focus { outline: none; border-color: var(--azul-claro); }
+  .estoque-input { text-align: right; }
   .data-limite-cel { display: flex; align-items: center; gap: 4px; }
   .data-limite-cel .data-input { flex: 1; min-width: 0; }
   .btn-atualizar-data {
@@ -208,7 +209,7 @@
     main.conteudo { max-width: 100%; padding: 0; }
     .painel { box-shadow: none; border: none; padding: 0; margin: 0; }
     .painel h2 { display: none; }
-    .obs-input, .data-input {
+    .obs-input, .data-input, .estoque-input {
       border: none !important; padding: 0 !important; background: transparent !important;
       -webkit-appearance: none; appearance: none;
     }

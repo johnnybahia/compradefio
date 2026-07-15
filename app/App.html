@@ -212,7 +212,9 @@ function viewAnalise(alvo) {
       '<p class="desc">Marque a caixa <b>Comprar</b> nos itens que devem ' +
       'entrar na compra. Use o botão ↻ ao lado da <b>data limite de embarque</b> ' +
       'para reconsultar só aquele item, caso a data tenha sido alterada na ' +
-      'outra planilha depois que esta lista foi carregada.</p>' +
+      'outra planilha depois que esta lista foi carregada. Encontrou um ' +
+      'estoque avulso, fora de qualquer controle? Digite em <b>Estoque encontrado</b> — ' +
+      'ele soma ao saldo e recalcula a necessidade de compra (máquinas/total) na hora.</p>' +
       '<div id="lista-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-lista"></div>' +
       '<div style="margin-top:16px">' +
@@ -387,10 +389,13 @@ function renderLista(itens) {
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
       '<td>' + (it.obsEstoque ? it.obsEstoque : '—') + '</td>' +
       '<td style="text-align:right">' + (it.emViagem ? num(it.emViagem) : '—') + '</td>' +
+      '<td><input type="number" class="estoque-input" data-idx="' + i + '" min="0" step="any" ' +
+        'value="' + (it.estoqueEncontrado ? it.estoqueEncontrado : '') + '" placeholder="0" ' +
+        'title="Contagem avulsa encontrada, fora de qualquer controle — soma ao saldo e recalcula a necessidade de compra."></td>' +
       '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
-      '<td>' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
-      '<td>' + (it.maquinas ? it.maquinas : '—') + '</td>' +
-      '<td style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
+      '<td class="cel-tipofio" data-idx="' + i + '">' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
+      '<td class="cel-maquinas" data-idx="' + i + '">' + (it.maquinas ? it.maquinas : '—') + '</td>' +
+      '<td class="cel-total" data-idx="' + i + '" style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
       '<td><div class="data-limite-cel">' +
         '<input type="date" class="data-input" data-idx="' + i + '" value="' + brParaISO(it.dataLimite) + '">' +
         '<button type="button" class="btn-atualizar-data no-print" data-idx="' + i + '" ' +
@@ -403,18 +408,19 @@ function renderLista(itens) {
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
       '<th style="text-align:center;width:6%;white-space:nowrap">Comprar</th>' +
-      '<th style="width:7%">Item</th>' +
-      '<th style="width:12%">Descrição</th>' +
-      '<th style="width:8%">Cliente</th>' +
-      '<th style="text-align:right;width:6%">Saldo final</th>' +
-      '<th style="width:9%">Obs. estoque</th>' +
-      '<th style="text-align:right;width:6%">Em viagem</th>' +
-      '<th style="text-align:right;width:6%">Consumo médio</th>' +
-      '<th style="width:10%">Tipo de fio</th>' +
-      '<th style="width:7%">Máquinas</th>' +
+      '<th style="width:6%">Item</th>' +
+      '<th style="width:11%">Descrição</th>' +
+      '<th style="width:7%">Cliente</th>' +
+      '<th style="text-align:right;width:5%">Saldo final</th>' +
+      '<th style="width:8%">Obs. estoque</th>' +
+      '<th style="text-align:right;width:5%">Em viagem</th>' +
+      '<th style="text-align:right;width:7%">Estoque encontrado</th>' +
+      '<th style="text-align:right;width:5%">Consumo médio</th>' +
+      '<th style="width:9%">Tipo de fio</th>' +
+      '<th style="width:6%">Máquinas</th>' +
       '<th style="text-align:right;width:5%">Total (kg)</th>' +
-      '<th style="width:10%">Data limite embarque</th>' +
-      '<th style="width:7%">Observação</th>' +
+      '<th style="width:9%">Data limite embarque</th>' +
+      '<th style="width:6%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
 
@@ -434,7 +440,46 @@ function renderLista(itens) {
       atualizarDataLimiteLinha(Number(btn.getAttribute('data-idx')), btn);
     });
   });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.estoque-input'), function (inp) {
+    inp.addEventListener('change', function () {
+      atualizarEstoqueEncontradoLinha(Number(inp.getAttribute('data-idx')), inp);
+    });
+  });
   reaplicarDestaque();
+}
+
+/** Soma o "estoque encontrado" ao saldo + em viagem e reconsulta o pedido de
+ * tingimento daquele item, para recalcular a necessidade de compra na hora. */
+function atualizarEstoqueEncontradoLinha(idx, inp) {
+  var it = estadoAnalise.itens[idx];
+  if (!it) return;
+  var msg = document.getElementById('lista-msg');
+  it.estoqueEncontrado = inp.value === '' ? 0 : Number(inp.value) || 0;
+  reaplicarDestaque(); // o realce (saldo ≤ base) já reflete o valor digitado, na hora
+
+  inp.disabled = true;
+  chamar('recalcularTingimentoItem', sessao.token, {
+    item: it.item, saldo: it.saldo, emViagem: it.emViagem,
+    estoqueEncontrado: it.estoqueEncontrado, consumoMedio: it.consumoMedio
+  })
+    .then(function (r) {
+      inp.disabled = false;
+      it.tipoFio = r.tipoFio || '';
+      it.maquinas = r.maquinas || '';
+      it.totalTingimento = r.totalTingimento || 0;
+      var tdTipo = document.querySelector('.cel-tipofio[data-idx="' + idx + '"]');
+      var tdMaq = document.querySelector('.cel-maquinas[data-idx="' + idx + '"]');
+      var tdTot = document.querySelector('.cel-total[data-idx="' + idx + '"]');
+      if (tdTipo) tdTipo.textContent = it.tipoFio || '—';
+      if (tdMaq) tdMaq.textContent = it.maquinas || '—';
+      if (tdTot) tdTot.textContent = it.totalTingimento ? num(it.totalTingimento) : '—';
+      if (msg) msg.innerHTML = '';
+    })
+    .catch(function (err) {
+      inp.disabled = false;
+      var m = tratarErro(err);
+      if (m && msg) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
 }
 
 /** Reconsulta, na hora, a data limite de embarque de UM item (vem de outra
@@ -469,7 +514,7 @@ function reaplicarDestaque() {
   var linhas = document.querySelectorAll('#tabela-lista tbody tr');
   Array.prototype.forEach.call(linhas, function (tr) {
     var it = estadoAnalise.itens[Number(tr.getAttribute('data-idx'))];
-    var saldo = it ? Number(it.saldo) + Number(it.emViagem || 0) : NaN;
+    var saldo = it ? Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0) : NaN;
     if (!isNaN(base) && !isNaN(saldo) && saldo <= base) {
       tr.classList.add('destaque');
     } else {
@@ -519,15 +564,16 @@ function renderRelacaoSalva(linhas) {
   if (!painel || !wrap) return;
   if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
-  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'EM_VIAGEM', 'CONSUMO_MEDIO',
-              'MAQUINAS', 'SUGERIDO', 'DATA_LIMITE', 'OBS', 'STATUS', 'GERADO_EM'];
+  var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'EM_VIAGEM', 'ESTOQUE_ENCONTRADO',
+              'CONSUMO_MEDIO', 'MAQUINAS', 'SUGERIDO', 'DATA_LIMITE', 'OBS', 'STATUS', 'GERADO_EM'];
   var rot = {
     ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', TIPO_FIO: 'Tipo de fio',
-    SALDO: 'Saldo final', EM_VIAGEM: 'Em viagem', CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
+    SALDO: 'Saldo final', EM_VIAGEM: 'Em viagem', ESTOQUE_ENCONTRADO: 'Estoque encontrado',
+    CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
     SUGERIDO: 'Total (kg)', DATA_LIMITE: 'Data limite embarque', OBS: 'Observação',
     STATUS: 'Status', GERADO_EM: 'Gerado em'
   };
-  var numericas = { SALDO: 1, EM_VIAGEM: 1, CONSUMO_MEDIO: 1, SUGERIDO: 1 };
+  var numericas = { SALDO: 1, EM_VIAGEM: 1, ESTOQUE_ENCONTRADO: 1, CONSUMO_MEDIO: 1, SUGERIDO: 1 };
   var th = cols.map(function (c) { return '<th>' + rot[c] + '</th>'; }).join('');
   var body = linhas.map(function (l) {
     return '<tr>' + cols.map(function (c) {
