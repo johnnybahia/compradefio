@@ -634,19 +634,24 @@ function excluirRelacao() {
 // Número do pedido (peek) + data de emissão, para o cabeçalho da impressão.
 // Só avança de verdade depois que o e-mail é enviado (obterNumeroPedido nunca consome).
 var pedidoInfo = { numero: null, data: null };
+// Lista carregada da RELACAO_COMPRA (já vem ordenada por data limite do servidor);
+// mantida aqui para reordenar na hora quando o usuário edita uma data, sem recarregar a tela.
+var estadoTingimento = { linhas: [] };
 
 function viewTingimento(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Relação de compra / Tingimento</h2>' +
-      '<p class="desc no-print">Itens enviados para tingir (gerados na Análise de Compra). ' +
-      'O número do pedido só avança depois que o e-mail é enviado.</p>' +
+      '<p class="desc no-print">Itens enviados para tingir (gerados na Análise de Compra), ' +
+      'ordenados pela <b>data limite de embarque</b> mais próxima. Ao alterar uma data, a lista ' +
+      'se reordena sozinha. O número do pedido só avança depois que o e-mail é enviado.</p>' +
       '<div class="linha-form no-print">' +
         '<div class="campo" style="flex:1;min-width:260px">' +
           '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
           '<input type="text" id="emails-compra" placeholder="fulano@empresa.com; ciclano@empresa.com">' +
         '</div>' +
         '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>' +
+        '<button class="btn-principal" id="btn-reordenar">Reordenar por data limite</button>' +
         '<button class="btn-principal" id="btn-imprimir">Imprimir</button>' +
         '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>' +
       '</div>' +
@@ -661,6 +666,10 @@ function viewTingimento(alvo) {
   document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
   document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
   document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
+  document.getElementById('btn-reordenar').onclick = function () {
+    estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
+    renderTingimento(estadoTingimento.linhas);
+  };
 
   chamar('obterDestinatarios', sessao.token)
     .then(function (r) { document.getElementById('emails-compra').value = r.emails || ''; })
@@ -673,7 +682,8 @@ function viewTingimento(alvo) {
   chamar('obterListaTingimento', sessao.token)
     .then(function (r) {
       msg.innerHTML = '';
-      renderTingimento(r.linhas);
+      estadoTingimento.linhas = r.linhas || [];
+      renderTingimento(estadoTingimento.linhas);
     })
     .catch(function (err) {
       var m = tratarErro(err);
@@ -768,7 +778,34 @@ function renderTingimento(linhas) {
     inp.addEventListener('change', function () { salvarCampoTing(inp, 'OBS', inp.value); });
   });
   Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
-    inp.addEventListener('change', function () { salvarCampoTing(inp, 'DATA_LIMITE', isoParaBR(inp.value)); });
+    inp.addEventListener('change', function () {
+      var linha = Number(inp.getAttribute('data-linha'));
+      var novaData = isoParaBR(inp.value);
+      salvarCampoTing(inp, 'DATA_LIMITE', novaData, function () {
+        var alvo = null;
+        estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
+        if (alvo) alvo.dataLimite = novaData;
+        estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
+        renderTingimento(estadoTingimento.linhas);
+      });
+    });
+  });
+}
+
+/** Ordena a lista do tingimento pela data limite de embarque, a mais próxima
+ * primeiro (mesmo critério do servidor) — usada ao reordenar na tela depois
+ * de editar uma data, sem precisar recarregar tudo do zero. */
+function ordenarTingimentoPorDataLimite(linhas) {
+  function ms(s) {
+    var m = String(s == null ? '' : s).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : null;
+  }
+  return linhas.slice().sort(function (a, b) {
+    var da = ms(a.dataLimite), db = ms(b.dataLimite);
+    if (da == null && db == null) return 0;
+    if (da == null) return 1;
+    if (db == null) return -1;
+    return da - db;
   });
 }
 
@@ -793,10 +830,13 @@ function isoParaBR(s) {
   return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
 }
 
-function salvarCampoTing(inp, campo, valor) {
+function salvarCampoTing(inp, campo, valor, aoSalvar) {
   inp.style.borderColor = '#CBD5E1';
   chamar('salvarCampoTingimento', sessao.token, inp.getAttribute('data-linha'), campo, valor)
-    .then(function () { inp.style.borderColor = '#1F9D55'; })
+    .then(function () {
+      inp.style.borderColor = '#1F9D55';
+      if (aoSalvar) aoSalvar();
+    })
     .catch(function (err) {
       inp.style.borderColor = '#D0342C';
       tratarErro(err);
