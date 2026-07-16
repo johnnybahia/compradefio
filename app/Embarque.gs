@@ -13,17 +13,28 @@
  * cliente. A base é fixa; descrições novas/variações são aprendidas.
  */
 
-/** Regras de sufixo por tipo de fio (procura a 1ª palavra-chave contida na descrição). */
+/**
+ * Regras de sufixo por tipo de fio: cada uma lista as palavras-chave que
+ * precisam aparecer TODAS na descrição (da mais específica para a mais
+ * genérica — a primeira cujas palavras batem todas vence). A ordem importa:
+ * "reflex" sozinho e "reflex"+"reciclado" juntos são produtos diferentes
+ * ("Fio Reflexx cor X" vs "Fio Reciclado Reflexx cor X"), por isso a
+ * combinação mais específica é checada antes da palavra isolada.
+ */
 function _regrasSufixoEmbarque() {
   return [
-    { kw: 'brilhante', suf: ' BRILHANTE' },
-    { kw: 'polimp',    suf: '/P' },
-    { kw: 'reflex',    suf: '/1 RECICLADO' },
-    { kw: 'reciclado', suf: '/1 RECICLADO' },
-    { kw: 'lavado',    suf: ' LAVADO' },
-    { kw: '30/2',      suf: ' 30-2' },
-    { kw: 'alpina',    suf: ' 30-2' },
-    { kw: 'poliester', suf: '' }
+    { kws: ['brilhante'],           suf: ' BRILHANTE' },
+    { kws: ['polimp'],              suf: '/P' },
+    { kws: ['reflex', '1 cabo'],    suf: '/1 1 CABO' },          // ex.: "Fio Reflex 1 Cabo"
+    { kws: ['reciclado', '1 cabo'], suf: ' RECICLADO 1 CABO' },  // ex.: "Fio Reciclado 1 Cabo"
+    { kws: ['pet', '1 cabo'],       suf: ' RECICLADO 1 CABO' },  // ex.: "Fio Pet 1 Cabo" (sem a palavra "reciclado")
+    { kws: ['reflex', 'reciclado'], suf: '/1 RECICLADO' },       // ex.: "Fio Reciclado Reflexx" (2 cabos)
+    { kws: ['reflex'],              suf: '/1' },                 // ex.: "Fio Reflexx" puro (2 cabos)
+    { kws: ['reciclado'],           suf: '/1 RECICLADO' },       // ex.: "Fio Reciclado" puro (2 cabos)
+    { kws: ['lavado'],              suf: ' LAVADO' },
+    { kws: ['30/2'],                suf: ' 30-2' },
+    { kws: ['alpina'],              suf: ' 30-2' },
+    { kws: ['poliester'],           suf: '' }
   ];
 }
 
@@ -61,6 +72,18 @@ function _parseEmbarque(texto) {
     var mdt = resto.match(/^(\d{2}\/\d{2}\/\d{4})/);
     if (mdt) { data = mdt[1]; resto = resto.slice(mdt[0].length); }
     corpo = resto;
+  }
+
+  // Remove o cabeçalho fixo da tabela ("Descrição dos produtos Quantidade
+  // Preço O.C <número>") quando ele vem colado antes do 1º item (sem quebra
+  // de linha depois da normalização) — senão "O.C <número>" entra junto no
+  // "tipo" do 1º item (a classe do grupo aceita dígitos e espaços). Só corta
+  // se o cabeçalho aparecer ANTES da 1ª palavra "cor", pra nunca arriscar
+  // cortar algo dentro da lista de itens de verdade.
+  var primeiroCor = corpo.search(/\bcor\b/i);
+  var mHeader = corpo.match(/o\.?c\.?\s*\d+\s*/i);
+  if (mHeader && primeiroCor !== -1 && mHeader.index + mHeader[0].length <= primeiroCor) {
+    corpo = corpo.slice(mHeader.index + mHeader[0].length);
   }
 
   var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,24}?)\s*\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
@@ -173,7 +196,8 @@ function analisarEmbarquePdf(token, base64, nome) {
     } else {
       var suf = null, t = _norm(l.tipo);
       for (var i = 0; i < regras.length; i++) {
-        if (t.indexOf(regras[i].kw) !== -1) { suf = regras[i]; break; }
+        var todasBatem = regras[i].kws.every(function (k) { return t.indexOf(k) !== -1; });
+        if (todasBatem) { suf = regras[i]; break; }
       }
       if (suf) {
         var cand = _codEmbarque(l.codigo) + suf.suf;
