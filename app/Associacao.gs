@@ -2,76 +2,184 @@
  * Associacao.gs
  * Lógica da aba ASSOCIAÇÃO — a origem dos itens novos.
  *
- * 1. _normalizarCor(codigo): reproduz a fórmula da coluna B (código cru →
- *    nome padrão). Ex.: "4662/PET" → "4662/1 RECICLADO". Validado 346/346
- *    contra a planilha real.
+ * 1. _transformarFio(codigo): reproduz a fórmula (histórica: `TRANSFORMAR_FIO`,
+ *    usada como função personalizada na planilha da Bahia) que normaliza um
+ *    código cru para até 3 nomes padrão — mais de um quando o código é
+ *    composto (ex.: "4085 / COR 987", dois pedidos juntos numa linha só).
+ *    Ex.: "4662/PET" → ["4662/1 RECICLADO", "", ""].
  *
  * 2. detectarItensNovos(token): reproduz a coluna H — pega os códigos únicos
  *    da produção (PEDIDO DE FIO, coluna O) que ainda NÃO estão cadastrados na
  *    coluna A da ASSOCIAÇÃO. São os itens novos a cadastrar.
  *
  * 3. registrarItensNovos(token): cadastra automaticamente os itens novos
- *    (acrescenta o código na coluna A e o nome padrão na coluna B), sem tocar
- *    nas fórmulas já existentes.
+ *    (código na coluna A, nome[s] nas colunas B/C/D), sem tocar nas fórmulas
+ *    já existentes.
  */
 
 /**
- * Normaliza um código de cor para o nome padrão (coluna B da ASSOCIAÇÃO).
- * SEARCH é tratado como "contém" (sem diferenciar maiúsc./minúsc.), e as
- * substituições respeitam maiúsculas/minúsculas, como no Sheets.
+ * Normaliza um código de cor para até 3 nomes padrão (colunas B/C/D da
+ * ASSOCIAÇÃO — mais de um valor só quando o código é composto). Porta fiel
+ * da função `TRANSFORMAR_FIO` (fórmula personalizada já usada na planilha
+ * da Bahia) — mantida ramo a ramo igual ao original, sem reescrever a
+ * lógica por dentro, para não arriscar divergir do que já foi validado com
+ * dados reais.
+ * @return {Array<string>} sempre com 3 posições; as que sobram vêm ''.
  */
-function _normalizarCor(codigo) {
-  var A = String(codigo == null ? '' : codigo).trim();
-  if (A === '') return '';
-  var up = A.toUpperCase();
-  function has(sub) { return up.indexOf(sub.toUpperCase()) !== -1; }
-  function pos(sub) { var i = up.indexOf(sub.toUpperCase()); return i < 0 ? -1 : i + 1; }
-  function primeiro(v) { return String(v).split('|')[0]; }
+function _transformarFio(codigo) {
+  var a = String(codigo == null ? '' : codigo).trim();
+  if (a === '101') return ['101 LAVADO', '', ''];
+  if (a === '102') return ['102 LAVADO', '', ''];
+  if (a === '2000') return ['2000 LAVADO 30-2', '', ''];
 
-  var res;
-  if (A === '101') res = '101 LAVADO';
-  else if (A === '102') res = '102 LAVADO';
-  else if (A === '2000') res = '2000 LAVADO 30-2';
-  else if (has('/PET') && has('1 CABO')) {
-    // Ex.: "6255/PET 1 CABO" → "6255 RECICLADO 1 CABO" (o fio de 1 cabo não
-    // leva o prefixo "/1"; é um produto diferente do "/PET" 2 cabos comum).
-    res = A.replace(/\/PET\s*/i, ' RECICLADO ').replace(/\s+/g, ' ').trim();
-  } else if (has('/PET') && has('COR')) {
-    res = primeiro(A.replace(/\/PET/g, '/1 RECICLADO').replace(/ \/ COR /g, '|').replace(/COR/g, ''));
-  } else if (has('/PET')) {
-    res = A.replace(/\/PET/g, '/1 RECICLADO');
-  } else if (has('/1PET')) {
-    res = A.toUpperCase().replace(/\/1PET/g, '/1 RECICLADO');
-  } else if (has('PONTEIRA')) {
-    res = A.substring(0, pos('PONTEIRA') - 5).trim();
-  } else if (has('PERSONALIZADA')) {
-    res = A.substring(0, pos('PONT') - 2).trim();
-  } else if (A.charAt(0) === '2' && A.length === 4) {
-    res = A + ' 30-2';
-  } else if (has('/BT')) {
-    // Ex.: "6180/BT" → "6180/BT-76/36" (fio BT, tem receita própria em
-    // BASE TINGIMENTO). Precisa vir antes de "/B" (que também bateria aqui).
-    res = A.replace(/\/BT/gi, '/BT-76/36');
-  } else if (has('/B') && has('COR')) {
-    res = A.substring(0, pos('/B') - 1).trim() + ' BRILHANTE';
-  } else if (has('COR')) {
-    res = A.replace(/COR/g, '').replace(/\//g, '').split(' ')[0];
-  } else if (has('/B')) {
-    res = A.substring(0, pos('/B') - 1).trim() + ' BRILHANTE';
-  } else if (A.charAt(0) === '0') {
-    res = A.replace(/^0+/, '');
-  } else {
-    res = A;
+  var au = a.toUpperCase();
+  var hasPET      = au.indexOf('/PET') !== -1;
+  var hasCOR      = au.indexOf('COR') !== -1;
+  var hasB        = /\/B(?!T)/i.test(a);
+  var hasCABO     = au.indexOf('CABO') !== -1;
+  var has1PET     = au.indexOf('/1PET') !== -1;
+  var has1P       = /\/1P/i.test(a);
+  var hasPONTEIRA = au.indexOf('PONTEIRA') !== -1;
+  var hasPERS     = au.indexOf('PERSONALIZADA') !== -1;
+  var hasBT       = au.indexOf('/BT') !== -1;
+
+  function stripZeros(s) {
+    s = s.trim();
+    return s.replace(/^(0+)(\d)/, '$2');
   }
-  // Coerção de zeros à esquerda em resultado puramente numérico (como o Sheets faz).
-  if (/^\d+$/.test(res)) res = String(parseInt(res, 10));
-  return res;
+  function stripZerosFull(p) {
+    var match = p.match(/^(\d+)(.*)/);
+    if (match) return stripZeros(match[1]) + match[2];
+    return p;
+  }
+  function pad(arr, len) {
+    arr = arr.slice();
+    while (arr.length < len) arr.push('');
+    return arr;
+  }
+
+  // ── /1P ── deve vir antes de COR
+  if (has1P && !has1PET) {
+    var r = a.replace(/\s*\/\s*COR\s*/gi, '|')
+             .replace(/\s+\/\s+(?=\d)/gi, '|');
+    var sp = r.split('|').map(function (p) { return p.trim(); }).filter(Boolean);
+    var primeiroE102 = /^102(\/1P)?$/i.test(sp[0].replace(/\s+TRAMA$/gi, '').trim());
+    var mapped = sp.map(function (p, i) {
+      var base = p.replace(/\s+TRAMA$/gi, '').trim();
+      var baseNum = base.replace(/\/1P$/gi, '').trim();
+      var isUltimo = (i === sp.length - 1);
+      if (/^102$/i.test(baseNum)) {
+        if (isUltimo && primeiroE102) return '481/1P';
+        return '102 LAVADO';
+      }
+      if (isUltimo) return stripZerosFull(baseNum) + '/1P';
+      return stripZerosFull(baseNum);
+    });
+    return pad(mapped, 3);
+  }
+
+  // ── COR (múltiplo ou simples) ──
+  if (hasCOR) {
+    var parts = a.split(/\s*\/\s*COR\s*/i);
+    if (parts.length > 1) {
+      // /PET + COR + /B
+      if (hasPET && hasB && parts.length === 2) {
+        var col1 = stripZeros(parts[0].replace(/\/PET/gi, '').replace(/\/$/, '').trim()) + '/1 RECICLADO';
+        var col2 = stripZeros(parts[1].replace(/\/B\/PET/gi, '').replace(/\/B/gi, '').trim()) + ' BRILHANTE';
+        return pad([col1, col2], 3);
+      }
+      // /PET + COR
+      if (hasPET) {
+        var mapped2 = parts.map(function (p, i) {
+          var base = stripZeros(p.replace(/\/PET/gi, '').replace(/\/$/, '').trim());
+          var out = base + '/1 RECICLADO';
+          if (i === 0 && /^101/i.test(p)) out = base + '/1 RECICLADO LAVADO';
+          return out;
+        });
+        return pad(mapped2, 3);
+      }
+      // COR genérico (sem /PET)
+      var result = parts.map(function (p) {
+        return stripZeros(p.replace(/\//g, '').trim());
+      });
+      return pad(result, 3);
+    }
+  }
+
+  // ── /PET + CABO ──
+  if (hasPET && hasCABO) {
+    var replaced = a.replace(/\/PET/gi, ' RECICLADO');
+    var splitParts = replaced.split('/').map(function (p) {
+      return stripZerosFull(p.trim());
+    }).filter(Boolean);
+    return pad(splitParts, 3);
+  }
+
+  // ── /1PET ──
+  if (has1PET) {
+    return pad([au.replace(/\/1PET/gi, '/1 RECICLADO')], 3);
+  }
+
+  // ── /PET (simples ou múltiplos) ──
+  if (hasPET) {
+    var partsPet = a.split(/\/PET/i);
+    var mappedPet = [];
+    for (var i = 0; i < partsPet.length; i++) {
+      var clean = partsPet[i].trim().replace(/^\/+|\/+$/g, '').trim();
+      if (clean !== '') {
+        var out2 = stripZeros(clean) + '/1 RECICLADO';
+        if (/^101/i.test(clean)) out2 = stripZeros(clean) + '/1 RECICLADO LAVADO';
+        mappedPet.push(out2);
+      }
+    }
+    if (mappedPet.length > 0) return pad(mappedPet, 3);
+  }
+
+  // ── PONTEIRA ──
+  if (hasPONTEIRA) {
+    var idx = au.indexOf('PONTEIRA');
+    return pad([a.substring(0, idx - 2).trim(), a.substring(idx).trim()], 3);
+  }
+
+  // ── PERSONALIZADA ──
+  if (hasPERS) {
+    var pontIdx = au.indexOf('PONT');
+    var persIdx = au.indexOf('PERSONALIZADA');
+    return pad([a.substring(0, pontIdx - 1).trim(), a.substring(persIdx).trim()], 3);
+  }
+
+  // ── 2XXXX (4 dígitos começando com 2) ──
+  if (/^2\d{3}$/.test(a)) {
+    return pad([a + ' 30-2'], 3);
+  }
+
+  // ── /BT ──
+  if (hasBT) {
+    return pad([a.replace(/\/BT/gi, '/BT-76/36')], 3);
+  }
+
+  // ── /B ──
+  if (hasB) {
+    var bIdx = au.indexOf('/B');
+    var colB1 = a.substring(0, bIdx).trim() + ' BRILHANTE';
+    var rest = a.substring(bIdx + 2).replace(/COR/gi, '').replace(/\//g, '').trim();
+    return pad([colB1, rest], 3);
+  }
+
+  // ── começa com 0 ──
+  if (a.charAt(0) === '0') {
+    return pad([stripZeros(a)], 3);
+  }
+
+  return pad([a], 3);
 }
 
 /**
  * Detecta itens novos: códigos da produção (PEDIDO DE FIO, coluna O) que ainda
  * não constam na coluna A da ASSOCIAÇÃO. Somente leitura (não grava).
- * @return {Object} { ok, novos: [{ codigo, nome }] }
+ * `nomes` vem de `_transformarFio` (até 3 posições, sem as vazias) — mais de
+ * um valor quando o código é composto (ex.: duas cores numa linha só).
+ * @return {Object} { ok, novos: [{ codigo, nomes }] }
  */
 function detectarItensNovos(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
@@ -97,7 +205,8 @@ function detectarItensNovos(token) {
       if (!k) return;
       if (visto[k] || registrados[k]) return;
       visto[k] = true;
-      novos.push({ codigo: String(cod).trim(), nome: _normalizarCor(cod) });
+      var nomes = _transformarFio(cod).filter(function (n) { return n !== ''; });
+      novos.push({ codigo: String(cod).trim(), nomes: nomes });
     });
   }
   return { ok: true, novos: novos };
@@ -105,15 +214,18 @@ function detectarItensNovos(token) {
 
 /**
  * Cadastra automaticamente os itens novos na ASSOCIAÇÃO (coluna A = código,
- * coluna B = nome padrão). Acrescenta ABAIXO da última linha usada em A e B,
- * para nunca sobrescrever fórmulas existentes.
+ * colunas B/C/D = nome[s] padrão — mais de uma só em código composto).
+ * Acrescenta ABAIXO da última linha usada em A-D, para nunca sobrescrever
+ * fórmulas/dados já existentes.
  *
- * O nome gravado é um PALPITE de `_normalizarCor` — pode estar errado se o
+ * O nome gravado é um PALPITE de `_transformarFio` — pode estar errado se o
  * código usar um padrão que a função ainda não conhece. Por isso devolve
  * também a lista dos itens cadastrados agora (`itens`): a tela de Análise
  * de Compra mostra esses códigos + nome para o master conferir e, se
  * precisar, corrigir na hora com `corrigirAssociacao` — a correção fica
- * valendo para sempre (é a própria aba ASSOCIAÇÃO que "aprende").
+ * valendo para sempre (é a própria aba ASSOCIAÇÃO que "aprende"). Em código
+ * composto, só a coluna B (primeiro nome) é editável pela tela por
+ * enquanto; os demais aparecem só como referência.
  * @return {Object} { ok, adicionados, itens, mensagem }
  */
 function registrarItensNovos(token) {
@@ -123,20 +235,24 @@ function registrarItensNovos(token) {
     return { ok: true, adicionados: 0, itens: [], mensagem: 'Nenhum item novo a cadastrar.' };
   }
   var shA = _aba(CONFIG.SHEETS.ASSOCIACAO);
-  var inicio = _ultimaLinhaColunas(shA, [1, 2]) + 1; // após o maior last-row de A e B
-  var linhas = novos.map(function (n) { return [n.codigo, n.nome]; });
-  shA.getRange(inicio, 1, linhas.length, 2).setValues(linhas);
+  var inicio = _ultimaLinhaColunas(shA, [1, 2, 3, 4]) + 1; // após o maior last-row de A-D
+  var linhas = novos.map(function (n) {
+    return [n.codigo, n.nomes[0] || '', n.nomes[1] || '', n.nomes[2] || ''];
+  });
+  shA.getRange(inicio, 1, linhas.length, 4).setValues(linhas);
   return {
     ok: true,
     adicionados: novos.length,
-    itens: novos,
+    itens: novos.map(function (n) {
+      return { codigo: n.codigo, nome: n.nomes[0] || '', extras: n.nomes.slice(1) };
+    }),
     mensagem: novos.length + ' item(ns) novo(s) cadastrado(s) na ASSOCIAÇÃO.'
   };
 }
 
 /**
  * Corrige o nome padrão (coluna B) de um código já cadastrado na
- * ASSOCIAÇÃO — usado quando o cadastro automático (via `_normalizarCor`)
+ * ASSOCIAÇÃO — usado quando o cadastro automático (via `_transformarFio`)
  * saiu errado. A correção é definitiva: da próxima vez que esse código
  * aparecer, `detectarItensNovos` já o considera "conhecido" (está na
  * coluna A) e usa o nome corrigido, sem rodar a fórmula de novo.

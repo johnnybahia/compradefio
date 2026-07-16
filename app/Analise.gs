@@ -80,7 +80,7 @@ function listarItensParaAnalise(token, params) {
 
   // Mantém a ASSOCIAÇÃO em dia: cadastra automaticamente os itens novos vindos
   // da produção antes de montar a lista (para já saírem com descrição). O
-  // nome gravado é um palpite (_normalizarCor); a tela mostra esses itens
+  // nome gravado é um palpite (_transformarFio); a tela mostra esses itens
   // pro master conferir/corrigir (ver `novosItens` na resposta).
   var registro = registrarItensNovos(token);
   var novosCadastrados = registro.adicionados;

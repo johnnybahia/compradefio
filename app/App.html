@@ -330,7 +330,7 @@ function renderPendencias(linhas) {
 
 /**
  * Itens que acabaram de ser cadastrados sozinhos na ASSOCIAÇÃO (nome
- * "palpitado" por _normalizarCor). Mostra o código + nome num campo
+ * "palpitado" por _transformarFio). Mostra o código + nome num campo
  * editável; o master confere e, se precisar, corrige e salva — a correção
  * fica valendo para sempre (grava direto na aba ASSOCIAÇÃO).
  */
@@ -341,9 +341,13 @@ function renderNovosAssociacao(itens) {
   if (!itens || !itens.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
   var body = itens.map(function (it, i) {
+    var extras = (it.extras && it.extras.length)
+      ? '<br><small style="color:var(--texto-fraco)">código composto — também gerou: ' +
+        it.extras.map(escAttr).join(', ') + ' (não editável aqui)</small>'
+      : '';
     return '<tr>' +
       '<td>' + escAttr(it.codigo) + '</td>' +
-      '<td><input type="text" class="in-nome-associacao" value="' + escAttr(it.nome) + '" style="width:100%"></td>' +
+      '<td><input type="text" class="in-nome-associacao" value="' + escAttr(it.nome) + '" style="width:100%">' + extras + '</td>' +
       '<td><button class="btn-principal btn-salvar-associacao" type="button" data-codigo="' + escAttr(it.codigo) + '" data-idx="' + i + '">Salvar</button></td>' +
       '<td><span id="msg-associacao-' + i + '" style="font-size:13px"></span></td>' +
     '</tr>';
