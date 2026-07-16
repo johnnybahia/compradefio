@@ -37,6 +37,28 @@ function _logoDataUri() {
         'texto em base64, sem nenhuma tag).');
       return '';
     }
+    // Confere se o texto realmente decodifica para um PNG (assinatura dos 8
+    // primeiros bytes) — sem isso, o texto pode "parecer" base64 válido e
+    // mesmo assim não virar uma imagem de verdade (arquivo truncado/trocado).
+    var bytes;
+    try {
+      bytes = Utilities.base64Decode(b64);
+    } catch (e2) {
+      Logger.log('_logoDataUri: o conteúdo do arquivo "Logo" não é um base64 válido — ' + e2.message);
+      return '';
+    }
+    var assinaturaPng = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    var assinaturaOk = bytes.length > 8;
+    for (var i = 0; assinaturaOk && i < 8; i++) {
+      if (bytes[i] !== assinaturaPng[i]) assinaturaOk = false;
+    }
+    if (!assinaturaOk) {
+      Logger.log('_logoDataUri: o arquivo "Logo" decodifica, mas os bytes (' + bytes.length +
+        ') não têm a assinatura de um PNG — o arquivo pode estar truncado, corrompido, ou não ' +
+        'ser realmente um PNG (ex.: foi salvo como JPEG mas o código está montando ' +
+        'como "data:image/png").');
+      return '';
+    }
     return 'data:image/png;base64,' + b64;
   } catch (e) {
     Logger.log('_logoDataUri: não encontrei/consegui ler o arquivo "Logo" no projeto — ' + e.message);
