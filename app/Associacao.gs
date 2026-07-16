@@ -32,7 +32,11 @@ function _normalizarCor(codigo) {
   if (A === '101') res = '101 LAVADO';
   else if (A === '102') res = '102 LAVADO';
   else if (A === '2000') res = '2000 LAVADO 30-2';
-  else if (has('/PET') && has('COR')) {
+  else if (has('/PET') && has('1 CABO')) {
+    // Ex.: "6255/PET 1 CABO" → "6255 RECICLADO 1 CABO" (o fio de 1 cabo não
+    // leva o prefixo "/1"; é um produto diferente do "/PET" 2 cabos comum).
+    res = A.replace(/\/PET\s*/i, ' RECICLADO ').replace(/\s+/g, ' ').trim();
+  } else if (has('/PET') && has('COR')) {
     res = primeiro(A.replace(/\/PET/g, '/1 RECICLADO').replace(/ \/ COR /g, '|').replace(/COR/g, ''));
   } else if (has('/PET')) {
     res = A.replace(/\/PET/g, '/1 RECICLADO');
