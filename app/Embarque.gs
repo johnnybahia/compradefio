@@ -107,7 +107,7 @@ function _itensEstoqueSet() {
   if (last < 2) return set;
   var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var nh = vals.shift().map(function (h) { return _norm(h); });
-  var i = nh.indexOf('item'); if (i < 0) i = 1;
+  var i = _colPorNomes(nh, ['item', 'descricao']); if (i < 0) i = 1;
   vals.forEach(function (r) {
     var it = r[i];
     if (it === '' || it == null) return;
@@ -291,9 +291,9 @@ function _atualizarChegadasEmbarque(inicio, fim) {
   if (lastEst < 2) return { marcados: 0 };
   var valsEst = shEst.getRange(1, 1, lastEst, shEst.getLastColumn()).getValues();
   var headerEst = valsEst.shift().map(_norm);
-  var iItemEst = headerEst.indexOf('item');
-  var iDataEst = headerEst.indexOf('data');
-  var iNfEst = headerEst.indexOf('nf');
+  var iItemEst = _colPorNomes(headerEst, ['item', 'descricao']);
+  var iDataEst = _colPorNomes(headerEst, ['data', 'data lancamento']);
+  var iNfEst = _colPorNomes(headerEst, ['nf', 'nota fiscal/pedido']);
   if (iItemEst < 0 || iDataEst < 0 || iNfEst < 0) return { marcados: 0 };
 
   var linhasParaMarcar = {};

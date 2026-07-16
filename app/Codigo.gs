@@ -67,21 +67,31 @@ function infoApp() {
  */
 function diagnostico() {
   var linhas = [];
+  CONFIG.UNIDADES.forEach(function (u) {
+    linhas.push('--- Unidade ' + u.rotulo + ' (' + u.id + ') ---');
+    try {
+      var id = CONFIG.getSpreadsheetId(u.id);
+      linhas.push('✓ Planilha configurada (' + u.propSpreadsheet + ' ou SPREADSHEET_ID): ' + id);
+      var ss = SpreadsheetApp.openById(id);
+      linhas.push('✓ Planilha aberta: "' + ss.getName() + '"');
+      var abas = ss.getSheets().map(function (s) { return s.getName(); });
+      linhas.push('  Abas encontradas: ' + abas.join(', '));
+    } catch (e) {
+      linhas.push('✗ ERRO: ' + e.message);
+    }
+  });
   try {
-    var id = CONFIG.getSpreadsheetId();
-    linhas.push('✓ SPREADSHEET_ID definido: ' + id);
-    var ss = SpreadsheetApp.openById(id);
-    linhas.push('✓ Planilha aberta: "' + ss.getName() + '"');
-    var abas = ss.getSheets().map(function (s) { return s.getName(); });
-    linhas.push('  Abas encontradas: ' + abas.join(', '));
-    var usuarios = ss.getSheetByName(CONFIG.SHEETS.USUARIOS);
+    var ssAuth = _ssAutenticacao();
+    linhas.push('--- Autenticação (aba USUARIOS, global) ---');
+    linhas.push('✓ Planilha de autenticação: "' + ssAuth.getName() + '"');
+    var usuarios = ssAuth.getSheetByName(CONFIG.SHEETS.USUARIOS);
     if (usuarios) {
       linhas.push('✓ Aba USUARIOS existe (' + (usuarios.getLastRow() - 1) + ' usuário[s]).');
     } else {
       linhas.push('✗ Aba USUARIOS NÃO existe → rode inicializarSistema.');
     }
   } catch (e) {
-    linhas.push('✗ ERRO: ' + e.message);
+    linhas.push('✗ ERRO (autenticação): ' + e.message);
   }
 
   var logo = _logoDataUri();
