@@ -79,8 +79,11 @@ function listarItensParaAnalise(token, params) {
   var tresMeses = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate());
 
   // Mantém a ASSOCIAÇÃO em dia: cadastra automaticamente os itens novos vindos
-  // da produção antes de montar a lista (para já saírem com descrição).
-  var novosCadastrados = registrarItensNovos(token).adicionados;
+  // da produção antes de montar a lista (para já saírem com descrição). O
+  // nome gravado é um palpite (_transformarFio); a tela mostra esses itens
+  // pro master conferir/corrigir (ver `novosItens` na resposta).
+  var registro = registrarItensNovos(token);
+  var novosCadastrados = registro.adicionados;
 
   // Concilia embarques: marca "CHEGOU" quando o item já foi lançado na aba
   // ESTOQUE dentro do período (evita contar a mesma mercadoria duas vezes),
@@ -171,7 +174,8 @@ function listarItensParaAnalise(token, params) {
       'ficaram em pendência (veja abaixo).';
   }
   return {
-    ok: true, itens: itens, novosCadastrados: novosCadastrados, mensagem: msg,
+    ok: true, itens: itens, novosCadastrados: novosCadastrados,
+    novosItens: registro.itens || [], mensagem: msg,
     pendencias: pendencias.linhas
   };
 }
@@ -364,24 +368,41 @@ function _lerEstoque() {
 /**
  * Cria o localizador de descrição de item, reproduzindo a fórmula da coluna E
  * (REFERENCIA) de PEDIDO DE FIO:
- *   código → ASSOCIAÇÃO (procura em B/C/D/E → devolve A)
+ *   código → ASSOCIAÇÃO (procura em B..G → devolve A)
  *          → PEDIDO DE FIO (procura A em O → devolve M = descrição da produção).
  * Devolve uma função descricao(codigo) → string ('' quando não há cadastro).
  * (Validado contra a planilha real: reproduz 44/44 as descrições da coluna E.)
+ *
+ * Um mesmo valor normalizado pode aparecer em MAIS de uma linha/coluna da
+ * ASSOCIAÇÃO (códigos crus diferentes que caem no mesmo nome padrão) — só
+ * UM desses códigos crus costuma ter pedido de produção (coluna O)
+ * conhecido. Por isso guarda TODOS os candidatos (coluna A) por valor
+ * normalizado, em vez de só o primeiro achado, e tenta cada um até achar
+ * correspondência em PEDIDO DE FIO — reproduz o mesmo critério de
+ * `BUSCAR_PEDIDO_M`/`BUSCAR_PEDIDO_N` (que também varrem várias colunas e
+ * testam todos os candidatos, não só o primeiro).
  */
 function _criarLocalizadorDescricao() {
-  // ASSOCIAÇÃO: normalizado(B|C|D|E) → valor da coluna A
-  var assocMaps = [{}, {}, {}, {}];
+  // ASSOCIAÇÃO: normalizado(B..G) → lista de valores da coluna A que batem.
+  var COLS_ASSOC = 6; // B,C,D,E,F,G
+  var assocMaps = [];
+  for (var m = 0; m < COLS_ASSOC; m++) assocMaps.push({});
   var shA = _aba(CONFIG.SHEETS.ASSOCIACAO);
   if (shA && shA.getLastRow() > 1) {
-    var va = shA.getRange(2, 1, shA.getLastRow() - 1, 5).getValues();
-    va.forEach(function (row) {
-      var a = row[0];
-      for (var c = 1; c <= 4; c++) {
-        var k = _norm(row[c]);
-        if (k && !(k in assocMaps[c - 1])) assocMaps[c - 1][k] = a;
-      }
-    });
+    var largura = Math.min(shA.getLastColumn(), COLS_ASSOC + 1);
+    if (largura > 1) {
+      var va = shA.getRange(2, 1, shA.getLastRow() - 1, largura).getValues();
+      va.forEach(function (row) {
+        var a = row[0];
+        if (a === '' || a == null) return;
+        for (var c = 1; c < largura; c++) {
+          var k = _norm(row[c]);
+          if (!k) continue;
+          if (!assocMaps[c - 1][k]) assocMaps[c - 1][k] = [];
+          if (assocMaps[c - 1][k].indexOf(a) === -1) assocMaps[c - 1][k].push(a);
+        }
+      });
+    }
   }
   // PEDIDO DE FIO: normalizado(O) → { descrição (M), cliente (N) }
   var oInfo = {};
@@ -390,10 +411,10 @@ function _criarLocalizadorDescricao() {
     var vp = shP.getRange(1, 13, shP.getLastRow(), 3).getValues(); // colunas M, N, O
     vp.forEach(function (row) {
       var o = _norm(row[2]); // O
-      var m = row[0];        // M (descrição)
+      var m2 = row[0];       // M (descrição)
       var n = row[1];        // N (cliente)
-      if (o && m !== '' && m != null && !(o in oInfo)) {
-        oInfo[o] = { descricao: String(m).trim(), cliente: (n == null ? '' : String(n).trim()) };
+      if (o && m2 !== '' && m2 != null && !(o in oInfo)) {
+        oInfo[o] = { descricao: String(m2).trim(), cliente: (n == null ? '' : String(n).trim()) };
       }
     });
   }
@@ -402,9 +423,11 @@ function _criarLocalizadorDescricao() {
     if (!vl) return { descricao: '', cliente: '', motivo: '' };
     var achouAssoc = false;
     for (var i = 0; i < assocMaps.length; i++) {
-      if (vl in assocMaps[i]) {
-        achouAssoc = true;
-        var cod = _norm(assocMaps[i][vl]);
+      var candidatos = assocMaps[i][vl];
+      if (!candidatos) continue;
+      achouAssoc = true;
+      for (var j = 0; j < candidatos.length; j++) {
+        var cod = _norm(candidatos[j]);
         if (cod in oInfo) {
           return { descricao: oInfo[cod].descricao, cliente: oInfo[cod].cliente, motivo: '' };
         }
