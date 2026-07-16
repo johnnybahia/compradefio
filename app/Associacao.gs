@@ -48,6 +48,10 @@ function _normalizarCor(codigo) {
     res = A.substring(0, pos('PONT') - 2).trim();
   } else if (A.charAt(0) === '2' && A.length === 4) {
     res = A + ' 30-2';
+  } else if (has('/BT')) {
+    // Ex.: "6180/BT" → "6180/BT-76/36" (fio BT, tem receita própria em
+    // BASE TINGIMENTO). Precisa vir antes de "/B" (que também bateria aqui).
+    res = A.replace(/\/BT/gi, '/BT-76/36');
   } else if (has('/B') && has('COR')) {
     res = A.substring(0, pos('/B') - 1).trim() + ' BRILHANTE';
   } else if (has('COR')) {
@@ -103,13 +107,20 @@ function detectarItensNovos(token) {
  * Cadastra automaticamente os itens novos na ASSOCIAÇÃO (coluna A = código,
  * coluna B = nome padrão). Acrescenta ABAIXO da última linha usada em A e B,
  * para nunca sobrescrever fórmulas existentes.
- * @return {Object} { ok, adicionados, mensagem }
+ *
+ * O nome gravado é um PALPITE de `_normalizarCor` — pode estar errado se o
+ * código usar um padrão que a função ainda não conhece. Por isso devolve
+ * também a lista dos itens cadastrados agora (`itens`): a tela de Análise
+ * de Compra mostra esses códigos + nome para o master conferir e, se
+ * precisar, corrigir na hora com `corrigirAssociacao` — a correção fica
+ * valendo para sempre (é a própria aba ASSOCIAÇÃO que "aprende").
+ * @return {Object} { ok, adicionados, itens, mensagem }
  */
 function registrarItensNovos(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   var novos = detectarItensNovos(token).novos;
   if (!novos.length) {
-    return { ok: true, adicionados: 0, mensagem: 'Nenhum item novo a cadastrar.' };
+    return { ok: true, adicionados: 0, itens: [], mensagem: 'Nenhum item novo a cadastrar.' };
   }
   var shA = _aba(CONFIG.SHEETS.ASSOCIACAO);
   var inicio = _ultimaLinhaColunas(shA, [1, 2]) + 1; // após o maior last-row de A e B
@@ -118,8 +129,40 @@ function registrarItensNovos(token) {
   return {
     ok: true,
     adicionados: novos.length,
+    itens: novos,
     mensagem: novos.length + ' item(ns) novo(s) cadastrado(s) na ASSOCIAÇÃO.'
   };
+}
+
+/**
+ * Corrige o nome padrão (coluna B) de um código já cadastrado na
+ * ASSOCIAÇÃO — usado quando o cadastro automático (via `_normalizarCor`)
+ * saiu errado. A correção é definitiva: da próxima vez que esse código
+ * aparecer, `detectarItensNovos` já o considera "conhecido" (está na
+ * coluna A) e usa o nome corrigido, sem rodar a fórmula de novo.
+ * @return {Object} { ok, mensagem }
+ */
+function corrigirAssociacao(token, codigo, nome) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  codigo = String(codigo == null ? '' : codigo).trim();
+  nome = String(nome == null ? '' : nome).trim();
+  if (!codigo) throw new Error('Informe o código.');
+  if (!nome) throw new Error('Informe o nome corrigido.');
+
+  var sh = _aba(CONFIG.SHEETS.ASSOCIACAO);
+  if (!sh) throw new Error('Aba ASSOCIAÇÃO não encontrada.');
+  var last = sh.getLastRow();
+  var alvo = _norm(codigo);
+  if (last > 1) {
+    var vals = sh.getRange(2, 1, last - 1, 1).getValues(); // coluna A
+    for (var i = 0; i < vals.length; i++) {
+      if (_norm(vals[i][0]) === alvo) {
+        sh.getRange(i + 2, 2).setValue(nome); // coluna B, mesma linha
+        return { ok: true, mensagem: 'Associação de "' + codigo + '" corrigida para "' + nome + '".' };
+      }
+    }
+  }
+  throw new Error('Código "' + codigo + '" não encontrado na ASSOCIAÇÃO.');
 }
 
 /** Última linha preenchida considerando um conjunto de colunas (1-indexado). */

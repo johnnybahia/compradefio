@@ -167,7 +167,7 @@ function trocarUnidadeAtiva(unidadeId) {
     localStorage.setItem(TOKEN_KEY, r.token);
     // Zera os dados carregados da unidade anterior antes de reabrir — cada
     // unidade tem seu próprio estoque/pedidos, não faz sentido misturar.
-    estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '' };
+    estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '', novosItens: [] };
     estadoTingimento = { linhas: [] };
     pedidoInfo = { numero: null, data: null };
     abrirApp();
@@ -203,7 +203,7 @@ function ymd(d) {
 }
 
 // Estado da análise, preservado enquanto a sessão estiver aberta.
-var estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '' };
+var estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '', novosItens: [] };
 
 function viewAnalise(alvo) {
   var hoje = new Date();
@@ -244,6 +244,13 @@ function viewAnalise(alvo) {
       'mesmo nº ainda não — pode ser esquecimento na entrada do estoque ou erro de digitação. ' +
       'Some ao lançar o item no estoque para sair sozinho desta lista.</p>' +
       '<div class="tabela-wrap" id="tabela-pendencias"></div>' +
+    '</section>' +
+    '<section class="painel" id="painel-novos-associacao" style="display:none">' +
+      '<h2>Itens novos cadastrados na Associação</h2>' +
+      '<p class="desc">Código que apareceu pela primeira vez na produção — o sistema já ' +
+      'cadastrou um nome padrão sozinho (um palpite). Confira; se algum estiver errado, ' +
+      'corrija o texto e clique em Salvar — a correção vale para sempre, não precisa repetir.</p>' +
+      '<div class="tabela-wrap" id="tabela-novos-associacao"></div>' +
     '</section>' +
     '<section class="painel" id="painel-lista" style="display:none">' +
       '<h2>Itens do período</h2>' +
@@ -288,6 +295,7 @@ function viewAnalise(alvo) {
       '<div class="aviso ok">' + (estadoAnalise.mensagem || '') + '</div>';
     renderLista(estadoAnalise.itens);
   }
+  renderNovosAssociacao(estadoAnalise.novosItens);
   carregarUltimaRelacao();
   carregarPendencias();
 }
@@ -318,6 +326,61 @@ function renderPendencias(linhas) {
       '<th style="width:20%">Item</th><th style="width:15%">Embarque</th>' +
       '<th style="text-align:right;width:15%">Quantidade</th><th style="width:20%">Data do embarque</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/**
+ * Itens que acabaram de ser cadastrados sozinhos na ASSOCIAÇÃO (nome
+ * "palpitado" por _normalizarCor). Mostra o código + nome num campo
+ * editável; o master confere e, se precisar, corrige e salva — a correção
+ * fica valendo para sempre (grava direto na aba ASSOCIAÇÃO).
+ */
+function renderNovosAssociacao(itens) {
+  var painel = document.getElementById('painel-novos-associacao');
+  var wrap = document.getElementById('tabela-novos-associacao');
+  if (!painel || !wrap) return;
+  if (!itens || !itens.length) { painel.style.display = 'none'; return; }
+  painel.style.display = '';
+  var body = itens.map(function (it, i) {
+    return '<tr>' +
+      '<td>' + escAttr(it.codigo) + '</td>' +
+      '<td><input type="text" class="in-nome-associacao" value="' + escAttr(it.nome) + '" style="width:100%"></td>' +
+      '<td><button class="btn-principal btn-salvar-associacao" type="button" data-codigo="' + escAttr(it.codigo) + '" data-idx="' + i + '">Salvar</button></td>' +
+      '<td><span id="msg-associacao-' + i + '" style="font-size:13px"></span></td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:18%">Código</th><th>Nome cadastrado</th><th style="width:10%"></th><th style="width:22%"></th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-salvar-associacao'), function (btn) {
+    btn.onclick = function () { salvarCorrecaoAssociacao(btn); };
+  });
+}
+
+function salvarCorrecaoAssociacao(btn) {
+  var tr = btn.parentNode.parentNode; // <td><button></td></tr>
+  var input = tr.querySelector('.in-nome-associacao');
+  var codigo = btn.getAttribute('data-codigo');
+  var idx = btn.getAttribute('data-idx');
+  var nome = input.value.trim();
+  var msgEl = document.getElementById('msg-associacao-' + idx);
+  if (!nome) { msgEl.innerHTML = '<span style="color:var(--erro)">Informe o nome.</span>'; return; }
+
+  btn.disabled = true;
+  chamar('corrigirAssociacao', sessao.token, codigo, nome)
+    .then(function () {
+      btn.disabled = false;
+      msgEl.textContent = 'Salvo.';
+      // mantém em sincronia caso o mesmo código apareça na lista principal
+      (estadoAnalise.itens || []).forEach(function (it) {
+        if (it.item === codigo) it.descricao = nome;
+      });
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      var m = tratarErro(err);
+      msgEl.innerHTML = '<span style="color:var(--erro)">' + (m || 'Erro ao salvar.') + '</span>';
+    });
 }
 
 /** Modal simples de confirmação (evita depender de confirm()/alert() nativos, que o
@@ -386,8 +449,10 @@ function prosseguirAnalisarEstoque(dataInicio, dataFim, btn, msg) {
       estadoAnalise.kgBase = document.getElementById('kg-base').value;
       estadoAnalise.itens = r.itens || [];
       estadoAnalise.mensagem = r.mensagem || '';
+      estadoAnalise.novosItens = r.novosItens || [];
       msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
       renderLista(estadoAnalise.itens);
+      renderNovosAssociacao(estadoAnalise.novosItens);
       renderPendencias(r.pendencias);
     })
     .catch(function (err) {
