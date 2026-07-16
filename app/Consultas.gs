@@ -102,7 +102,7 @@ function _destinatariosCompra() {
  */
 var NUMERO_PEDIDO_INICIAL_POR_UNIDADE = {
   CEARA: 784,
-  BAHIA: 1
+  BAHIA: 707
 };
 var NUMERO_PEDIDO_INICIAL_PADRAO = 1; // fallback p/ unidade sem valor definido acima
 
