@@ -373,12 +373,15 @@ function salvarCorrecaoAssociacao(btn) {
   btn.disabled = true;
   chamar('corrigirAssociacao', sessao.token, codigo, nome)
     .then(function () {
-      btn.disabled = false;
-      msgEl.textContent = 'Salvo.';
       // mantém em sincronia caso o mesmo código apareça na lista principal
       (estadoAnalise.itens || []).forEach(function (it) {
         if (it.item === codigo) it.descricao = nome;
       });
+      // confirmado: some da lista de conferência (já cumpriu o papel dela)
+      estadoAnalise.novosItens = (estadoAnalise.novosItens || []).filter(function (it) {
+        return it.codigo !== codigo;
+      });
+      renderNovosAssociacao(estadoAnalise.novosItens);
     })
     .catch(function (err) {
       btn.disabled = false;
@@ -555,6 +558,20 @@ function renderLista(itens) {
   reaplicarDestaque();
 }
 
+/** Ordena a lista pela mesma regra do servidor (fio primeiro, saldo mais
+ * crítico primeiro) — mas considerando o saldo JÁ ajustado pelo estoque
+ * encontrado, pra reordenar sozinho quando o usuário digita um valor. */
+function ordenarItensAnalise() {
+  estadoAnalise.itens.sort(function (a, b) {
+    var aNaoFio = a.tipoFio ? 0 : 1;
+    var bNaoFio = b.tipoFio ? 0 : 1;
+    if (aNaoFio !== bNaoFio) return aNaoFio - bNaoFio;
+    var sa = Number(a.saldo) + Number(a.emViagem || 0) + Number(a.estoqueEncontrado || 0);
+    var sb = Number(b.saldo) + Number(b.emViagem || 0) + Number(b.estoqueEncontrado || 0);
+    return sa - sb;
+  });
+}
+
 /** Soma o "estoque encontrado" ao saldo + em viagem e reconsulta o pedido de
  * tingimento daquele item, para recalcular a necessidade de compra na hora. */
 function atualizarEstoqueEncontradoLinha(idx, inp) {
@@ -562,7 +579,6 @@ function atualizarEstoqueEncontradoLinha(idx, inp) {
   if (!it) return;
   var msg = document.getElementById('lista-msg');
   it.estoqueEncontrado = inp.value === '' ? 0 : Number(inp.value) || 0;
-  reaplicarDestaque(); // o realce (saldo ≤ base) já reflete o valor digitado, na hora
 
   inp.disabled = true;
   chamar('recalcularTingimentoItem', sessao.token, {
@@ -570,16 +586,13 @@ function atualizarEstoqueEncontradoLinha(idx, inp) {
     estoqueEncontrado: it.estoqueEncontrado, consumoMedio: it.consumoMedio
   })
     .then(function (r) {
-      inp.disabled = false;
       it.tipoFio = r.tipoFio || '';
       it.maquinas = r.maquinas || '';
       it.totalTingimento = r.totalTingimento || 0;
-      var tdTipo = document.querySelector('.cel-tipofio[data-idx="' + idx + '"]');
-      var tdMaq = document.querySelector('.cel-maquinas[data-idx="' + idx + '"]');
-      var tdTot = document.querySelector('.cel-total[data-idx="' + idx + '"]');
-      if (tdTipo) tdTipo.textContent = it.tipoFio || '—';
-      if (tdMaq) tdMaq.textContent = it.maquinas || '—';
-      if (tdTot) tdTot.textContent = it.totalTingimento ? num(it.totalTingimento) : '—';
+      // recria a tabela já na nova ordem (o campo já tinha perdido o foco,
+      // já que "change" só dispara ao sair do campo — não atrapalha digitação)
+      ordenarItensAnalise();
+      renderLista(estadoAnalise.itens);
       if (msg) msg.innerHTML = '';
     })
     .catch(function (err) {
