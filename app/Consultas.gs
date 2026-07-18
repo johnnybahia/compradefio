@@ -95,10 +95,11 @@ function _destinatariosCompra() {
 /**
  * Número do PEDIDO DE FIO. Cada unidade tem seu próprio ponto de partida
  * (usado só enquanto a Propriedade do script NUMERO_PEDIDO_FIO_<UNIDADE>
- * não existir — depois disso quem manda é a propriedade). Só avança quando
- * o e-mail é EFETIVAMENTE enviado (_avancarNumeroPedido, chamada só depois
- * do MailApp.sendEmail dar certo) — imprimir ou só abrir a tela não
- * consome o número; ele fica parado até o próximo envio.
+ * não existir — depois disso quem manda é a propriedade). Pode ser ajustado
+ * na mão na tela (ver `_numeroPedidoEscolhido`); só avança quando o e-mail
+ * é EFETIVAMENTE enviado (`_definirNumeroPedido`, chamada só depois do
+ * MailApp.sendEmail dar certo) — imprimir ou só abrir a tela não consome o
+ * número; ele fica parado até o próximo envio.
  */
 var NUMERO_PEDIDO_INICIAL_POR_UNIDADE = {
   CEARA: 784,
@@ -116,9 +117,25 @@ function _numeroPedidoAtual() {
     : NUMERO_PEDIDO_INICIAL_PADRAO;
 }
 
-function _avancarNumeroPedido() {
-  PropertiesService.getScriptProperties()
-    .setProperty(_propUnidade('NUMERO_PEDIDO_FIO'), String(_numeroPedidoAtual() + 1));
+/** Grava explicitamente o próximo número do pedido desta unidade. */
+function _definirNumeroPedido(n) {
+  PropertiesService.getScriptProperties().setProperty(_propUnidade('NUMERO_PEDIDO_FIO'), String(n));
+}
+
+/**
+ * Número a usar no envio: o que o master digitou no campo (se for um
+ * inteiro positivo válido) ou, na falta dele, o próximo da sequência
+ * automática. Permite ajustar manualmente sem quebrar a numeração — o
+ * próximo envio automático passa a contar a partir do número USADO agora,
+ * seja ele manual ou automático (ver `enviarRelatorioCompra`).
+ */
+function _numeroPedidoEscolhido(numeroManual) {
+  var n = parseInt(numeroManual, 10);
+  if (numeroManual !== undefined && numeroManual !== null &&
+      String(numeroManual).trim() !== '' && !isNaN(n) && n > 0) {
+    return n;
+  }
+  return _numeroPedidoAtual();
 }
 
 /** Número do pedido pendente (sem consumir) e a data de hoje — para o cabeçalho
@@ -143,7 +160,7 @@ function _semAcento(s) {
  * data de emissão e número do pedido). O número só avança depois do envio
  * dar certo. Retorna { ok, destinatarios, numero } ou lança erro claro.
  */
-function enviarRelatorioCompra(token) {
+function enviarRelatorioCompra(token, numeroManual) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   var lista = _destinatariosCompra().split(/[;,]/)
     .map(function (e) { return e.trim(); })
@@ -157,7 +174,7 @@ function enviarRelatorioCompra(token) {
   }
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
-  var numero = _numeroPedidoAtual();
+  var numero = _numeroPedidoEscolhido(numeroManual);
   var agora = new Date();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
   var html = _relatorioCompraHTML(regs, numero, dataFmt);
@@ -172,7 +189,10 @@ function enviarRelatorioCompra(token) {
       'de Fio Marfim ' + unidade + ' nº <b>' + numero + '</b>, emitido em <b>' + dataFmt + '</b>.</p>',
     attachments: [pdf]
   });
-  _avancarNumeroPedido(); // só agora — o e-mail já saiu
+  // Só agora — o e-mail já saiu. Avança a partir do número USADO (manual ou
+  // automático), não do que estava salvo antes — é assim que um ajuste
+  // manual "gruda" na sequência dali pra frente.
+  _definirNumeroPedido(numero + 1);
   return { ok: true, destinatarios: lista.length, numero: numero };
 }
 
