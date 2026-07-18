@@ -93,17 +93,27 @@ function _destinatariosCompra() {
 }
 
 /**
- * Número do PEDIDO DE FIO. Começa em 784 e só avança quando o e-mail é
- * EFETIVAMENTE enviado (_avancarNumeroPedido, chamada só depois do
- * MailApp.sendEmail dar certo) — imprimir ou só abrir a tela não consome o
- * número; ele fica parado até o próximo envio.
+ * Número do PEDIDO DE FIO. Cada unidade tem seu próprio ponto de partida
+ * (usado só enquanto a Propriedade do script NUMERO_PEDIDO_FIO_<UNIDADE>
+ * não existir — depois disso quem manda é a propriedade). Só avança quando
+ * o e-mail é EFETIVAMENTE enviado (_avancarNumeroPedido, chamada só depois
+ * do MailApp.sendEmail dar certo) — imprimir ou só abrir a tela não
+ * consome o número; ele fica parado até o próximo envio.
  */
-var NUMERO_PEDIDO_INICIAL = 784;
+var NUMERO_PEDIDO_INICIAL_POR_UNIDADE = {
+  CEARA: 784,
+  BAHIA: 707
+};
+var NUMERO_PEDIDO_INICIAL_PADRAO = 1; // fallback p/ unidade sem valor definido acima
 
 function _numeroPedidoAtual() {
+  var unidade = _unidadeAtivaId || CONFIG.UNIDADE_PADRAO;
   var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('NUMERO_PEDIDO_FIO'));
   var n = parseInt(v, 10);
-  return (v && !isNaN(n)) ? n : NUMERO_PEDIDO_INICIAL;
+  if (v && !isNaN(n)) return n;
+  return NUMERO_PEDIDO_INICIAL_POR_UNIDADE.hasOwnProperty(unidade)
+    ? NUMERO_PEDIDO_INICIAL_POR_UNIDADE[unidade]
+    : NUMERO_PEDIDO_INICIAL_PADRAO;
 }
 
 function _avancarNumeroPedido() {
