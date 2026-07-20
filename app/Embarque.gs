@@ -330,6 +330,44 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
   return { baixados: baixados };
 }
 
+/**
+ * Lista os números dos últimos embarques lançados na aba EMBARQUES (um
+ * embarque tem uma linha por item, aqui só o número aparece uma vez), do
+ * mais recente para o mais antigo — para o usuário se localizar na tela de
+ * Importar Embarque antes de importar um novo PDF (ex.: perceber que um
+ * número ficou faltando na sequência).
+ *
+ * "Mais recente" é pela ORDEM DE LANÇAMENTO na aba (linha mais alta), não
+ * pela data do embarque digitada — a data pode ter erro de digitação e
+ * distorcer a ordem; a ordem de lançamento nunca mente.
+ *
+ * @param {number} limite  quantos números devolver — padrão 5.
+ */
+function listarUltimosEmbarques(token, limite) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  limite = parseInt(limite, 10) || 5;
+
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES);
+  if (!sh || sh.getLastRow() < 2) return { ok: true, numeros: [] };
+
+  var vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+  var header = vals.shift().map(_norm);
+  var iEmbarque = header.indexOf('embarque'); if (iEmbarque < 0) iEmbarque = 2;
+
+  var vistos = {}; // nº normalizado -> true (só a primeira ocorrência, de trás pra frente, importa)
+  var numeros = [];
+  for (var i = vals.length - 1; i >= 0 && numeros.length < limite; i--) {
+    var numEmb = vals[i][iEmbarque];
+    if (numEmb === '' || numEmb == null) continue;
+    var chave = _normNumero(numEmb);
+    if (!chave || vistos[chave]) continue;
+    vistos[chave] = true;
+    numeros.push(numEmb);
+  }
+
+  return { ok: true, numeros: numeros };
+}
+
 /** dd/MM/aaaa → Date (local), ou null. */
 function _parseDataBR(s) {
   var m = String(s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
