@@ -1167,6 +1167,14 @@ function viewImportarEmbarque(alvo) {
       '</div>' +
       '<div id="embarque-msg"></div>' +
       '<datalist id="itens-estoque-emb"></datalist>' +
+      '<div style="margin-top:18px">' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">' +
+          '<b style="font-size:13px;color:var(--texto-fraco)">Últimos embarques lançados</b>' +
+          '<button type="button" class="btn-atualizar-data" id="btn-atualizar-ultimos-embarques" ' +
+            'title="Atualizar esta lista">↻</button>' +
+        '</div>' +
+        '<div id="ultimos-embarques"></div>' +
+      '</div>' +
     '</section>' +
     '<section class="painel" id="painel-embarque" style="display:none">' +
       '<h2>Conferência</h2>' +
@@ -1189,6 +1197,7 @@ function viewImportarEmbarque(alvo) {
 
   document.getElementById('btn-ler-pdf').onclick = lerArquivoPdf;
   document.getElementById('btn-gravar-embarque').onclick = gravarEmbarqueConfirmado;
+  document.getElementById('btn-atualizar-ultimos-embarques').onclick = carregarUltimosEmbarques;
 
   // autocomplete de itens (para corrigir os não reconhecidos)
   chamar('listarItensEstoque', sessao.token).then(function (r) {
@@ -1197,6 +1206,45 @@ function viewImportarEmbarque(alvo) {
       return '<option value="' + escAttr(it) + '">';
     }).join('');
   }).catch(function () {});
+
+  carregarUltimosEmbarques();
+}
+
+/** Busca e mostra os últimos embarques lançados (para o usuário se
+ * localizar antes de importar um novo PDF — ver se algum número ficou
+ * faltando na sequência). Roda ao abrir a tela e depois de cada gravação. */
+function carregarUltimosEmbarques() {
+  var wrap = document.getElementById('ultimos-embarques');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('listarUltimosEmbarques', sessao.token, 5)
+    .then(function (r) {
+      var lista = r.embarques || [];
+      if (!lista.length) {
+        wrap.innerHTML = '<div class="vazio">Nenhum embarque lançado ainda.</div>';
+        return;
+      }
+      var body = lista.map(function (e) {
+        var situacao = e.completo
+          ? '<span style="color:#1F9D55">chegou (' + e.chegados + '/' + e.itens + ')</span>'
+          : '<span style="color:#B7791F">' + e.chegados + '/' + e.itens + ' chegou(aram)</span>';
+        return '<tr>' +
+          '<td>' + (e.numero != null && e.numero !== '' ? e.numero : '—') + '</td>' +
+          '<td>' + (e.data || '—') + '</td>' +
+          '<td style="text-align:right">' + e.itens + '</td>' +
+          '<td style="text-align:right">' + (e.peso || 0) + '</td>' +
+          '<td>' + situacao + '</td>' +
+        '</tr>';
+      }).join('');
+      wrap.innerHTML =
+        '<table class="dados"><thead><tr>' +
+          '<th>Nº embarque</th><th>Data</th><th style="text-align:right">Itens</th>' +
+          '<th style="text-align:right">Peso (kg)</th><th>Situação</th>' +
+        '</tr></thead><tbody>' + body + '</tbody></table>';
+    })
+    .catch(function () {
+      wrap.innerHTML = '';
+    });
 }
 
 function lerArquivoPdf() {
@@ -1279,6 +1327,7 @@ function gravarEmbarqueConfirmado() {
     .then(function (r) {
       btn.disabled = false;
       msg.innerHTML = '<div class="aviso ok">' + r.gravados + ' item(ns) gravado(s) na aba EMBARQUES.</div>';
+      carregarUltimosEmbarques();
     })
     .catch(function (err) {
       btn.disabled = false;
