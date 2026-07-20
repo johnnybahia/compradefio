@@ -766,6 +766,16 @@ function viewTingimento(alvo) {
       'ordenados pela <b>data limite de embarque</b> mais próxima. Ao alterar uma data, a lista ' +
       'se reordena sozinha. O número do pedido só avança depois que o e-mail é enviado.</p>' +
       '<div class="linha-form no-print">' +
+        '<div class="campo" style="max-width:150px">' +
+          '<label for="in-numero-pedido">Nº do pedido</label>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<input type="number" id="in-numero-pedido" min="1" step="1" ' +
+              'title="Editável — ajuste na mão se precisar. O próximo número, depois do envio, ' +
+              'passa a seguir a partir do que estiver aqui.">' +
+            '<button type="button" class="btn-atualizar-data" id="btn-atualizar-numero" ' +
+              'title="Buscar de novo o número salvo no servidor (descarta o que foi digitado aqui)">↻</button>' +
+          '</div>' +
+        '</div>' +
         '<div class="campo" style="flex:1;min-width:260px">' +
           '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
           '<input type="text" id="emails-compra" placeholder="fulano@empresa.com; ciclano@empresa.com">' +
@@ -792,6 +802,13 @@ function viewTingimento(alvo) {
   document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
   document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
   document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
+  document.getElementById('btn-atualizar-numero').onclick = carregarNumeroPedido;
+  document.getElementById('in-numero-pedido').addEventListener('input', function () {
+    var n = parseInt(this.value, 10);
+    pedidoInfo.numero = (this.value !== '' && !isNaN(n)) ? n : null;
+    var elNum = document.getElementById('rel-numero');
+    if (elNum) elNum.textContent = pedidoInfo.numero != null ? pedidoInfo.numero : '—';
+  });
   document.getElementById('btn-reordenar').onclick = function () {
     estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
     renderTingimento(estadoTingimento.linhas);
@@ -818,22 +835,30 @@ function viewTingimento(alvo) {
     });
 }
 
-/** Busca o número do pedido pendente e a data de hoje, para o cabeçalho da impressão. */
+/** Busca no servidor o número do pedido pendente e a data de hoje, e preenche
+ * o campo editável + o cabeçalho da impressão. Roda sozinho ao abrir a tela;
+ * depois disso, editar o campo não some com o valor até clicar em ↻ de novo
+ * (a impressão e o envio usam o que estiver no campo, não o do servidor). */
 function carregarNumeroPedido() {
   return chamar('obterNumeroPedido', sessao.token)
     .then(function (r) {
       pedidoInfo = { numero: r.numero, data: r.data };
+      var elInput = document.getElementById('in-numero-pedido');
       var elNum = document.getElementById('rel-numero');
       var elData = document.getElementById('rel-data');
+      if (elInput) elInput.value = pedidoInfo.numero != null ? pedidoInfo.numero : '';
       if (elNum) elNum.textContent = pedidoInfo.numero != null ? pedidoInfo.numero : '—';
       if (elData) elData.textContent = pedidoInfo.data || '—';
     })
     .catch(function () {});
 }
 
-/** Reconsulta o número antes de imprimir (pode ter avançado num envio de outra sessão) e imprime. */
+/** Imprime com o número que estiver no campo editável (sem reconsultar o
+ * servidor — reconsultar sozinho apagaria um ajuste manual que o usuário
+ * acabou de fazer). Use o botão ↻ antes, se quiser puxar o valor mais
+ * recente do servidor. */
 function imprimirRelatorioTingimento() {
-  carregarNumeroPedido().then(function () { window.print(); });
+  window.print();
 }
 
 /** Reaproveita o mesmo logo já carregado no topo da tela (evita nova ida ao servidor). */
@@ -861,10 +886,11 @@ function enviarEmailCompra() {
   var btn = document.getElementById('btn-enviar-email');
   var msg = document.getElementById('ting-msg');
   var emails = document.getElementById('emails-compra').value;
+  var numeroManual = document.getElementById('in-numero-pedido').value;
   btn.disabled = true;
   msg.innerHTML = '<div class="aviso"><span class="carregando">Gerando PDF e enviando…</span></div>';
   chamar('salvarDestinatarios', sessao.token, emails)
-    .then(function () { return chamar('enviarRelatorioCompra', sessao.token); })
+    .then(function () { return chamar('enviarRelatorioCompra', sessao.token, numeroManual); })
     .then(function (r) {
       btn.disabled = false;
       msg.innerHTML = '<div class="aviso ok">Pedido nº ' + r.numero + ' enviado (PDF em anexo) para ' +
