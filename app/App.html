@@ -1219,28 +1219,10 @@ function carregarUltimosEmbarques() {
   wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
   chamar('listarUltimosEmbarques', sessao.token, 5)
     .then(function (r) {
-      var lista = r.embarques || [];
-      if (!lista.length) {
-        wrap.innerHTML = '<div class="vazio">Nenhum embarque lançado ainda.</div>';
-        return;
-      }
-      var body = lista.map(function (e) {
-        var situacao = e.completo
-          ? '<span style="color:#1F9D55">chegou (' + e.chegados + '/' + e.itens + ')</span>'
-          : '<span style="color:#B7791F">' + e.chegados + '/' + e.itens + ' chegou(aram)</span>';
-        return '<tr>' +
-          '<td>' + (e.numero != null && e.numero !== '' ? e.numero : '—') + '</td>' +
-          '<td>' + (e.data || '—') + '</td>' +
-          '<td style="text-align:right">' + e.itens + '</td>' +
-          '<td style="text-align:right">' + (e.peso || 0) + '</td>' +
-          '<td>' + situacao + '</td>' +
-        '</tr>';
-      }).join('');
-      wrap.innerHTML =
-        '<table class="dados"><thead><tr>' +
-          '<th>Nº embarque</th><th>Data</th><th style="text-align:right">Itens</th>' +
-          '<th style="text-align:right">Peso (kg)</th><th>Situação</th>' +
-        '</tr></thead><tbody>' + body + '</tbody></table>';
+      var numeros = r.numeros || [];
+      wrap.innerHTML = numeros.length
+        ? '<p class="desc" style="margin:0">' + numeros.map(escAttr).join(' &nbsp;•&nbsp; ') + '</p>'
+        : '<div class="vazio">Nenhum embarque lançado ainda.</div>';
     })
     .catch(function () {
       wrap.innerHTML = '';

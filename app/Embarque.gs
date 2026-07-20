@@ -331,67 +331,41 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
 }
 
 /**
- * Lista os últimos embarques lançados na aba EMBARQUES, agrupados por
- * número (um embarque tem uma linha por item), do mais recente para o mais
- * antigo — para o usuário se localizar na tela de Importar Embarque antes
- * de importar um novo PDF (ex.: perceber que um número ficou faltando na
- * sequência, ou que um embarque recente ainda não teve nenhum item
- * confirmado como chegado).
+ * Lista os números dos últimos embarques lançados na aba EMBARQUES (um
+ * embarque tem uma linha por item, aqui só o número aparece uma vez), do
+ * mais recente para o mais antigo — para o usuário se localizar na tela de
+ * Importar Embarque antes de importar um novo PDF (ex.: perceber que um
+ * número ficou faltando na sequência).
  *
  * "Mais recente" é pela ORDEM DE LANÇAMENTO na aba (linha mais alta), não
  * pela data do embarque digitada — a data pode ter erro de digitação e
  * distorcer a ordem; a ordem de lançamento nunca mente.
  *
- * @param {number} limite  quantos embarques (não linhas) devolver — padrão 5.
+ * @param {number} limite  quantos números devolver — padrão 5.
  */
 function listarUltimosEmbarques(token, limite) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   limite = parseInt(limite, 10) || 5;
 
   var sh = _aba(CONFIG.SHEETS.EMBARQUES);
-  if (!sh || sh.getLastRow() < 2) return { ok: true, embarques: [] };
+  if (!sh || sh.getLastRow() < 2) return { ok: true, numeros: [] };
 
   var vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
   var header = vals.shift().map(_norm);
-  var iPeso = header.indexOf('peso'); if (iPeso < 0) iPeso = 1;
   var iEmbarque = header.indexOf('embarque'); if (iEmbarque < 0) iEmbarque = 2;
-  var iData = header.indexOf('data'); if (iData < 0) iData = 3;
-  var iSituacao = header.indexOf('situacao'); if (iSituacao < 0) iSituacao = 4;
 
-  var grupos = {}; // nº normalizado -> { numero, data, itens, peso, chegados, ultimaLinha }
-  vals.forEach(function (row, i) {
-    var numEmb = row[iEmbarque];
-    if (numEmb === '' || numEmb == null) return;
+  var vistos = {}; // nº normalizado -> true (só a primeira ocorrência, de trás pra frente, importa)
+  var numeros = [];
+  for (var i = vals.length - 1; i >= 0 && numeros.length < limite; i--) {
+    var numEmb = vals[i][iEmbarque];
+    if (numEmb === '' || numEmb == null) continue;
     var chave = _normNumero(numEmb);
-    if (!chave) return;
-    var linha = i + 2;
-    if (!grupos[chave]) {
-      grupos[chave] = { numero: numEmb, data: row[iData], itens: 0, peso: 0, chegados: 0, ultimaLinha: linha };
-    }
-    var g = grupos[chave];
-    g.itens++;
-    g.peso += parseFloat(row[iPeso]) || 0;
-    if (_norm(row[iSituacao]).indexOf('chegou') !== -1) g.chegados++;
-    if (linha > g.ultimaLinha) g.ultimaLinha = linha;
-  });
+    if (!chave || vistos[chave]) continue;
+    vistos[chave] = true;
+    numeros.push(numEmb);
+  }
 
-  var lista = Object.keys(grupos).map(function (k) { return grupos[k]; })
-    .sort(function (a, b) { return b.ultimaLinha - a.ultimaLinha; })
-    .slice(0, limite);
-
-  return {
-    ok: true,
-    embarques: lista.map(function (g) {
-      return {
-        numero: g.numero,
-        data: _soData(g.data),
-        itens: g.itens,
-        peso: g.peso,
-        chegados: g.chegados,
-        completo: g.chegados === g.itens
-      };
-    })
-  };
+  return { ok: true, numeros: numeros };
 }
 
 /** dd/MM/aaaa → Date (local), ou null. */
