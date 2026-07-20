@@ -289,6 +289,19 @@ function viewAnalise(alvo) {
     reaplicarDestaque();
   });
 
+  // 1ª vez na sessão (ainda sem data escolhida): pré-preenche "data inicial"
+  // com a data final do último pedido efetivamente enviado, pra continuar
+  // de onde parou. Só troca o campo se o usuário não tiver mexido nele.
+  if (!estadoAnalise.dataInicio) {
+    chamar('obterUltimaDataFimCompra', sessao.token).then(function (r) {
+      var campo = document.getElementById('data-inicio');
+      if (r && r.data && campo && !estadoAnalise.dataInicio) {
+        campo.value = r.data;
+        estadoAnalise.dataInicio = r.data;
+      }
+    }).catch(function () {});
+  }
+
   // Restaura a lista já analisada na sessão e recarrega a última relação salva.
   if (estadoAnalise.itens.length) {
     document.getElementById('analise-msg').innerHTML =
@@ -890,7 +903,7 @@ function enviarEmailCompra() {
   btn.disabled = true;
   msg.innerHTML = '<div class="aviso"><span class="carregando">Gerando PDF e enviando…</span></div>';
   chamar('salvarDestinatarios', sessao.token, emails)
-    .then(function () { return chamar('enviarRelatorioCompra', sessao.token, numeroManual); })
+    .then(function () { return chamar('enviarRelatorioCompra', sessao.token, numeroManual, estadoAnalise.dataFim); })
     .then(function (r) {
       btn.disabled = false;
       msg.innerHTML = '<div class="aviso ok">Pedido nº ' + r.numero + ' enviado (PDF em anexo) para ' +

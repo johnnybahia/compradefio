@@ -160,7 +160,7 @@ function _semAcento(s) {
  * data de emissão e número do pedido). O número só avança depois do envio
  * dar certo. Retorna { ok, destinatarios, numero } ou lança erro claro.
  */
-function enviarRelatorioCompra(token, numeroManual) {
+function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   var lista = _destinatariosCompra().split(/[;,]/)
     .map(function (e) { return e.trim(); })
@@ -193,7 +193,26 @@ function enviarRelatorioCompra(token, numeroManual) {
   // automático), não do que estava salvo antes — é assim que um ajuste
   // manual "gruda" na sequência dali pra frente.
   _definirNumeroPedido(numero + 1);
+  // Guarda a data final da análise que gerou esse envio — a próxima Análise
+  // de Compra já abre com "data inicial" nesse valor, pra continuar de onde
+  // esta parou (ver `obterUltimaDataFimCompra`).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(dataFimAnalise || ''))) {
+    PropertiesService.getScriptProperties()
+      .setProperty(_propUnidade('ULTIMA_DATA_FIM_COMPRA'), String(dataFimAnalise));
+  }
   return { ok: true, destinatarios: lista.length, numero: numero };
+}
+
+/**
+ * Data final da última análise cujo pedido foi efetivamente enviado por
+ * e-mail (unidade atual) — usada pra pré-preencher a "data inicial" da
+ * próxima Análise de Compra, continuando de onde a anterior parou.
+ * @return {Object} { ok, data } — data em 'yyyy-MM-dd', ou '' se nunca houve envio.
+ */
+function obterUltimaDataFimCompra(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('ULTIMA_DATA_FIM_COMPRA'));
+  return { ok: true, data: v || '' };
 }
 
 /** Monta o HTML do relatório de compra (usado no e-mail e no PDF anexado). */
