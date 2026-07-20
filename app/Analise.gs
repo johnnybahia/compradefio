@@ -23,21 +23,17 @@
  */
 
 /**
- * Colunas da relação de compra (contrato com a interface e o banco;
- * compartilhado pelas duas abas abaixo — mesmo formato nas duas).
+ * Colunas da relação de compra (contrato com a interface e o banco).
  *
- * O fluxo tem DUAS abas com papéis diferentes:
- *   - PENDENCIA_COMPRA: rascunho de trabalho. Cada "Prosseguir com a
- *     compra" ACRESCENTA itens aqui (não substitui) — é daqui que o
- *     tingimento vai trabalhando aos poucos (nem sempre dá conta de tudo de
- *     uma vez), possivelmente ao longo de vários dias, ANTES de qualquer
- *     e-mail ser enviado. Zerar é uma ação explícita do master
- *     (excluirRelacaoDeCompra).
- *   - RELACAO_COMPRA: histórico definitivo. SÓ recebe linha quando o
- *     e-mail do Pedido de Fio é EFETIVAMENTE enviado (enviarRelatorioCompra,
- *     em Consultas.gs) — nesse momento os itens saem de PENDENCIA_COMPRA
- *     (que é limpa) e são arquivados aqui com STATUS ENVIADO. Não tem botão
- *     de excluir: é um log, não um rascunho.
+ * PENDENCIA_COMPRA é um backlog vivo, não um rascunho de uma única rodada:
+ * cada "Prosseguir com a compra" ACRESCENTA itens aqui (não substitui, ver
+ * `_chaveItemData`), e os itens ficam parados até saírem por uma baixa de
+ * verdade — embarque confirmado (`gravarEmbarque`, em Embarque.gs) ou
+ * remoção manual (`removerItemPendente`, em Consultas.gs). Enviar o e-mail
+ * do Pedido de Fio (`enviarRelatorioCompra`) NÃO tira nada daqui: é só uma
+ * foto numerada do que está em aberto naquele momento — o número do pedido
+ * serve para controle/rastreio de qual envio foi qual, não para arquivar.
+ * Zerar a lista toda é uma ação explícita do master (`excluirRelacaoDeCompra`).
  */
 var RELACAO_COMPRA_HEADERS = [
   'ITEM',          // código do produto/cor
@@ -316,8 +312,7 @@ function gerarRelacaoDeCompra(token, params) {
   if (substituidas) partes.push(substituidas + ' item(ns) corrigido(s) (já estava(m) pendente(s))');
   return {
     ok: true,
-    mensagem: partes.join(' e ') + ' na relação de compra pendente. Envie por e-mail na tela de ' +
-      'Tingimento para confirmar — só aí entra no histórico definitivo.'
+    mensagem: partes.join(' e ') + ' na relação de compra pendente.'
   };
 }
 
@@ -331,10 +326,9 @@ function obterRelacaoDeCompra(token) {
 }
 
 /**
- * Apaga TODO o rascunho pendente e começa do zero. Ação explícita do
- * master — o rascunho nunca se apaga sozinho ao gerar uma nova compra.
- * Não afeta RELACAO_COMPRA (histórico definitivo, já enviado — esse não
- * tem como excluir por aqui).
+ * Apaga TODO o rascunho pendente (PENDENCIA_COMPRA) e começa do zero. Ação
+ * explícita do master — a lista nunca se apaga sozinha ao gerar uma nova
+ * compra, nem ao enviar o e-mail do Pedido de Fio (ver `enviarRelatorioCompra`).
  */
 function excluirRelacaoDeCompra(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);

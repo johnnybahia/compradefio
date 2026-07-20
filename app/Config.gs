@@ -89,8 +89,8 @@ var CONFIG = {
     EMBARQUES: 'EMBARQUES',           // embarques (preenchido pela leitura do PDF)
     MAPA_EMBARQUE: 'MAPA_EMBARQUE',   // aprendizado: descrição do PDF → item
     PENDENCIAS_EMBARQUE: 'PENDENCIAS EMBARQUE', // itens de embarque parcialmente lançados no estoque
-    PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // rascunho: itens selecionados, aguardando envio por e-mail
-    RELACAO_COMPRA: 'RELACAO_COMPRA'  // histórico definitivo — só recebe linha quando o e-mail é enviado
+    PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // backlog vivo: acumula até dar baixa (embarque confirmado ou remoção manual)
+    RELACAO_COMPRA: 'RELACAO_COMPRA'  // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
     // Demais tabelas (FIO_CRU, PEDIDOS, TINGIMENTO, EMBARQUES...)
     // serão adicionadas conforme definirmos as regras de negócio.
   },
