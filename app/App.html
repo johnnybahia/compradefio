@@ -260,6 +260,8 @@ function viewAnalise(alvo) {
       'outra planilha depois que esta lista foi carregada. Encontrou um ' +
       'estoque avulso, fora de qualquer controle? Digite em <b>Estoque encontrado</b> — ' +
       'ele soma ao saldo e recalcula a necessidade de compra (máquinas/total) na hora.</p>' +
+      '<p class="legenda-abastecido">Linhas em amarelo: fio com estoque maior que o consumo ' +
+      'médio — agrupado no fim da lista de fios, sem urgência de compra por ora.</p>' +
       '<div id="lista-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-lista"></div>' +
       '<div style="margin-top:16px">' +
@@ -579,14 +581,24 @@ function renderLista(itens) {
   reaplicarDestaque();
 }
 
-/** Ordena a lista pela mesma regra do servidor (fio primeiro, saldo mais
- * crítico primeiro) — mas considerando o saldo JÁ ajustado pelo estoque
+/** Prioridade de compra de um item (mesmo critério do servidor — ver
+ * `_rankPrioridadeCompra` em Analise.gs): 0 = fio que precisa de atenção,
+ * 1 = fio já bem abastecido (saldo > consumo médio, agrupado no fim dos
+ * fios), 2 = não é fio (sempre por último). */
+function _rankPrioridadeCompra(it) {
+  if (!it.tipoFio) return 2;
+  var saldoEfetivo = Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0);
+  return saldoEfetivo > Number(it.consumoMedio) ? 1 : 0;
+}
+
+/** Ordena a lista pela mesma regra do servidor (fio que precisa de atenção
+ * primeiro, do saldo mais crítico pro menos; fio bem abastecido no fim dos
+ * fios; não-fio por último) — considerando o saldo JÁ ajustado pelo estoque
  * encontrado, pra reordenar sozinho quando o usuário digita um valor. */
 function ordenarItensAnalise() {
   estadoAnalise.itens.sort(function (a, b) {
-    var aNaoFio = a.tipoFio ? 0 : 1;
-    var bNaoFio = b.tipoFio ? 0 : 1;
-    if (aNaoFio !== bNaoFio) return aNaoFio - bNaoFio;
+    var ra = _rankPrioridadeCompra(a), rb = _rankPrioridadeCompra(b);
+    if (ra !== rb) return ra - rb;
     var sa = Number(a.saldo) + Number(a.emViagem || 0) + Number(a.estoqueEncontrado || 0);
     var sb = Number(b.saldo) + Number(b.emViagem || 0) + Number(b.estoqueEncontrado || 0);
     return sa - sb;
@@ -656,11 +668,12 @@ function reaplicarDestaque() {
   Array.prototype.forEach.call(linhas, function (tr) {
     var it = estadoAnalise.itens[Number(tr.getAttribute('data-idx'))];
     var saldo = it ? Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0) : NaN;
-    if (!isNaN(base) && !isNaN(saldo) && saldo <= base) {
-      tr.classList.add('destaque');
-    } else {
-      tr.classList.remove('destaque');
-    }
+    tr.classList.toggle('destaque', !isNaN(base) && !isNaN(saldo) && saldo <= base);
+    // amarelo: fio já com mais estoque do que consome em média — sem
+    // urgência de compra por ora (mesmo critério que agrupa esses itens
+    // no fim da lista de fios — ver ordenarItensAnalise/_rankPrioridadeCompra).
+    tr.classList.toggle('destaque-abastecido',
+      !!it && !!it.tipoFio && !isNaN(saldo) && saldo > Number(it.consumoMedio));
   });
 }
 
