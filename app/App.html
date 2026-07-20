@@ -289,6 +289,19 @@ function viewAnalise(alvo) {
     reaplicarDestaque();
   });
 
+  // 1ª vez na sessão (ainda sem data escolhida): pré-preenche "data inicial"
+  // com a data final do último pedido efetivamente enviado, pra continuar
+  // de onde parou. Só troca o campo se o usuário não tiver mexido nele.
+  if (!estadoAnalise.dataInicio) {
+    chamar('obterUltimaDataFimCompra', sessao.token).then(function (r) {
+      var campo = document.getElementById('data-inicio');
+      if (r && r.data && campo && !estadoAnalise.dataInicio) {
+        campo.value = r.data;
+        estadoAnalise.dataInicio = r.data;
+      }
+    }).catch(function () {});
+  }
+
   // Restaura a lista já analisada na sessão e recarrega a última relação salva.
   if (estadoAnalise.itens.length) {
     document.getElementById('analise-msg').innerHTML =
@@ -492,7 +505,8 @@ function renderLista(itens) {
       ? it.descricao
       : '<span class="sem-desc">— ' + (it.motivo || 'sem descrição') + '</span>';
     return '<tr data-idx="' + i + '">' +
-      '<td style="text-align:center"><input type="checkbox" class="sel-compra" data-idx="' + i + '"></td>' +
+      '<td style="text-align:center"><input type="checkbox" class="sel-compra" data-idx="' + i + '"' +
+        (it.marcado ? ' checked' : '') + '></td>' +
       '<td>' + (it.item || '—') + '</td>' +
       '<td>' + desc + '</td>' +
       '<td>' + (it.cliente ? it.cliente : '—') + '</td>' +
@@ -535,6 +549,13 @@ function renderLista(itens) {
   btnPros.style.display = '';
 
   // Edições da análise ficam só na memória (persistem ao "Prosseguir").
+  Array.prototype.forEach.call(wrap.querySelectorAll('.sel-compra'), function (chk) {
+    chk.addEventListener('change', function () {
+      // marca no item, não só na caixinha — assim a marcação sobrevive a um
+      // "voltar pra lista" (a tabela é recriada do zero a cada renderLista)
+      estadoAnalise.itens[Number(chk.getAttribute('data-idx'))].marcado = chk.checked;
+    });
+  });
   Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
     inp.addEventListener('change', function () {
       estadoAnalise.itens[Number(inp.getAttribute('data-idx'))].dataLimite = isoParaBR(inp.value);
@@ -890,7 +911,7 @@ function enviarEmailCompra() {
   btn.disabled = true;
   msg.innerHTML = '<div class="aviso"><span class="carregando">Gerando PDF e enviando…</span></div>';
   chamar('salvarDestinatarios', sessao.token, emails)
-    .then(function () { return chamar('enviarRelatorioCompra', sessao.token, numeroManual); })
+    .then(function () { return chamar('enviarRelatorioCompra', sessao.token, numeroManual, estadoAnalise.dataFim); })
     .then(function (r) {
       btn.disabled = false;
       msg.innerHTML = '<div class="aviso ok">Pedido nº ' + r.numero + ' enviado (PDF em anexo) para ' +
