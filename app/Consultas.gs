@@ -159,10 +159,16 @@ function _semAcento(s) {
  * Envia a relação de compra (tingimento) por e-mail para os destinatários
  * salvos, em anexo um PDF no formato "PEDIDO DE FIO MARFIM <UNIDADE>" (com
  * data de emissão e número do pedido). O número só avança depois do envio
- * dar certo. É também o ÚNICO momento em que os itens saem do rascunho
- * (PENDENCIA_COMPRA) e viram histórico definitivo (RELACAO_COMPRA) — se o
- * envio falhar, nada é arquivado nem apagado, o rascunho continua intacto
- * pra tentar de novo. Retorna { ok, destinatarios, numero } ou lança erro claro.
+ * dar certo.
+ *
+ * O envio é só uma FOTO numerada do que está em aberto — NÃO remove nada de
+ * PENDENCIA_COMPRA. A lista é um backlog vivo: um item só sai dela quando
+ * dá baixa de verdade (embarque confirmado — ver `gravarEmbarque`, em
+ * Embarque.gs — ou remoção manual, `removerItemPendente`), não quando é só
+ * mencionado num e-mail. Cada envio tem seu próprio número sequencial, só
+ * para controle/rastreio de qual pedido foi mandado quando.
+ *
+ * Retorna { ok, destinatarios, numero } ou lança erro claro.
  */
 function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
@@ -193,23 +199,10 @@ function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
       'de Fio Marfim ' + unidade + ' nº <b>' + numero + '</b>, emitido em <b>' + dataFmt + '</b>.</p>',
     attachments: [pdf]
   });
-  // A partir daqui o e-mail já saiu — tudo que segue é só arquivamento, não
-  // pode mais dar erro "de negócio" (o pedido já foi feito de verdade).
-
-  // Arquiva os itens enviados no histórico definitivo (RELACAO_COMPRA) com
-  // STATUS ENVIADO, e limpa o rascunho pendente — são exatamente os mesmos
-  // itens que acabaram de sair no e-mail (regs), então dá pra esvaziar a
-  // aba toda em vez de remover linha a linha.
-  var linhasArquivo = regs.map(function (r) {
-    return RELACAO_COMPRA_HEADERS.map(function (h) {
-      if (h === 'STATUS') return 'ENVIADO';
-      return r[h] == null ? '' : r[h];
-    });
-  });
-  var shHistorico = _prepararAbaCompra(CONFIG.SHEETS.RELACAO_COMPRA);
-  shHistorico.getRange(shHistorico.getLastRow() + 1, 1, linhasArquivo.length, RELACAO_COMPRA_HEADERS.length)
-    .setValues(linhasArquivo);
-  reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, []);
+  // A partir daqui o e-mail já saiu — tudo que segue é só registro, não pode
+  // mais dar erro "de negócio" (o pedido já foi feito de verdade). PENDENCIA_
+  // COMPRA continua intacta: enviar é só uma foto numerada do que está em
+  // aberto, não uma baixa (ver docstring acima).
 
   // Só agora — o e-mail já saiu. Avança a partir do número USADO (manual ou
   // automático), não do que estava salvo antes — é assim que um ajuste
@@ -279,14 +272,39 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
 /** Campos editáveis no painel de tingimento. */
 var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
 
-/** Salva um campo editável do painel de tingimento (no rascunho pendente,
- * PENDENCIA_COMPRA — ainda não enviado; RELACAO_COMPRA é só o arquivo). */
+/** Salva um campo editável do painel de tingimento (na lista pendente,
+ * PENDENCIA_COMPRA — enviar por e-mail não move nem trava esses campos). */
 function salvarCampoTingimento(token, linha, campo, valor) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   if (CAMPOS_TINGIMENTO_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
   atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, campo, valor == null ? '' : String(valor));
+  return { ok: true };
+}
+
+/**
+ * Remove manualmente UMA linha da lista pendente (PENDENCIA_COMPRA) — uso
+ * típico: sobrou um resíduo pequeno depois de uma baixa automática por
+ * embarque (ex.: pediu 50, chegaram 47, sobraram 3 — ver
+ * `_baixarPendenciaCompraPorEmbarque`, em Embarque.gs) e o master decide que
+ * não vale mais a pena esperar por aquele tanto. Ação pontual (uma linha só)
+ * — para zerar a lista inteira, ver `excluirRelacaoDeCompra`.
+ */
+function removerItemPendente(token, linha) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  var existe = regs.some(function (r) { return r.__row === linha; });
+  if (!existe) throw new Error('Item não encontrado — a lista pode ter mudado, recarregue a tela.');
+
+  var linhasFinais = regs
+    .filter(function (r) { return r.__row !== linha; })
+    .map(function (r) {
+      return RELACAO_COMPRA_HEADERS.map(function (h) { return r[h] == null ? '' : r[h]; });
+    });
+  reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, linhasFinais);
   return { ok: true };
 }
 

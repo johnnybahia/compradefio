@@ -224,7 +224,9 @@ function analisarEmbarquePdf(token, base64, nome) {
 }
 
 /**
- * Grava o embarque conferido na aba EMBARQUES e memoriza as descrições novas.
+ * Grava o embarque conferido na aba EMBARQUES, memoriza as descrições novas
+ * e dá baixa automática na lista pendente (PENDENCIA_COMPRA) pelo que acabou
+ * de embarcar (ver `_baixarPendenciaCompraPorEmbarque`).
  * @param {Object} dados { doc, data:'dd/MM/aaaa', itens:[{descricao,item,quantidade}] }
  */
 function gravarEmbarque(token, dados) {
@@ -248,7 +250,84 @@ function gravarEmbarque(token, dados) {
     return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, ''];
   });
   sh.getRange(sh.getLastRow() + 1, 1, linhas.length, 5).setValues(linhas);
-  return { ok: true, gravados: linhas.length };
+
+  var baixa = _baixarPendenciaCompraPorEmbarque(itens);
+  return { ok: true, gravados: linhas.length, baixados: baixa.baixados };
+}
+
+/**
+ * Baixa automática na lista pendente (PENDENCIA_COMPRA) com base no que
+ * acabou de ser confirmado neste embarque: para cada item, desconta a
+ * quantidade embarcada do(s) SUGERIDO pendente(s) mais antigo(s) primeiro
+ * (FIFO por DATA_LIMITE — sem data limite fica por último, como já é a
+ * ordem usada na tela de Tingimento — ver `_ordenarPorDataLimite`).
+ *
+ * Quando um pedido pendente é totalmente coberto pelo embarque, a linha sai
+ * da lista. Se sobrar um resíduo (ex.: pediu 50, embarcaram 47 — sobram 3),
+ * a linha fica com o SUGERIDO reduzido, pendente: não é apagada sozinha —
+ * cabe ao master decidir se aquele resto ainda vale a pena, e removê-lo na
+ * mão se não (ver `removerItemPendente`, em Consultas.gs).
+ *
+ * @param {Array} itens [{item, quantidade}] — os itens confirmados neste embarque.
+ * @return {Object} { baixados } — nº de linhas de PENDENCIA_COMPRA afetadas (reduzidas ou removidas).
+ */
+function _baixarPendenciaCompraPorEmbarque(itens) {
+  var restanteItem = {};
+  itens.forEach(function (it) {
+    var k = _norm(it.item);
+    if (!k) return;
+    restanteItem[k] = (restanteItem[k] || 0) + (Number(it.quantidade) || 0);
+  });
+  if (!Object.keys(restanteItem).length) return { baixados: 0 };
+
+  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  if (!regs.length) return { baixados: 0 };
+
+  var porItem = {};
+  regs.forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (!k || !restanteItem.hasOwnProperty(k)) return;
+    if (!porItem[k]) porItem[k] = [];
+    porItem[k].push(r);
+  });
+
+  var EPS = 0.01;
+  var novoSugeridoPorLinha = {}; // __row -> novo valor
+  var removidas = {};            // __row -> true
+  var baixados = 0;
+
+  Object.keys(porItem).forEach(function (k) {
+    var lista = _ordenarPorDataLimite(porItem[k]);
+    lista.forEach(function (r) {
+      var qtd = restanteItem[k];
+      if (qtd <= EPS) return;
+      var sugerido = Number(r.SUGERIDO) || 0;
+      if (sugerido <= 0) return;
+      var desconto = Math.min(sugerido, qtd);
+      var novoValor = sugerido - desconto;
+      restanteItem[k] = qtd - desconto;
+      baixados++;
+      if (novoValor <= EPS) {
+        removidas[r.__row] = true;
+      } else {
+        novoSugeridoPorLinha[r.__row] = novoValor;
+      }
+    });
+  });
+  if (!baixados) return { baixados: 0 };
+
+  var linhasFinais = regs
+    .filter(function (r) { return !removidas[r.__row]; })
+    .map(function (r) {
+      return RELACAO_COMPRA_HEADERS.map(function (h) {
+        if (h === 'SUGERIDO' && novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
+          return novoSugeridoPorLinha[r.__row];
+        }
+        return r[h] == null ? '' : r[h];
+      });
+    });
+  reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, linhasFinais);
+  return { baixados: baixados };
 }
 
 /** dd/MM/aaaa → Date (local), ou null. */

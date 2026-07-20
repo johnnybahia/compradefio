@@ -794,7 +794,7 @@ function excluirRelacao() {
 // Número do pedido (peek) + data de emissão, para o cabeçalho da impressão.
 // Só avança de verdade depois que o e-mail é enviado (obterNumeroPedido nunca consome).
 var pedidoInfo = { numero: null, data: null };
-// Lista carregada da RELACAO_COMPRA (já vem ordenada por data limite do servidor);
+// Lista carregada da PENDENCIA_COMPRA (já vem ordenada por data limite do servidor);
 // mantida aqui para reordenar na hora quando o usuário edita uma data, sem recarregar a tela.
 var estadoTingimento = { linhas: [] };
 
@@ -972,6 +972,10 @@ function renderTingimento(linhas) {
         brParaISO(l.dataLimite) + '"></td>' +
       '<td><input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) +
         '" placeholder="anotação…"></td>' +
+      '<td class="no-print" style="text-align:center">' +
+        '<button type="button" class="btn-remover-linha" data-linha="' + l.linha + '" ' +
+          'title="Remover este item da lista pendente (sem receber embarque — resíduo que não vale mais esperar)">✕</button>' +
+      '</td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
@@ -980,6 +984,7 @@ function renderTingimento(linhas) {
       '<th style="width:14%">Cliente</th><th style="width:12%">Máquinas</th>' +
       '<th style="text-align:right;width:8%">Total (kg)</th>' +
       '<th style="width:14%">Data limite embarque</th><th style="width:16%">Observação</th>' +
+      '<th class="no-print" style="width:4%"></th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.obs-input'), function (inp) {
@@ -998,6 +1003,28 @@ function renderTingimento(linhas) {
       });
     });
   });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-remover-linha'), function (btn) {
+    btn.addEventListener('click', function () { removerLinhaTingimento(btn); });
+  });
+}
+
+/** Remove uma linha da lista pendente (PENDENCIA_COMPRA), com confirmação —
+ * ação sem volta, diferente de um simples ajuste de campo. */
+function removerLinhaTingimento(btn) {
+  var linha = Number(btn.getAttribute('data-linha'));
+  if (!linha) return;
+  if (!window.confirm('Remover este item da lista pendente? Ele não foi baixado por embarque — ' +
+    'essa ação só tira da lista, não pode ser desfeita.')) return;
+  btn.disabled = true;
+  chamar('removerItemPendente', sessao.token, linha)
+    .then(function () {
+      estadoTingimento.linhas = estadoTingimento.linhas.filter(function (l) { return l.linha !== linha; });
+      renderTingimento(estadoTingimento.linhas);
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      tratarErro(err);
+    });
 }
 
 /** Ordena a lista do tingimento pela data limite de embarque, a mais próxima
