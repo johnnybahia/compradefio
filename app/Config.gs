@@ -89,7 +89,8 @@ var CONFIG = {
     EMBARQUES: 'EMBARQUES',           // embarques (preenchido pela leitura do PDF)
     MAPA_EMBARQUE: 'MAPA_EMBARQUE',   // aprendizado: descrição do PDF → item
     PENDENCIAS_EMBARQUE: 'PENDENCIAS EMBARQUE', // itens de embarque parcialmente lançados no estoque
-    RELACAO_COMPRA: 'RELACAO_COMPRA'  // resultado da análise de compra
+    PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // rascunho: itens selecionados, aguardando envio por e-mail
+    RELACAO_COMPRA: 'RELACAO_COMPRA'  // histórico definitivo — só recebe linha quando o e-mail é enviado
     // Demais tabelas (FIO_CRU, PEDIDOS, TINGIMENTO, EMBARQUES...)
     // serão adicionadas conforme definirmos as regras de negócio.
   },
