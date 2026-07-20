@@ -152,11 +152,12 @@ function listarItensParaAnalise(token, params) {
     });
   });
   // Itens de fio primeiro (do saldo menor para o maior, mais críticos primeiro);
-  // os que não são fio (sem tipo de fio identificado) ficam no fim da lista.
+  // dentro dos fios, os já bem abastecidos (saldo > consumo médio — não
+  // precisam de compra por ora) ficam agrupados no fim do grupo de fios;
+  // os que não são fio (sem tipo de fio identificado) ficam por último de todos.
   itens.sort(function (a, b) {
-    var aNaoFio = a.tipoFio ? 0 : 1;
-    var bNaoFio = b.tipoFio ? 0 : 1;
-    if (aNaoFio !== bNaoFio) return aNaoFio - bNaoFio;
+    var ra = _rankPrioridadeCompra(a), rb = _rankPrioridadeCompra(b);
+    if (ra !== rb) return ra - rb;
     return (Number(a.saldo) + Number(a.emViagem)) - (Number(b.saldo) + Number(b.emViagem));
   });
 
@@ -322,6 +323,20 @@ function _prepararRelacaoCompra() {
 }
 
 /* ------------------------------ auxiliares ----------------------------- */
+
+/**
+ * Prioridade de compra de um item, para ordenar a lista da Análise:
+ *   0 = fio que precisa de atenção (saldo ≤ consumo médio)
+ *   1 = fio já bem abastecido (saldo > consumo médio) — agrupado no fim dos fios
+ *   2 = não é fio (sem tipo de fio identificado) — sempre por último
+ * "saldo" aqui já inclui o que está em viagem e o estoque encontrado
+ * (mesmo critério usado no realce da tela — ver `reaplicarDestaque`).
+ */
+function _rankPrioridadeCompra(it) {
+  if (!it.tipoFio) return 2;
+  var saldoEfetivo = Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0);
+  return saldoEfetivo > Number(it.consumoMedio) ? 1 : 0;
+}
 
 /**
  * Lê a aba ESTOQUE e devolve uma lista de movimentos
