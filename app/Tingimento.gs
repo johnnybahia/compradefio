@@ -109,19 +109,26 @@ function _lerBaseTingimento() {
 
 /**
  * Cria a calculadora de tingimento (lê a base uma vez).
- * Devolve uma função calc(item, saldo, media) →
+ * Devolve uma função calc(item, saldo, media, emAberto) →
  *   { tipoFio, alvo, maquinas:[...], total }.
  * O tipo de fio é achado pelo padrão (mais longo) contido no código do item —
  * exceto o poliéster, que (diferente dos outros tipos) não tem sufixo no
  * código (ex.: "5233", "106"), então é usado como padrão-reserva quando o
  * código é só números e nenhum padrão mais específico bateu.
+ *
+ * `emAberto` é o quanto desse item JÁ está pedido, aguardando envio
+ * (soma do SUGERIDO das linhas ainda pendentes em PENDENCIA_COMPRA) — é
+ * descontado do alvo DEPOIS de aplicado o piso da média (diferente do
+ * saldo físico/estoque encontrado, que nunca deixa o alvo cair abaixo da
+ * média — ver `_alvoTingimento`). Já pedido e ainda não enviado pode, sim,
+ * zerar a sugestão: não faz sentido pedir de novo o que já está na fila.
  */
 function _criarCalculadoraTingimento() {
   var base = _lerBaseTingimento();
   var poliester = null;
   base.forEach(function (b) { if (b.patternNorm === 'poliester') poliester = b; });
 
-  return function (item, saldo, media) {
+  return function (item, saldo, media, emAberto) {
     var it = _norm(item);
     var achado = null;
     base.forEach(function (b) {
@@ -131,7 +138,8 @@ function _criarCalculadoraTingimento() {
     });
     if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
     if (!achado) return { tipoFio: '', alvo: 0, maquinas: [], total: 0 };
-    var alvo = _alvoTingimento(saldo, media);
+    var alvoBruto = _alvoTingimento(saldo, media);
+    var alvo = Math.max(alvoBruto - (Number(emAberto) || 0), 0);
     var sel = _selecionarMaquinas(alvo, achado.caps);
     return { tipoFio: achado.tipoFio, alvo: alvo, maquinas: sel.maquinas, total: sel.total };
   };
