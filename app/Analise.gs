@@ -98,6 +98,10 @@ function listarItensParaAnalise(token, params) {
   // Itens do mesmo embarque que ficaram para trás (outros já chegaram, este não):
   // vão para a aba de pendências, para o master acompanhar.
   var pendencias = _atualizarPendenciasEmbarque();
+  // O que já está pedido, aguardando envio (soma por item de todas as
+  // linhas ainda pendentes) — descontado do alvo de tingimento, pra não
+  // sugerir comprar de novo o que já está na fila (ver _criarCalculadoraTingimento).
+  var emAbertoPorItem = _emAbertoPorItem();
 
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
@@ -137,8 +141,9 @@ function listarItensParaAnalise(token, params) {
     var d = descricaoDe(r.item);
     var media = Math.ceil(r.saidas3m / 3); // consumo médio arredondado para cima
     var emViagem = emViagemPorItem[k] || 0;
+    var emAberto = emAbertoPorItem[k] || 0;
     var saldoAjustado = r.saldo + emViagem; // considera o que já está a caminho, para não pedir compra à toa
-    var t = tingimentoDe(r.item, saldoAjustado, media);
+    var t = tingimentoDe(r.item, saldoAjustado, media, emAberto);
     itens.push({
       item: r.item,
       descricao: d.descricao,
@@ -147,6 +152,7 @@ function listarItensParaAnalise(token, params) {
       saldo: r.saldo,
       obsEstoque: r.obsEstoque,
       emViagem: emViagem,
+      emAberto: emAberto,
       estoqueEncontrado: 0,
       consumoMedio: media,
       tipoFio: t.tipoFio,
@@ -206,9 +212,10 @@ function consultarDataLimiteItem(token, item) {
  * Reconsulta, na hora, o pedido de tingimento (máquinas/total) de UM item
  * somando o "estoque encontrado" (contagem avulsa, digitada manualmente na
  * Análise de Compra para um valor que apareceu mas não está em nenhum
- * controle já implementado) ao saldo + em viagem — sem rodar a análise
- * inteira de novo. Recalcula a necessidade de compra em tempo real.
- * @param {Object} params { item, saldo, emViagem, estoqueEncontrado, consumoMedio }
+ * controle já implementado) ao saldo + em viagem, e descontando o que já
+ * está pendente (emAberto) — sem rodar a análise inteira de novo. Recalcula
+ * a necessidade de compra em tempo real.
+ * @param {Object} params { item, saldo, emViagem, estoqueEncontrado, emAberto, consumoMedio }
  * @return {Object} { ok, tipoFio, maquinas, totalTingimento }
  */
 function recalcularTingimentoItem(token, params) {
@@ -220,11 +227,12 @@ function recalcularTingimentoItem(token, params) {
   var saldo = Number(params.saldo) || 0;
   var emViagem = Number(params.emViagem) || 0;
   var estoqueEncontrado = Number(params.estoqueEncontrado) || 0;
+  var emAberto = Number(params.emAberto) || 0;
   var media = Number(params.consumoMedio) || 0;
   var saldoAjustado = saldo + emViagem + estoqueEncontrado;
 
   var tingimentoDe = _criarCalculadoraTingimento();
-  var t = tingimentoDe(item, saldoAjustado, media);
+  var t = tingimentoDe(item, saldoAjustado, media, emAberto);
   return { ok: true, tipoFio: t.tipoFio, maquinas: t.maquinas.join(' + '), totalTingimento: t.total };
 }
 
@@ -234,12 +242,19 @@ function recalcularTingimentoItem(token, params) {
  * definitivo, isso só acontece quando o e-mail é de fato enviado (ver
  * `enviarRelatorioCompra`, em Consultas.gs).
  *
- * Por item (código), é um UPSERT, não um "sempre acrescenta": se aquele
- * código já está pendente (de uma geração anterior, ainda não enviada),
- * a linha existente é SUBSTITUÍDA pelos valores novos — corrige em vez de
- * duplicar. Só vira linha nova o código que ainda não estava pendente.
- * Isso permite achar um erro na tela de Tingimento, voltar pra Análise,
- * ajustar e gerar de novo sem empilhar pedidos repetidos do mesmo item.
+ * Por item (código) + DATA LIMITE, é um UPSERT, não um "sempre acrescenta":
+ * se já existe pendente o MESMO código com a MESMA data limite (de uma
+ * geração anterior, ainda não enviada), a linha existente é SUBSTITUÍDA
+ * pelos valores novos — corrige em vez de duplicar. Isso permite achar um
+ * erro na tela de Tingimento, voltar pra Análise, ajustar e gerar de novo
+ * sem empilhar pedidos repetidos do mesmo item.
+ *
+ * Já o MESMO código com data limite DIFERENTE é tratado como um pedido À
+ * PARTE (outro cliente/prazo) — vira linha nova, sem mexer na(s) já
+ * existente(s). Nesse caso a quantidade sugerida (SUGERIDO/máquinas) já
+ * chega descontada do que aquele item já tem pendente sob outra data (ver
+ * `_emAbertoPorItem`/`_criarCalculadoraTingimento`), pra não sugerir
+ * comprar mais do que falta de verdade.
  *
  * @param {string} token
  * @param {Object} params { itens: [{item, descricao, saldo, consumoMedio}] }
@@ -253,12 +268,13 @@ function gerarRelacaoDeCompra(token, params) {
   var agora = new Date();
   var sh = _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA);
 
-  // Linha atual (se houver) de cada código já pendente, pra decidir
-  // substituir em vez de duplicar.
-  var linhaPorItem = {};
+  // Linha atual (se houver) de cada [código + data limite] já pendente, pra
+  // decidir substituir em vez de duplicar. Mesma data (inclusive as duas
+  // vazias) = mesmo pedido; data diferente = pedido à parte.
+  var linhaPorChave = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
-    var k = _norm(r.ITEM);
-    if (k) linhaPorItem[k] = r.__row;
+    var chave = _chaveItemData(r.ITEM, r.DATA_LIMITE);
+    if (chave) linhaPorChave[chave] = r.__row;
   });
 
   // EM_ABERTO/A_COMPRAR ficam vazios por ora (uso futuro); STATUS nasce ABERTO.
@@ -283,7 +299,7 @@ function gerarRelacaoDeCompra(token, params) {
       'ABERTO',                 // STATUS
       agora                     // GERADO_EM
     ];
-    var linhaExistente = linhaPorItem[_norm(it.item)];
+    var linhaExistente = linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
     if (linhaExistente) {
       sh.getRange(linhaExistente, 1, 1, RELACAO_COMPRA_HEADERS.length).setValues([linha]);
       substituidas++;
@@ -367,13 +383,43 @@ function _prepararAbaCompra(nomeAba) {
  *   0 = fio que precisa de atenção (saldo ≤ consumo médio)
  *   1 = fio já bem abastecido (saldo > consumo médio) — agrupado no fim dos fios
  *   2 = não é fio (sem tipo de fio identificado) — sempre por último
- * "saldo" aqui já inclui o que está em viagem e o estoque encontrado
- * (mesmo critério usado no realce da tela — ver `reaplicarDestaque`).
+ * "saldo" aqui já inclui o que está em viagem, o estoque encontrado e o que
+ * já está pedido aguardando envio (mesmo critério usado no realce da tela —
+ * ver `reaplicarDestaque`).
  */
 function _rankPrioridadeCompra(it) {
   if (!it.tipoFio) return 2;
-  var saldoEfetivo = Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0);
+  var saldoEfetivo = Number(it.saldo) + Number(it.emViagem || 0) +
+    Number(it.estoqueEncontrado || 0) + Number(it.emAberto || 0);
   return saldoEfetivo > Number(it.consumoMedio) ? 1 : 0;
+}
+
+/**
+ * Soma, por item (código normalizado), o SUGERIDO de todas as linhas ainda
+ * pendentes em PENDENCIA_COMPRA — quanto desse item já está pedido,
+ * aguardando envio. Usado pra não sugerir comprar de novo o que já está
+ * na fila (ver `_criarCalculadoraTingimento`).
+ */
+function _emAbertoPorItem() {
+  var mapa = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (!k) return;
+    mapa[k] = (mapa[k] || 0) + (parseFloat(r.SUGERIDO) || 0);
+  });
+  return mapa;
+}
+
+/**
+ * Chave de correspondência [código + data limite] usada pra decidir, ao
+ * gerar a compra, se um item é o MESMO pedido (substitui) ou um pedido À
+ * PARTE (linha nova) — ver `gerarRelacaoDeCompra`. As duas datas vazias
+ * também contam como "iguais" (mesmo pedido sem data definida ainda).
+ */
+function _chaveItemData(item, dataLimite) {
+  var i = _norm(item);
+  if (!i) return '';
+  return i + '|' + _norm(dataLimite);
 }
 
 /**

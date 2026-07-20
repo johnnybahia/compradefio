@@ -515,6 +515,8 @@ function renderLista(itens) {
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
       '<td>' + (it.obsEstoque ? it.obsEstoque : '—') + '</td>' +
       '<td style="text-align:right">' + (it.emViagem ? num(it.emViagem) : '—') + '</td>' +
+      '<td style="text-align:right" title="Já pedido, aguardando envio — descontado da sugestão de tingimento.">' +
+        (it.emAberto ? num(it.emAberto) : '—') + '</td>' +
       '<td><input type="number" class="estoque-input" data-idx="' + i + '" min="0" step="any" ' +
         'value="' + (it.estoqueEncontrado ? it.estoqueEncontrado : '') + '" placeholder="0" ' +
         'title="Contagem avulsa encontrada, fora de qualquer controle — soma ao saldo e recalcula a necessidade de compra."></td>' +
@@ -540,6 +542,7 @@ function renderLista(itens) {
       '<th style="text-align:right;width:5%">Saldo final</th>' +
       '<th style="width:8%">Obs. estoque</th>' +
       '<th style="text-align:right;width:5%">Em viagem</th>' +
+      '<th style="text-align:right;width:6%">Já pendente</th>' +
       '<th style="text-align:right;width:7%">Estoque encontrado</th>' +
       '<th style="text-align:right;width:5%">Consumo médio</th>' +
       '<th style="width:9%">Tipo de fio</th>' +
@@ -587,7 +590,8 @@ function renderLista(itens) {
  * fios), 2 = não é fio (sempre por último). */
 function _rankPrioridadeCompra(it) {
   if (!it.tipoFio) return 2;
-  var saldoEfetivo = Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0);
+  var saldoEfetivo = Number(it.saldo) + Number(it.emViagem || 0) +
+    Number(it.estoqueEncontrado || 0) + Number(it.emAberto || 0);
   return saldoEfetivo > Number(it.consumoMedio) ? 1 : 0;
 }
 
@@ -599,8 +603,8 @@ function ordenarItensAnalise() {
   estadoAnalise.itens.sort(function (a, b) {
     var ra = _rankPrioridadeCompra(a), rb = _rankPrioridadeCompra(b);
     if (ra !== rb) return ra - rb;
-    var sa = Number(a.saldo) + Number(a.emViagem || 0) + Number(a.estoqueEncontrado || 0);
-    var sb = Number(b.saldo) + Number(b.emViagem || 0) + Number(b.estoqueEncontrado || 0);
+    var sa = Number(a.saldo) + Number(a.emViagem || 0) + Number(a.estoqueEncontrado || 0) + Number(a.emAberto || 0);
+    var sb = Number(b.saldo) + Number(b.emViagem || 0) + Number(b.estoqueEncontrado || 0) + Number(b.emAberto || 0);
     return sa - sb;
   });
 }
@@ -616,7 +620,7 @@ function atualizarEstoqueEncontradoLinha(idx, inp) {
   inp.disabled = true;
   chamar('recalcularTingimentoItem', sessao.token, {
     item: it.item, saldo: it.saldo, emViagem: it.emViagem,
-    estoqueEncontrado: it.estoqueEncontrado, consumoMedio: it.consumoMedio
+    estoqueEncontrado: it.estoqueEncontrado, emAberto: it.emAberto, consumoMedio: it.consumoMedio
   })
     .then(function (r) {
       it.tipoFio = r.tipoFio || '';
@@ -667,7 +671,9 @@ function reaplicarDestaque() {
   var linhas = document.querySelectorAll('#tabela-lista tbody tr');
   Array.prototype.forEach.call(linhas, function (tr) {
     var it = estadoAnalise.itens[Number(tr.getAttribute('data-idx'))];
-    var saldo = it ? Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0) : NaN;
+    var saldo = it
+      ? Number(it.saldo) + Number(it.emViagem || 0) + Number(it.estoqueEncontrado || 0) + Number(it.emAberto || 0)
+      : NaN;
     tr.classList.toggle('destaque', !isNaN(base) && !isNaN(saldo) && saldo <= base);
     // amarelo: fio já com mais estoque do que consome em média — sem
     // urgência de compra por ora (mesmo critério que agrupa esses itens
