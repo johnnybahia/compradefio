@@ -6,7 +6,7 @@
  * - consultarHistoricoItem: histórico de um item, como está na aba ESTOQUE.
  */
 
-/** Um registro da RELACAO_COMPRA está em aberto (ainda não processado pelo tingimento). */
+/** Um registro do rascunho pendente (PENDENCIA_COMPRA) está em aberto (ainda não enviado). */
 function _emAberto(r) {
   var s = _norm(r.STATUS);
   return !s || s === 'aberto'; // vazio conta como aberto (compatibilidade com pedidos antigos)
@@ -38,14 +38,15 @@ function _saldoCritico(r) {
 }
 
 /**
- * Lista para o painel de Tingimento (a partir da RELACAO_COMPRA gravada).
- * A relação acumula pedidos ao longo do tempo — aqui só entram os itens
- * ainda EM ABERTO (o tingimento pode não dar conta de tudo de uma vez).
- * Acessível ao master e ao papel tingimento.
+ * Lista para o painel de Tingimento (a partir do rascunho pendente,
+ * PENDENCIA_COMPRA — ainda NÃO enviado por e-mail). O rascunho acumula
+ * pedidos ao longo do tempo — aqui só entram os itens ainda EM ABERTO (o
+ * tingimento pode não dar conta de tudo de uma vez). Acessível ao master e
+ * ao papel tingimento.
  */
 function obterListaTingimento(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
-  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto));
+  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
@@ -158,7 +159,10 @@ function _semAcento(s) {
  * Envia a relação de compra (tingimento) por e-mail para os destinatários
  * salvos, em anexo um PDF no formato "PEDIDO DE FIO MARFIM <UNIDADE>" (com
  * data de emissão e número do pedido). O número só avança depois do envio
- * dar certo. Retorna { ok, destinatarios, numero } ou lança erro claro.
+ * dar certo. É também o ÚNICO momento em que os itens saem do rascunho
+ * (PENDENCIA_COMPRA) e viram histórico definitivo (RELACAO_COMPRA) — se o
+ * envio falhar, nada é arquivado nem apagado, o rascunho continua intacto
+ * pra tentar de novo. Retorna { ok, destinatarios, numero } ou lança erro claro.
  */
 function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
@@ -168,7 +172,7 @@ function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
   if (!lista.length) {
     throw new Error('Informe pelo menos um e-mail de destino (separados por ;).');
   }
-  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA).filter(_emAberto));
+  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   if (!regs.length) {
     throw new Error('Não há itens em aberto na relação de compra para enviar. Gere a compra primeiro.');
   }
@@ -189,6 +193,24 @@ function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
       'de Fio Marfim ' + unidade + ' nº <b>' + numero + '</b>, emitido em <b>' + dataFmt + '</b>.</p>',
     attachments: [pdf]
   });
+  // A partir daqui o e-mail já saiu — tudo que segue é só arquivamento, não
+  // pode mais dar erro "de negócio" (o pedido já foi feito de verdade).
+
+  // Arquiva os itens enviados no histórico definitivo (RELACAO_COMPRA) com
+  // STATUS ENVIADO, e limpa o rascunho pendente — são exatamente os mesmos
+  // itens que acabaram de sair no e-mail (regs), então dá pra esvaziar a
+  // aba toda em vez de remover linha a linha.
+  var linhasArquivo = regs.map(function (r) {
+    return RELACAO_COMPRA_HEADERS.map(function (h) {
+      if (h === 'STATUS') return 'ENVIADO';
+      return r[h] == null ? '' : r[h];
+    });
+  });
+  var shHistorico = _prepararAbaCompra(CONFIG.SHEETS.RELACAO_COMPRA);
+  shHistorico.getRange(shHistorico.getLastRow() + 1, 1, linhasArquivo.length, RELACAO_COMPRA_HEADERS.length)
+    .setValues(linhasArquivo);
+  reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, []);
+
   // Só agora — o e-mail já saiu. Avança a partir do número USADO (manual ou
   // automático), não do que estava salvo antes — é assim que um ajuste
   // manual "gruda" na sequência dali pra frente.
@@ -257,13 +279,14 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
 /** Campos editáveis no painel de tingimento. */
 var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
 
-/** Salva um campo editável do painel de tingimento (na RELACAO_COMPRA). */
+/** Salva um campo editável do painel de tingimento (no rascunho pendente,
+ * PENDENCIA_COMPRA — ainda não enviado; RELACAO_COMPRA é só o arquivo). */
 function salvarCampoTingimento(token, linha, campo, valor) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   if (CAMPOS_TINGIMENTO_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
-  atualizarCelula(CONFIG.SHEETS.RELACAO_COMPRA, linha, campo, valor == null ? '' : String(valor));
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, campo, valor == null ? '' : String(valor));
   return { ok: true };
 }
 

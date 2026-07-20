@@ -23,16 +23,21 @@
  */
 
 /**
- * Colunas da relação de compra (contrato com a interface e o banco).
+ * Colunas da relação de compra (contrato com a interface e o banco;
+ * compartilhado pelas duas abas abaixo — mesmo formato nas duas).
  *
- * IMPORTANTE: a relação é um HISTÓRICO que ACUMULA — cada vez que o master
- * gera uma compra, os itens são ACRESCENTADOS (não substituem os
- * anteriores). É a partir dela que o tingimento vai trabalhando aos poucos
- * (nem sempre dá conta de tudo de uma vez) e é dali que, no futuro, será
- * dada baixa no fio cru. Por isso cada item carrega o STATUS (ABERTO até
- * ser processado) e a data/hora em que aquele pedido foi gerado. Zerar o
- * histórico é uma ação explícita do master (excluirRelacaoDeCompra), não
- * algo que acontece sozinho a cada nova análise.
+ * O fluxo tem DUAS abas com papéis diferentes:
+ *   - PENDENCIA_COMPRA: rascunho de trabalho. Cada "Prosseguir com a
+ *     compra" ACRESCENTA itens aqui (não substitui) — é daqui que o
+ *     tingimento vai trabalhando aos poucos (nem sempre dá conta de tudo de
+ *     uma vez), possivelmente ao longo de vários dias, ANTES de qualquer
+ *     e-mail ser enviado. Zerar é uma ação explícita do master
+ *     (excluirRelacaoDeCompra).
+ *   - RELACAO_COMPRA: histórico definitivo. SÓ recebe linha quando o
+ *     e-mail do Pedido de Fio é EFETIVAMENTE enviado (enviarRelatorioCompra,
+ *     em Consultas.gs) — nesse momento os itens saem de PENDENCIA_COMPRA
+ *     (que é limpa) e são arquivados aqui com STATUS ENVIADO. Não tem botão
+ *     de excluir: é um log, não um rascunho.
  */
 var RELACAO_COMPRA_HEADERS = [
   'ITEM',          // código do produto/cor
@@ -49,7 +54,7 @@ var RELACAO_COMPRA_HEADERS = [
   'OBS',           // observação digitada no painel de tingimento
   'EM_ABERTO',     // já solicitado e ainda não recebido
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
-  'STATUS',        // ABERTO (aguardando tingimento) / FECHADO (baixa dada — uso futuro)
+  'STATUS',        // em PENDENCIA_COMPRA: ABERTO (aguardando envio). Em RELACAO_COMPRA: ENVIADO.
   'GERADO_EM'      // data/hora em que este pedido foi gerado
 ];
 
@@ -225,8 +230,16 @@ function recalcularTingimentoItem(token, params) {
 
 /**
  * ETAPA 2 — Recebe os itens que o master manteve (após excluir os indesejados)
- * e prepara a relação de compra. A conversão pela tabela de tingimento e o
- * desconto de pedidos em aberto serão implementados nas próximas etapas.
+ * e grava no rascunho pendente (PENDENCIA_COMPRA) — ainda não é o histórico
+ * definitivo, isso só acontece quando o e-mail é de fato enviado (ver
+ * `enviarRelatorioCompra`, em Consultas.gs).
+ *
+ * Por item (código), é um UPSERT, não um "sempre acrescenta": se aquele
+ * código já está pendente (de uma geração anterior, ainda não enviada),
+ * a linha existente é SUBSTITUÍDA pelos valores novos — corrige em vez de
+ * duplicar. Só vira linha nova o código que ainda não estava pendente.
+ * Isso permite achar um erro na tela de Tingimento, voltar pra Análise,
+ * ajustar e gerar de novo sem empilhar pedidos repetidos do mesmo item.
  *
  * @param {string} token
  * @param {Object} params { itens: [{item, descricao, saldo, consumoMedio}] }
@@ -238,11 +251,21 @@ function gerarRelacaoDeCompra(token, params) {
   if (!itens.length) throw new Error('Nenhum item selecionado para a compra.');
 
   var agora = new Date();
-  // ACRESCENTA à relação (não substitui) — cada geração é um novo pedido que
-  // se soma aos que ainda estão em aberto. EM_ABERTO/A_COMPRAR ficam vazios
-  // por ora (uso futuro); STATUS nasce ABERTO.
-  var linhas = itens.map(function (it) {
-    return [
+  var sh = _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA);
+
+  // Linha atual (se houver) de cada código já pendente, pra decidir
+  // substituir em vez de duplicar.
+  var linhaPorItem = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (k) linhaPorItem[k] = r.__row;
+  });
+
+  // EM_ABERTO/A_COMPRAR ficam vazios por ora (uso futuro); STATUS nasce ABERTO.
+  var novas = [];
+  var substituidas = 0;
+  itens.forEach(function (it) {
+    var linha = [
       it.item || '',
       it.descricao || '',
       it.cliente || '',
@@ -260,46 +283,58 @@ function gerarRelacaoDeCompra(token, params) {
       'ABERTO',                 // STATUS
       agora                     // GERADO_EM
     ];
+    var linhaExistente = linhaPorItem[_norm(it.item)];
+    if (linhaExistente) {
+      sh.getRange(linhaExistente, 1, 1, RELACAO_COMPRA_HEADERS.length).setValues([linha]);
+      substituidas++;
+    } else {
+      novas.push(linha);
+    }
   });
-  var sh = _prepararRelacaoCompra();
-  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, RELACAO_COMPRA_HEADERS.length).setValues(linhas);
+  if (novas.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, novas.length, RELACAO_COMPRA_HEADERS.length).setValues(novas);
+  }
 
+  var partes = [];
+  if (novas.length) partes.push(novas.length + ' item(ns) novo(s)');
+  if (substituidas) partes.push(substituidas + ' item(ns) corrigido(s) (já estava(m) pendente(s))');
   return {
     ok: true,
-    mensagem: itens.length + ' item(ns) acrescentado(s) à relação de compra (pedido de ' +
-      Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + ').'
+    mensagem: partes.join(' e ') + ' na relação de compra pendente. Envie por e-mail na tela de ' +
+      'Tingimento para confirmar — só aí entra no histórico definitivo.'
   };
 }
 
 /**
- * Carrega a relação de compra acumulada (histórico completo de pedidos).
+ * Carrega o rascunho pendente (itens já selecionados, ainda não enviados).
  */
 function obterRelacaoDeCompra(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
-  var registros = lerRegistros(CONFIG.SHEETS.RELACAO_COMPRA);
+  var registros = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
   return { ok: true, colunas: RELACAO_COMPRA_HEADERS, linhas: registros };
 }
 
 /**
- * Apaga TODA a relação de compra acumulada e começa do zero. Ação explícita
- * do master — a relação nunca se apaga sozinha ao gerar uma nova compra.
+ * Apaga TODO o rascunho pendente e começa do zero. Ação explícita do
+ * master — o rascunho nunca se apaga sozinho ao gerar uma nova compra.
+ * Não afeta RELACAO_COMPRA (histórico definitivo, já enviado — esse não
+ * tem como excluir por aqui).
  */
 function excluirRelacaoDeCompra(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
-  reescreverAba(CONFIG.SHEETS.RELACAO_COMPRA, RELACAO_COMPRA_HEADERS, []);
-  return { ok: true, mensagem: 'Relação de compra excluída. Gere uma nova compra para começar do zero.' };
+  reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, []);
+  return { ok: true, mensagem: 'Relação de compra pendente excluída. Gere uma nova compra para começar do zero.' };
 }
 
 /**
- * Confere se o cabeçalho da aba RELACAO_COMPRA já existente bate com
- * RELACAO_COMPRA_HEADERS (a estrutura pode ter ganhado colunas novas desde
- * a última vez que a aba foi criada). Se não bater e já houver dados
- * gravados, recusa (para não desalinhar linhas antigas com colunas novas) e
- * pede para excluir o relatório antes. Se não houver dados ainda, corrige o
- * cabeçalho sozinho.
+ * Confere se o cabeçalho da aba (PENDENCIA_COMPRA ou RELACAO_COMPRA) já
+ * existente bate com RELACAO_COMPRA_HEADERS (a estrutura pode ter ganhado
+ * coluna nova desde a última vez que a aba foi criada). Se não bater e já
+ * houver dados gravados, recusa (para não desalinhar linhas antigas com
+ * colunas novas). Se não houver dados ainda, corrige o cabeçalho sozinho.
  */
-function _prepararRelacaoCompra() {
-  var sh = _aba(CONFIG.SHEETS.RELACAO_COMPRA, RELACAO_COMPRA_HEADERS);
+function _prepararAbaCompra(nomeAba) {
+  var sh = _aba(nomeAba, RELACAO_COMPRA_HEADERS);
   var largura = sh.getLastColumn();
   var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
   var igual = atuais.length === RELACAO_COMPRA_HEADERS.length &&
@@ -308,9 +343,12 @@ function _prepararRelacaoCompra() {
 
   if (sh.getLastRow() > 1) {
     throw new Error(
-      'A estrutura da aba RELACAO_COMPRA mudou (ganhou coluna nova) e já existem dados no formato ' +
-      'antigo. Para não misturar dados incompatíveis, exclua o relatório atual ("Excluir relatório ' +
-      'e começar do zero", na Análise de Compra) antes de gerar uma nova compra.'
+      'A estrutura da aba ' + nomeAba + ' mudou (ganhou coluna nova) e já existem dados no formato ' +
+      'antigo. Para não misturar dados incompatíveis, ' +
+      (nomeAba === CONFIG.SHEETS.PENDENCIA_COMPRA
+        ? 'exclua o relatório pendente ("Excluir relatório e começar do zero", na Análise de Compra) '
+        : 'corrija o cabeçalho dessa aba manualmente ') +
+      'antes de continuar.'
     );
   }
   // Ainda sem dados: pode corrigir o cabeçalho com segurança.
