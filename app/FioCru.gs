@@ -31,14 +31,33 @@
  * `definirInicioBaixaFioCru`) — lotes do mesmo tipo com data ANTERIOR a ele
  * saem da conta (tratados como já consumidos antes deste controle
  * existir), sem precisar cancelar um por um.
+ *
+ * FIO_CRU_ENTRADAS e FIO_CRU_BAIXAS são POR UNIDADE (cada empresa tem seu
+ * próprio estoque — ver `_ss`/`_unidadeAtivaId`). Já ASSOCIACAO_FIO_CRU é
+ * UNIVERSAL: a nomenclatura de tipo de fio é a mesma em todas as unidades,
+ * então mora sempre na planilha da unidade padrão, independente de qual
+ * unidade está ativa (ver `_ssAssociacaoFioCru`) — associar uma vez vale
+ * pra todas as empresas.
  */
 
 var FIO_CRU_ENTRADAS_HEADERS = [
-  'TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA', 'SITUACAO', 'INICIO_BAIXA'
+  'TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA', 'SITUACAO', 'INICIO_BAIXA',
+  'EDITADO_EM', 'EDITADO_POR'
 ];
 var FIO_CRU_BAIXAS_HEADERS = ['DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'ITEM', 'QUANTIDADE', 'SALDO_NF_APOS', 'USUARIO'];
 var ASSOCIACAO_FIO_CRU_HEADERS = ['TIPO_FIO_BASE', 'TIPO_FIO_ESTOQUE'];
 var FIO_CRU_CAMPOS_EDITAVEIS = ['TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA'];
+
+/**
+ * ASSOCIACAO_FIO_CRU é universal — mora sempre na planilha da unidade
+ * padrão (CONFIG.UNIDADE_PADRAO), igual à aba USUARIOS (ver
+ * `_ssAutenticacao`, em Auth.gs). Defina SPREADSHEET_ID_ASSOCIACAO_FIO_CRU
+ * nas Propriedades do script pra guardar num lugar à parte, se preferir.
+ */
+function _ssAssociacaoFioCru() {
+  var idFixo = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID_ASSOCIACAO_FIO_CRU');
+  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
+}
 
 /** Dois textos de tipo de fio "batem" se um contém o outro (normalizado). */
 function _tipoFioBate(a, b) {
@@ -90,6 +109,8 @@ function _lerLotesFioCru() {
         situacao: r.SITUACAO == null ? '' : String(r.SITUACAO).trim(),
         cancelado: _norm(r.SITUACAO).indexOf('cancelado') !== -1,
         inicioBaixa: _norm(r.INICIO_BAIXA) === 'sim',
+        editadoEm: r.EDITADO_EM instanceof Date ? r.EDITADO_EM : null,
+        editadoPor: r.EDITADO_POR == null ? '' : String(r.EDITADO_POR).trim(),
         chave: _chaveLoteFioCru(r.TIPO_FIO, r.NF)
       };
     })
@@ -115,17 +136,19 @@ function _saldosFioCru() {
     return {
       linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
       quantidade: l.quantidade, precoUnitario: l.precoUnitario, data: l.data,
-      situacao: l.situacao, cancelado: l.cancelado, inicioBaixa: l.inicioBaixa, chave: l.chave,
+      situacao: l.situacao, cancelado: l.cancelado, inicioBaixa: l.inicioBaixa,
+      editadoEm: l.editadoEm, editadoPor: l.editadoPor, chave: l.chave,
       baixado: baixado, saldo: l.quantidade - baixado
     };
   });
 }
 
 /** Associação tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de
- * fio crú: normalizado(TIPO_FIO_BASE) → TIPO_FIO_ESTOQUE. */
+ * fio crú: normalizado(TIPO_FIO_BASE) → TIPO_FIO_ESTOQUE. Universal (ver
+ * `_ssAssociacaoFioCru`) — não depende da unidade ativa. */
 function _lerMapaTipoFio() {
   var mapa = {};
-  lerRegistros(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU).forEach(function (r) {
+  lerRegistros(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, _ssAssociacaoFioCru()).forEach(function (r) {
     var k = _norm(r.TIPO_FIO_BASE);
     if (k) mapa[k] = String(r.TIPO_FIO_ESTOQUE || '').trim();
   });
@@ -152,7 +175,8 @@ function _listarTiposFioBase() {
   return out;
 }
 
-/** Tipos de fio distintos já cadastrados no estoque de fio crú (FIO_CRU_ENTRADAS). */
+/** Tipos de fio distintos já cadastrados no estoque de fio crú (FIO_CRU_ENTRADAS)
+ * da unidade ATIVA agora. */
 function _listarTiposFioEstoque() {
   var vistos = {}, out = [];
   _lerLotesFioCru().forEach(function (l) {
@@ -163,9 +187,29 @@ function _listarTiposFioEstoque() {
   return out;
 }
 
+/** Tipos de fio distintos já cadastrados no estoque de fio crú de TODAS as
+ * unidades — a associação é universal, então as opções pra associar juntam
+ * o que já foi cadastrado em cada empresa, não só na unidade ativa agora. */
+function _listarTiposFioEstoqueTodasUnidades() {
+  var vistos = {}, out = [];
+  CONFIG.UNIDADES.forEach(function (u) {
+    var ss;
+    try { ss = _ss(CONFIG.getSpreadsheetId(u.id)); } catch (e) { return; } // unidade sem planilha configurada ainda
+    lerRegistros(CONFIG.SHEETS.FIO_CRU_ENTRADAS, ss).forEach(function (r) {
+      var t = r.TIPO_FIO == null ? '' : String(r.TIPO_FIO).trim();
+      if (!t || vistos[_norm(t)]) return;
+      vistos[_norm(t)] = true;
+      out.push(t);
+    });
+  });
+  return out;
+}
+
 /**
  * Lista para a aba "Associação Fio Crú": cada tipo de fio da BASE
- * TINGIMENTO com a descrição do estoque já associada (se houver).
+ * TINGIMENTO (da unidade ativa) com a descrição do estoque já associada
+ * (se houver) — a associação em si é universal (ver `_ssAssociacaoFioCru`),
+ * e as opções de descrição juntam o estoque de todas as unidades.
  * @return {Object} { ok, linhas:[{tipoFioBase,tipoFioEstoque}], opcoesEstoque:[...] }
  */
 function listarAssociacaoFioCru(token) {
@@ -174,21 +218,23 @@ function listarAssociacaoFioCru(token) {
   var linhas = _listarTiposFioBase().map(function (t) {
     return { tipoFioBase: t, tipoFioEstoque: mapa[_norm(t)] || '' };
   });
-  return { ok: true, linhas: linhas, opcoesEstoque: _listarTiposFioEstoque() };
+  return { ok: true, linhas: linhas, opcoesEstoque: _listarTiposFioEstoqueTodasUnidades() };
 }
 
-/** Salva (cria ou atualiza) a associação de UM tipo de fio da base com a descrição do estoque. */
+/** Salva (cria ou atualiza) a associação de UM tipo de fio da base com a
+ * descrição do estoque — universal, vale pra todas as unidades. */
 function salvarAssociacaoFioCru(token, tipoFioBase, tipoFioEstoque) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   tipoFioBase = String(tipoFioBase || '').trim();
   if (!tipoFioBase) throw new Error('Tipo de fio inválido.');
   tipoFioEstoque = String(tipoFioEstoque == null ? '' : tipoFioEstoque).trim();
 
-  var sh = _aba(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, ASSOCIACAO_FIO_CRU_HEADERS);
-  var existente = lerRegistros(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU)
+  var ss = _ssAssociacaoFioCru();
+  var sh = _aba(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, ASSOCIACAO_FIO_CRU_HEADERS, ss);
+  var existente = lerRegistros(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, ss)
     .filter(function (r) { return _norm(r.TIPO_FIO_BASE) === _norm(tipoFioBase); })[0];
   if (existente) {
-    atualizarCelula(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, existente.__row, 'TIPO_FIO_ESTOQUE', tipoFioEstoque);
+    atualizarCelula(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, existente.__row, 'TIPO_FIO_ESTOQUE', tipoFioEstoque, ss);
   } else {
     sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([[tipoFioBase, tipoFioEstoque]]);
   }
@@ -435,13 +481,103 @@ function listarEstoqueFioCru(token) {
     return {
       linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
       quantidade: l.quantidade, precoUnitario: l.precoUnitario, data: _soData(l.data),
-      situacao: l.situacao, saldo: l.saldo, inicioBaixa: l.inicioBaixa
+      situacao: l.situacao, saldo: l.saldo, inicioBaixa: l.inicioBaixa,
+      editadoEm: l.editadoEm ? Utilities.formatDate(l.editadoEm, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '',
+      editadoPor: l.editadoPor
     };
   }).sort(function (a, b) {
     if (a.tipoFio !== b.tipoFio) return a.tipoFio.localeCompare(b.tipoFio);
     return _parseData(a.data) - _parseData(b.data);
   });
   return { ok: true, linhas: linhas };
+}
+
+/**
+ * Saldo somado por tipo de fio (todos os lotes não cancelados) — pra
+ * destacar rápido quais tipos estão baixos, num painel separado da lista
+ * de lotes individuais.
+ */
+function listarSaldoPorTipoFio(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var porTipo = {};
+  _saldosFioCru().filter(function (l) { return !l.cancelado; }).forEach(function (l) {
+    var t = l.tipoFio || '(sem tipo)';
+    porTipo[t] = (porTipo[t] || 0) + l.saldo;
+  });
+  var linhas = Object.keys(porTipo).map(function (t) {
+    return { tipoFio: t, saldo: porTipo[t] };
+  }).sort(function (a, b) { return a.tipoFio.localeCompare(b.tipoFio); });
+  return { ok: true, linhas: linhas };
+}
+
+/** Chave de agrupamento de uma data, por dia/semana/mês (sempre ordenável como texto). */
+function _chavePeriodoFioCru(data, agrupamento) {
+  if (agrupamento === 'mes') {
+    return Utilities.formatDate(data, Session.getScriptTimeZone(), 'yyyy-MM');
+  }
+  if (agrupamento === 'semana') {
+    var d = new Date(data.getFullYear(), data.getMonth(), data.getDate());
+    d.setDate(d.getDate() - d.getDay()); // volta pro domingo daquela semana
+    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return Utilities.formatDate(data, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+/** Rótulo legível de uma chave de período (ver `_chavePeriodoFioCru`). */
+function _rotuloPeriodoFioCru(chave, agrupamento) {
+  if (agrupamento === 'mes') {
+    var m = chave.match(/^(\d{4})-(\d{2})$/);
+    return m ? m[2] + '/' + m[1] : chave;
+  }
+  var m2 = chave.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m2) return chave;
+  var rotulo = m2[3] + '/' + m2[2] + '/' + m2[1];
+  return agrupamento === 'semana' ? 'semana de ' + rotulo : rotulo;
+}
+
+/**
+ * Histórico de consumo de fio crú por tipo de fio, num período [dataInicio,
+ * dataFim] ('yyyy-MM-dd'), agrupado por dia, semana ou mês. Soma o valor
+ * NETO das baixas (créditos de volta — valores negativos — já entram na
+ * conta, então refletem o consumo real daquele intervalo).
+ * @return {Object} { ok, linhas:[{tipoFio,periodo,quantidade}], totais:[{tipoFio,quantidade}] }
+ */
+function listarConsumoFioCru(token, dataInicio, dataFim, agrupamento) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var inicio = _parseDataISO(dataInicio);
+  var fim = _parseDataISO(dataFim);
+  if (!inicio || !fim) throw new Error('Informe as datas de início e fim.');
+  if (inicio.getTime() > fim.getTime()) throw new Error('A data inicial não pode ser maior que a final.');
+  fim.setHours(23, 59, 59, 999);
+  agrupamento = ['dia', 'semana', 'mes'].indexOf(agrupamento) !== -1 ? agrupamento : 'dia';
+
+  var grupos = {};      // "tipoFio||periodoChave" -> { tipoFio, periodoChave, quantidade }
+  var totalPorTipo = {};
+  lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).forEach(function (r) {
+    var data = r.DATA_HORA instanceof Date ? r.DATA_HORA : _parseData(r.DATA_HORA);
+    if (!data || data.getTime() < inicio.getTime() || data.getTime() > fim.getTime()) return;
+    var tipoFio = String(r.TIPO_FIO || '').trim() || '(sem tipo)';
+    var qtd = Number(r.QUANTIDADE) || 0;
+    var periodoChave = _chavePeriodoFioCru(data, agrupamento);
+    var k = tipoFio + '||' + periodoChave;
+    if (!grupos[k]) grupos[k] = { tipoFio: tipoFio, periodoChave: periodoChave, quantidade: 0 };
+    grupos[k].quantidade += qtd;
+    totalPorTipo[tipoFio] = (totalPorTipo[tipoFio] || 0) + qtd;
+  });
+
+  var linhas = Object.keys(grupos).map(function (k) {
+    var g = grupos[k];
+    return { tipoFio: g.tipoFio, periodo: _rotuloPeriodoFioCru(g.periodoChave, agrupamento), periodoChave: g.periodoChave, quantidade: g.quantidade };
+  }).sort(function (a, b) {
+    if (a.tipoFio !== b.tipoFio) return a.tipoFio.localeCompare(b.tipoFio);
+    return a.periodoChave < b.periodoChave ? -1 : (a.periodoChave > b.periodoChave ? 1 : 0);
+  });
+
+  var totais = Object.keys(totalPorTipo).map(function (t) {
+    return { tipoFio: t, quantidade: totalPorTipo[t] };
+  }).sort(function (a, b) { return a.tipoFio.localeCompare(b.tipoFio); });
+
+  return { ok: true, linhas: linhas, totais: totais };
 }
 
 /**
@@ -477,14 +613,15 @@ function removerInicioBaixaFioCru(token, linha) {
 
 /**
  * Edita um campo de um lote já lançado, pra corrigir um valor digitado
- * errado. Cuidado ao editar TIPO_FIO ou NF de um lote que já tem baixas: o
- * histórico antigo continua gravado com o tipo/NF ANTIGO, então pode
- * "descolar" do lote editado (o saldo dele passaria a ignorar essas baixas
- * antigas) — o mais seguro é corrigir isso antes de qualquer baixa
- * acontecer no lote.
+ * errado — grava também QUEM editou e QUANDO (colunas EDITADO_EM/
+ * EDITADO_POR), pra ter rastro de quem alterou o quê. Cuidado ao editar
+ * TIPO_FIO ou NF de um lote que já tem baixas: o histórico antigo continua
+ * gravado com o tipo/NF ANTIGO, então pode "descolar" do lote editado (o
+ * saldo dele passaria a ignorar essas baixas antigas) — o mais seguro é
+ * corrigir isso antes de qualquer baixa acontecer no lote.
  */
 function editarLoteFioCru(token, linha, campo, valor) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   if (FIO_CRU_CAMPOS_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
@@ -502,6 +639,8 @@ function editarLoteFioCru(token, linha, campo, valor) {
     if (!valorFinal) throw new Error('Valor não pode ficar vazio.');
   }
   atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, campo, valorFinal);
+  atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, 'EDITADO_EM', new Date());
+  atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, 'EDITADO_POR', s.usuario);
   return { ok: true };
 }
 
