@@ -464,7 +464,8 @@ function obterListaFioParaTingir(token) {
       tipoFio: r.TIPO_FIO,
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
-      tingido: tingidoPorItem[_norm(r.ITEM)] || 0
+      tingido: tingidoPorItem[_norm(r.ITEM)] || 0,
+      dataSolicitado: _soData(r.GERADO_EM)
     };
   });
   return {
