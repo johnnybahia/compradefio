@@ -1451,13 +1451,17 @@ function renderAssociacaoFioCru(linhas) {
       var msg = document.getElementById('assoc-msg');
       var tipoFioBase = sel.getAttribute('data-tipo');
       sel.disabled = true;
+      sel.style.borderColor = '#CBD5E1';
       chamar('salvarAssociacaoFioCru', sessao.token, tipoFioBase, sel.value)
         .then(function () {
           sel.disabled = false;
-          msg.innerHTML = '<div class="aviso ok">Associação salva.</div>';
+          sel.style.borderColor = '#1F9D55';
+          msg.innerHTML = '<div class="aviso ok">Associação salva: "' + tipoFioBase + '" → "' +
+            (sel.value || '(nenhuma)') + '".</div>';
         })
         .catch(function (err) {
           sel.disabled = false;
+          sel.style.borderColor = '#D0342C';
           var m = tratarErro(err);
           if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
         });
@@ -1467,18 +1471,22 @@ function renderAssociacaoFioCru(linhas) {
 
 /* ------------------------ view: Estoque Fio Crú -------------------- */
 // Administração do estoque de fio crú: ver lotes/saldos, lançar NF nova,
-// cancelar uma NF e ver o histórico de baixas. Por ora só o master usa esta
-// tela; a leitura automática de PDF de NF fica para uma etapa futura.
+// localizar por tipo de fio/NF/data, editar um lote (com rastro de quem e
+// quando), saldo somado por tipo de fio, consumo por período e histórico
+// de baixas. Por ora só o master usa esta tela; a leitura automática de
+// PDF de NF fica para uma etapa futura.
+var estadoFioCru = { linhas: [], filtro: { tipoFio: '', nf: '', dataDe: '', dataAte: '' }, editando: {} };
+
 function viewFioCru(alvo) {
   var hoje = new Date();
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Estoque de Fio Crú</h2>' +
-      '<p class="desc">Lotes recebidos por NF. Clique em qualquer campo pra editar (corrige um valor ' +
-      'digitado errado — o saldo é sempre recalculado, nunca precisa ajustar na mão). O saldo já ' +
+      '<p class="desc">Marque <b>Editar</b> num lote pra corrigir um valor digitado errado (o saldo é ' +
+      'sempre recalculado; a edição fica registrada com data e usuário na planilha). O saldo já ' +
       'considera as baixas do tingimento. Uma NF cancelada some da conta de saldo, mas o histórico dela ' +
       'continua registrado. Marque <b>Início</b> numa NF pra ignorar, daquele tipo de fio, tudo que for ' +
-      'mais antigo que ela (útil pra "zerar" NFs já usadas antes deste controle existir).</p>' +
+      'mais antigo que ela.</p>' +
       '<div class="linha-form">' +
         '<div class="campo"><label for="fc-tipo">Tipo de fio</label>' +
           '<input type="text" id="fc-tipo" placeholder="ex.: Fio Poliester"></div>' +
@@ -1493,8 +1501,48 @@ function viewFioCru(alvo) {
         '<button class="btn-principal" id="btn-lancar-nf">Lançar NF</button>' +
       '</div>' +
       '<div id="fc-msg"></div>' +
+
+      '<div class="linha-form" style="margin-top:18px;border-top:1px solid var(--borda);padding-top:16px">' +
+        '<div class="campo"><label for="fc-busca-tipo">Localizar por tipo de fio</label>' +
+          '<input type="text" id="fc-busca-tipo" placeholder="ex.: Poliester"></div>' +
+        '<div class="campo"><label for="fc-busca-nf">Localizar por NF</label><input type="text" id="fc-busca-nf"></div>' +
+        '<div class="campo" style="max-width:160px"><label for="fc-busca-de">Data de</label><input type="date" id="fc-busca-de"></div>' +
+        '<div class="campo" style="max-width:160px"><label for="fc-busca-ate">Data até</label><input type="date" id="fc-busca-ate"></div>' +
+        '<button class="btn-sair" id="btn-limpar-filtro-fc" ' +
+          'style="color:var(--texto);background:#fff;border-color:var(--borda)">Limpar filtros</button>' +
+      '</div>' +
+      '<div class="linha-form" style="margin-top:10px">' +
+        '<button class="btn-principal" id="btn-saldo-tipo">Ver saldo por tipo de fio</button>' +
+        '<button class="btn-principal" id="btn-consumo-periodo">Consumo por período</button>' +
+      '</div>' +
       '<div class="tabela-wrap" id="tabela-fiocru"></div>' +
     '</section>' +
+
+    '<section class="painel" id="painel-saldo-tipo" style="display:none">' +
+      '<h2>Saldo por tipo de fio</h2>' +
+      '<p class="desc">Soma o saldo de todos os lotes (não cancelados) de cada tipo de fio — pra ver ' +
+      'rápido quais estão baixos, sem somar lote por lote na tabela principal.</p>' +
+      '<div class="tabela-wrap" id="tabela-saldo-tipo"></div>' +
+    '</section>' +
+
+    '<section class="painel" id="painel-consumo" style="display:none">' +
+      '<h2>Consumo de fio crú por período</h2>' +
+      '<p class="desc">Some o que foi consumido (baixado) por tipo de fio, num intervalo de datas, ' +
+      'agrupado por dia, semana ou mês.</p>' +
+      '<div class="linha-form">' +
+        '<div class="campo"><label for="cons-de">De</label><input type="date" id="cons-de"></div>' +
+        '<div class="campo"><label for="cons-ate">Até</label><input type="date" id="cons-ate"></div>' +
+        '<div class="campo" style="max-width:160px"><label for="cons-agrupamento">Agrupar por</label>' +
+          '<select id="cons-agrupamento">' +
+            '<option value="dia">Dia</option><option value="semana">Semana</option><option value="mes">Mês</option>' +
+          '</select></div>' +
+        '<button class="btn-principal" id="btn-gerar-consumo">Gerar</button>' +
+      '</div>' +
+      '<div id="cons-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-consumo-totais"></div>' +
+      '<div class="tabela-wrap" id="tabela-consumo-detalhe"></div>' +
+    '</section>' +
+
     '<section class="painel">' +
       '<h2>Histórico de baixas</h2>' +
       '<p class="desc">Cada linha é uma baixa (ou um crédito de volta, quando negativa) registrada por ' +
@@ -1503,6 +1551,28 @@ function viewFioCru(alvo) {
     '</section>';
 
   document.getElementById('btn-lancar-nf').onclick = lancarNfFioCru;
+  document.getElementById('btn-saldo-tipo').onclick = togglePainelSaldoTipo;
+  document.getElementById('btn-consumo-periodo').onclick = togglePainelConsumo;
+  document.getElementById('btn-gerar-consumo').onclick = gerarConsumoFioCru;
+  document.getElementById('btn-limpar-filtro-fc').onclick = function () {
+    ['fc-busca-tipo', 'fc-busca-nf', 'fc-busca-de', 'fc-busca-ate'].forEach(function (id) {
+      document.getElementById(id).value = '';
+    });
+    estadoFioCru.filtro = { tipoFio: '', nf: '', dataDe: '', dataAte: '' };
+    renderEstoqueFioCru();
+  };
+  ['fc-busca-tipo', 'fc-busca-nf', 'fc-busca-de', 'fc-busca-ate'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () {
+      estadoFioCru.filtro = {
+        tipoFio: document.getElementById('fc-busca-tipo').value,
+        nf: document.getElementById('fc-busca-nf').value,
+        dataDe: document.getElementById('fc-busca-de').value,
+        dataAte: document.getElementById('fc-busca-ate').value
+      };
+      renderEstoqueFioCru();
+    });
+  });
+
   carregarEstoqueFioCru();
   carregarBaixasFioCru();
 }
@@ -1511,50 +1581,114 @@ function carregarEstoqueFioCru() {
   var wrap = document.getElementById('tabela-fiocru');
   wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
   chamar('listarEstoqueFioCru', sessao.token)
-    .then(function (r) { renderEstoqueFioCru(r.linhas); })
+    .then(function (r) {
+      estadoFioCru.linhas = r.linhas || [];
+      estadoFioCru.editando = {};
+      renderEstoqueFioCru();
+    })
     .catch(function (err) {
       var m = tratarErro(err);
       if (m) wrap.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
 }
 
-function renderEstoqueFioCru(linhas) {
+/** 'dd/MM/aaaa' (como vem do servidor) → milissegundos, pra comparar datas no filtro. */
+function _dataBRparaMs(s) {
+  var m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : null;
+}
+/** 'aaaa-MM-dd' (input date) → milissegundos locais, sem risco de fuso horário. */
+function _isoParaMsLocal(iso) {
+  var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : null;
+}
+
+function _linhasFioCruFiltradas() {
+  var f = estadoFioCru.filtro;
+  var tipoBusca = (f.tipoFio || '').trim().toLowerCase();
+  var nfBusca = (f.nf || '').trim().toLowerCase();
+  var deMs = f.dataDe ? _isoParaMsLocal(f.dataDe) : null;
+  var ateMs = f.dataAte ? _isoParaMsLocal(f.dataAte) + 86399999 : null; // até o fim daquele dia
+  return estadoFioCru.linhas.filter(function (l) {
+    if (tipoBusca && String(l.tipoFio || '').toLowerCase().indexOf(tipoBusca) === -1) return false;
+    if (nfBusca && String(l.nf || '').toLowerCase().indexOf(nfBusca) === -1) return false;
+    if (deMs != null || ateMs != null) {
+      var d = _dataBRparaMs(l.data);
+      if (d == null) return false;
+      if (deMs != null && d < deMs) return false;
+      if (ateMs != null && d > ateMs) return false;
+    }
+    return true;
+  });
+}
+
+function renderEstoqueFioCru() {
   var wrap = document.getElementById('tabela-fiocru');
-  if (!linhas || !linhas.length) {
+  if (!estadoFioCru.linhas.length) {
     wrap.innerHTML = '<div class="vazio">Nenhum lote de fio crú cadastrado ainda.</div>';
     return;
   }
+  var linhas = _linhasFioCruFiltradas();
+  if (!linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum lote encontrado com esse filtro.</div>';
+    return;
+  }
+
+  function campo(l, editando, nomeCampo, valor, tipo) {
+    if (!editando) {
+      if (tipo === 'numero') return valor ? num(valor) : '—';
+      return (valor === '' || valor == null) ? '—' : valor;
+    }
+    if (tipo === 'data') {
+      return '<input type="date" class="fc-edit" data-linha="' + l.linha + '" data-campo="DATA" value="' +
+        brParaISO(valor) + '">';
+    }
+    if (tipo === 'numero') {
+      return '<input type="number" class="fc-edit" data-linha="' + l.linha + '" data-campo="' + nomeCampo +
+        '" min="0" step="any" value="' + (valor || '') + '">';
+    }
+    return '<input class="fc-edit" data-linha="' + l.linha + '" data-campo="' + nomeCampo + '" value="' +
+      escAttr(valor) + '">';
+  }
+
   var body = linhas.map(function (l) {
     var cancelado = String(l.situacao || '').trim().toUpperCase() === 'CANCELADO';
+    var editando = !!estadoFioCru.editando[l.linha];
+    var auditoria = l.editadoEm ? ('editado ' + l.editadoEm + ' por ' + (l.editadoPor || '—')) : '—';
     return '<tr' + (cancelado ? ' style="opacity:.55"' : (l.saldo <= 0 ? ' class="destaque"' : '')) + '>' +
-      '<td><input class="fc-edit col-item" data-linha="' + l.linha + '" data-campo="TIPO_FIO" value="' +
-        escAttr(l.tipoFio) + '"></td>' +
-      '<td><input class="fc-edit" data-linha="' + l.linha + '" data-campo="NF" value="' + escAttr(l.nf) + '"></td>' +
-      '<td><input class="fc-edit" data-linha="' + l.linha + '" data-campo="FORNECEDOR" value="' +
-        escAttr(l.fornecedor) + '"></td>' +
-      '<td><input type="number" class="fc-edit" data-linha="' + l.linha + '" data-campo="QUANTIDADE" ' +
-        'min="0" step="any" value="' + l.quantidade + '"></td>' +
-      '<td><input type="number" class="fc-edit" data-linha="' + l.linha + '" data-campo="PRECO_UNITARIO" ' +
-        'min="0" step="any" value="' + (l.precoUnitario || '') + '"></td>' +
-      '<td><input type="date" class="fc-edit" data-linha="' + l.linha + '" data-campo="DATA" value="' +
-        brParaISO(l.data) + '"></td>' +
+      '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-editar-lote" data-linha="' +
+        l.linha + '"' + (editando ? ' checked' : '') + ' title="Marcar para editar este lote"></td>' +
+      '<td class="col-item">' + campo(l, editando, 'TIPO_FIO', l.tipoFio) + '</td>' +
+      '<td>' + campo(l, editando, 'NF', l.nf) + '</td>' +
+      '<td>' + campo(l, editando, 'FORNECEDOR', l.fornecedor) + '</td>' +
+      '<td>' + campo(l, editando, 'QUANTIDADE', l.quantidade, 'numero') + '</td>' +
+      '<td>' + campo(l, editando, 'PRECO_UNITARIO', l.precoUnitario, 'numero') + '</td>' +
+      '<td>' + campo(l, editando, 'DATA', l.data, 'data') + '</td>' +
       '<td style="text-align:right">' + num(l.saldo) + '</td>' +
       '<td style="text-align:center"><input type="checkbox" class="chk-inicio-baixa" data-linha="' + l.linha + '"' +
         (l.inicioBaixa ? ' checked' : '') +
         ' title="Marcar esta NF como início da baixa deste tipo de fio (ignora as mais antigas que ela)"></td>' +
       '<td>' + (cancelado ? 'CANCELADO' : '—') + '</td>' +
+      '<td style="font-size:10px;color:var(--texto-fraco)">' + auditoria + '</td>' +
       '<td><button type="button" class="btn-atualizar-data btn-cancelar-nf" data-linha="' + l.linha +
         '" data-cancelado="' + (cancelado ? '0' : '1') + '">' + (cancelado ? '↺' : '✕') + '</button></td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:12%">Tipo de fio</th><th style="width:7%">NF</th><th style="width:10%">Fornecedor</th>' +
-      '<th style="width:8%">Quantidade</th><th style="width:8%">Preço unit.</th><th style="width:9%">Data</th>' +
-      '<th style="text-align:right;width:7%">Saldo</th><th style="width:6%">Início</th>' +
-      '<th style="width:8%">Situação</th><th style="width:5%"></th>' +
+      '<th style="width:5%">Editar</th>' +
+      '<th style="width:11%">Tipo de fio</th><th style="width:6%">NF</th><th style="width:9%">Fornecedor</th>' +
+      '<th style="width:7%">Quantidade</th><th style="width:7%">Preço unit.</th><th style="width:8%">Data</th>' +
+      '<th style="text-align:right;width:6%">Saldo</th><th style="width:5%">Início</th>' +
+      '<th style="width:7%">Situação</th><th style="width:14%">Última edição</th><th style="width:4%"></th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
+  Array.prototype.forEach.call(wrap.querySelectorAll('.chk-editar-lote'), function (chk) {
+    chk.addEventListener('change', function () {
+      estadoFioCru.editando[Number(chk.getAttribute('data-linha'))] = chk.checked;
+      renderEstoqueFioCru();
+    });
+  });
   Array.prototype.forEach.call(wrap.querySelectorAll('.fc-edit'), function (inp) {
     inp.addEventListener('change', function () {
       salvarCampoFioCru(inp, Number(inp.getAttribute('data-linha')), inp.getAttribute('data-campo'), inp.value);
@@ -1582,20 +1716,123 @@ function renderEstoqueFioCru(linhas) {
   });
 }
 
-/** Salva a edição de um campo de um lote (corrige valor digitado errado). */
+/** Salva a edição de um campo de um lote (corrige valor digitado errado;
+ * fica registrado com data/usuário — ver `editarLoteFioCru`). */
 function salvarCampoFioCru(inp, linha, campo, valor) {
   inp.style.borderColor = '#CBD5E1';
   chamar('editarLoteFioCru', sessao.token, linha, campo, valor)
     .then(function () {
-      inp.style.borderColor = '#1F9D55';
-      // Quantidade muda o saldo (e o de outros lotes, se o "início" mudar de
-      // lugar na ordem) — recarrega pra refletir certinho.
-      if (campo === 'QUANTIDADE' || campo === 'DATA') carregarEstoqueFioCru();
+      // Qualquer edição pode mudar o saldo (o próprio ou de outro lote, se a
+      // ordem por data mudar) e a auditoria — recarrega pra refletir certinho.
+      carregarEstoqueFioCru();
     })
     .catch(function (err) {
       inp.style.borderColor = '#D0342C';
       tratarErro(err);
     });
+}
+
+/* -------- painel: saldo por tipo de fio -------- */
+function togglePainelSaldoTipo() {
+  var painel = document.getElementById('painel-saldo-tipo');
+  var abrir = painel.style.display === 'none';
+  painel.style.display = abrir ? '' : 'none';
+  if (abrir) carregarSaldoPorTipoFio();
+}
+
+function carregarSaldoPorTipoFio() {
+  var wrap = document.getElementById('tabela-saldo-tipo');
+  wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('listarSaldoPorTipoFio', sessao.token)
+    .then(function (r) { renderSaldoPorTipoFio(r.linhas); })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) wrap.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderSaldoPorTipoFio(linhas) {
+  var wrap = document.getElementById('tabela-saldo-tipo');
+  if (!linhas || !linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum saldo pra mostrar.</div>';
+    return;
+  }
+  var body = linhas.map(function (l) {
+    return '<tr' + (l.saldo <= 0 ? ' class="destaque"' : '') + '>' +
+      '<td class="col-item">' + l.tipoFio + '</td>' +
+      '<td style="text-align:right">' + num(l.saldo) + ' kg</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr><th style="width:70%">Tipo de fio</th>' +
+    '<th style="text-align:right;width:30%">Saldo total</th></tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/* -------- painel: consumo por período -------- */
+function togglePainelConsumo() {
+  var painel = document.getElementById('painel-consumo');
+  var abrir = painel.style.display === 'none';
+  painel.style.display = abrir ? '' : 'none';
+  if (abrir && !document.getElementById('cons-de').value) {
+    var hoje = new Date();
+    document.getElementById('cons-de').value = ymd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+    document.getElementById('cons-ate').value = ymd(hoje);
+  }
+}
+
+function gerarConsumoFioCru() {
+  var msg = document.getElementById('cons-msg');
+  var de = document.getElementById('cons-de').value;
+  var ate = document.getElementById('cons-ate').value;
+  var agrupamento = document.getElementById('cons-agrupamento').value;
+  if (!de || !ate) {
+    msg.innerHTML = '<div class="aviso erro">Selecione as datas inicial e final.</div>';
+    return;
+  }
+  var btn = document.getElementById('btn-gerar-consumo');
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Gerando…</span></div>';
+  chamar('listarConsumoFioCru', sessao.token, de, ate, agrupamento)
+    .then(function (r) {
+      btn.disabled = false;
+      msg.innerHTML = '';
+      renderConsumoTotais(r.totais);
+      renderConsumoDetalhe(r.linhas);
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderConsumoTotais(totais) {
+  var wrap = document.getElementById('tabela-consumo-totais');
+  if (!totais || !totais.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum consumo no período.</div>';
+    return;
+  }
+  var body = totais.map(function (t) {
+    return '<tr><td class="col-item">' + t.tipoFio + '</td><td style="text-align:right">' +
+      num(t.quantidade) + ' kg</td></tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<h3 style="color:var(--azul-esc);font-size:14px;margin:0 0 6px">Total do período, por tipo de fio</h3>' +
+    '<table class="dados"><thead><tr><th style="width:70%">Tipo de fio</th>' +
+    '<th style="text-align:right;width:30%">Consumido</th></tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+function renderConsumoDetalhe(linhas) {
+  var wrap = document.getElementById('tabela-consumo-detalhe');
+  if (!linhas || !linhas.length) { wrap.innerHTML = ''; return; }
+  var body = linhas.map(function (l) {
+    return '<tr><td class="col-item">' + l.tipoFio + '</td><td>' + l.periodo + '</td>' +
+      '<td style="text-align:right">' + num(l.quantidade) + ' kg</td></tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<h3 style="color:var(--azul-esc);font-size:14px;margin:14px 0 6px">Detalhe por período</h3>' +
+    '<table class="dados"><thead><tr><th style="width:35%">Tipo de fio</th><th style="width:35%">Período</th>' +
+    '<th style="text-align:right;width:30%">Consumido</th></tr></thead><tbody>' + body + '</tbody></table>';
 }
 
 function lancarNfFioCru() {
