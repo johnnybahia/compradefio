@@ -20,14 +20,25 @@
  * Lotes com SITUAÇÃO = CANCELADO nunca entram na conta.
  *
  * O tipo de fio do item confirmado vem do TIPO_FIO já identificado na
- * análise de compra (coluna TIPO_FIO de PENDENCIA_COMPRA) — a comparação
- * com o texto da aba FIO_CRU_ENTRADAS é por "contém" (normalizado), pra não
- * quebrar por uma pequena diferença de redação entre as duas planilhas
- * (ex.: "Poliester" vs "Fio Poliester").
+ * análise de compra (coluna TIPO_FIO de PENDENCIA_COMPRA). Pra achar o
+ * lote certo, primeiro consulta a Associação Fio Crú (aba
+ * ASSOCIACAO_FIO_CRU — tipo de fio da BASE TINGIMENTO → descrição usada no
+ * estoque); sem associação cadastrada, cai no casamento por "contém"
+ * (normalizado), pra não quebrar por uma pequena diferença de redação
+ * entre as duas planilhas (ex.: "Poliester" vs "Fio Poliester").
+ *
+ * Um lote pode ser marcado como INÍCIO DA BAIXA daquele tipo de fio (ver
+ * `definirInicioBaixaFioCru`) — lotes do mesmo tipo com data ANTERIOR a ele
+ * saem da conta (tratados como já consumidos antes deste controle
+ * existir), sem precisar cancelar um por um.
  */
 
-var FIO_CRU_ENTRADAS_HEADERS = ['TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA', 'SITUACAO'];
+var FIO_CRU_ENTRADAS_HEADERS = [
+  'TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA', 'SITUACAO', 'INICIO_BAIXA'
+];
 var FIO_CRU_BAIXAS_HEADERS = ['DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'ITEM', 'QUANTIDADE', 'SALDO_NF_APOS', 'USUARIO'];
+var ASSOCIACAO_FIO_CRU_HEADERS = ['TIPO_FIO_BASE', 'TIPO_FIO_ESTOQUE'];
+var FIO_CRU_CAMPOS_EDITAVEIS = ['TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA'];
 
 /** Dois textos de tipo de fio "batem" se um contém o outro (normalizado). */
 function _tipoFioBate(a, b) {
@@ -43,8 +54,29 @@ function _chaveLoteFioCru(tipoFio, nf) {
   return t && n ? t + '|' + n : '';
 }
 
+/**
+ * Garante que a aba FIO_CRU_ENTRADAS tem todas as colunas do cabeçalho
+ * atual — acrescenta no fim as que ainda não existirem (ex.: INICIO_BAIXA,
+ * adicionada depois da primeira versão), sem apagar nada. Chamar antes de
+ * qualquer leitura/gravação nessa aba.
+ */
+function _prepararFioCruEntradas() {
+  var sh = _aba(CONFIG.SHEETS.FIO_CRU_ENTRADAS, FIO_CRU_ENTRADAS_HEADERS);
+  var largura = sh.getLastColumn();
+  var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+  FIO_CRU_ENTRADAS_HEADERS.forEach(function (h) {
+    if (atuais.indexOf(h) === -1) {
+      atuais.push(h);
+      sh.getRange(1, atuais.length).setValue(h)
+        .setFontWeight('bold').setBackground('#0F5FA0').setFontColor('#FFFFFF');
+    }
+  });
+  return sh;
+}
+
 /** Lê a aba FIO_CRU_ENTRADAS (um lote por linha). */
 function _lerLotesFioCru() {
+  _prepararFioCruEntradas();
   return lerRegistros(CONFIG.SHEETS.FIO_CRU_ENTRADAS)
     .map(function (r) {
       return {
@@ -57,6 +89,7 @@ function _lerLotesFioCru() {
         data: _parseData(r.DATA),
         situacao: r.SITUACAO == null ? '' : String(r.SITUACAO).trim(),
         cancelado: _norm(r.SITUACAO).indexOf('cancelado') !== -1,
+        inicioBaixa: _norm(r.INICIO_BAIXA) === 'sim',
         chave: _chaveLoteFioCru(r.TIPO_FIO, r.NF)
       };
     })
@@ -82,10 +115,84 @@ function _saldosFioCru() {
     return {
       linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
       quantidade: l.quantidade, precoUnitario: l.precoUnitario, data: l.data,
-      situacao: l.situacao, cancelado: l.cancelado, chave: l.chave,
+      situacao: l.situacao, cancelado: l.cancelado, inicioBaixa: l.inicioBaixa, chave: l.chave,
       baixado: baixado, saldo: l.quantidade - baixado
     };
   });
+}
+
+/** Associação tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de
+ * fio crú: normalizado(TIPO_FIO_BASE) → TIPO_FIO_ESTOQUE. */
+function _lerMapaTipoFio() {
+  var mapa = {};
+  lerRegistros(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU).forEach(function (r) {
+    var k = _norm(r.TIPO_FIO_BASE);
+    if (k) mapa[k] = String(r.TIPO_FIO_ESTOQUE || '').trim();
+  });
+  return mapa;
+}
+
+/** Tipo de fio a procurar no estoque: usa a associação cadastrada quando
+ * existir; sem associação, devolve o próprio texto original (cai no
+ * casamento por "contém" de sempre). */
+function _resolverTipoFioEstoque(tipoFioBase) {
+  var mapeado = _lerMapaTipoFio()[_norm(tipoFioBase)];
+  return mapeado || tipoFioBase;
+}
+
+/** Tipos de fio distintos cadastrados na aba BASE TINGIMENTO, na ordem em
+ * que aparecem — pra montar a lista da Associação Fio Crú. */
+function _listarTiposFioBase() {
+  var vistos = {}, out = [];
+  _lerBaseTingimento().forEach(function (b) {
+    if (!b.tipoFio || vistos[_norm(b.tipoFio)]) return;
+    vistos[_norm(b.tipoFio)] = true;
+    out.push(b.tipoFio);
+  });
+  return out;
+}
+
+/** Tipos de fio distintos já cadastrados no estoque de fio crú (FIO_CRU_ENTRADAS). */
+function _listarTiposFioEstoque() {
+  var vistos = {}, out = [];
+  _lerLotesFioCru().forEach(function (l) {
+    if (!l.tipoFio || vistos[_norm(l.tipoFio)]) return;
+    vistos[_norm(l.tipoFio)] = true;
+    out.push(l.tipoFio);
+  });
+  return out;
+}
+
+/**
+ * Lista para a aba "Associação Fio Crú": cada tipo de fio da BASE
+ * TINGIMENTO com a descrição do estoque já associada (se houver).
+ * @return {Object} { ok, linhas:[{tipoFioBase,tipoFioEstoque}], opcoesEstoque:[...] }
+ */
+function listarAssociacaoFioCru(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var mapa = _lerMapaTipoFio();
+  var linhas = _listarTiposFioBase().map(function (t) {
+    return { tipoFioBase: t, tipoFioEstoque: mapa[_norm(t)] || '' };
+  });
+  return { ok: true, linhas: linhas, opcoesEstoque: _listarTiposFioEstoque() };
+}
+
+/** Salva (cria ou atualiza) a associação de UM tipo de fio da base com a descrição do estoque. */
+function salvarAssociacaoFioCru(token, tipoFioBase, tipoFioEstoque) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  tipoFioBase = String(tipoFioBase || '').trim();
+  if (!tipoFioBase) throw new Error('Tipo de fio inválido.');
+  tipoFioEstoque = String(tipoFioEstoque == null ? '' : tipoFioEstoque).trim();
+
+  var sh = _aba(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, ASSOCIACAO_FIO_CRU_HEADERS);
+  var existente = lerRegistros(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU)
+    .filter(function (r) { return _norm(r.TIPO_FIO_BASE) === _norm(tipoFioBase); })[0];
+  if (existente) {
+    atualizarCelula(CONFIG.SHEETS.ASSOCIACAO_FIO_CRU, existente.__row, 'TIPO_FIO_ESTOQUE', tipoFioEstoque);
+  } else {
+    sh.getRange(sh.getLastRow() + 1, 1, 1, 2).setValues([[tipoFioBase, tipoFioEstoque]]);
+  }
+  return { ok: true };
 }
 
 /**
@@ -99,14 +206,24 @@ function _baixarFioCru(tipoFio, quantidade, item, usuario) {
   if (!tipoFio) return { ok: false, mensagem: 'Item sem tipo de fio identificado — não é possível dar baixa no fio crú.' };
   if (quantidade <= 0) return { ok: false, mensagem: 'Informe uma quantidade tingida maior que zero.' };
 
+  var tipoFioResolvido = _resolverTipoFioEstoque(tipoFio);
   var todos = _saldosFioCru()
-    .filter(function (l) { return !l.cancelado && _tipoFioBate(l.tipoFio, tipoFio); })
+    .filter(function (l) {
+      if (l.cancelado) return false;
+      return _tipoFioBate(l.tipoFio, tipoFioResolvido) || _tipoFioBate(l.tipoFio, tipoFio);
+    })
     .sort(function (a, b) {
       if (!a.data && !b.data) return 0;
       if (!a.data) return 1;
       if (!b.data) return -1;
       return a.data.getTime() - b.data.getTime();
     });
+  // Início de baixa marcado (ver `definirInicioBaixaFioCru`): lotes com data
+  // ANTERIOR a ele saem da conta — tratados como já consumidos antes deste
+  // controle existir.
+  for (var i = 0; i < todos.length; i++) {
+    if (todos[i].inicioBaixa) { todos = todos.slice(i); break; }
+  }
   if (!todos.length) {
     return { ok: false, mensagem: 'Nenhuma NF de "' + tipoFio + '" encontrada no estoque de fio crú.' };
   }
@@ -318,13 +435,74 @@ function listarEstoqueFioCru(token) {
     return {
       linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
       quantidade: l.quantidade, precoUnitario: l.precoUnitario, data: _soData(l.data),
-      situacao: l.situacao, saldo: l.saldo
+      situacao: l.situacao, saldo: l.saldo, inicioBaixa: l.inicioBaixa
     };
   }).sort(function (a, b) {
     if (a.tipoFio !== b.tipoFio) return a.tipoFio.localeCompare(b.tipoFio);
     return _parseData(a.data) - _parseData(b.data);
   });
   return { ok: true, linhas: linhas };
+}
+
+/**
+ * Marca uma NF como o INÍCIO da baixa daquele tipo de fio (ver regra no
+ * topo do arquivo). Só pode haver UM início marcado por tipo de fio —
+ * marcar um novo desmarca o anterior automaticamente.
+ */
+function definirInicioBaixaFioCru(token, linha) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  _prepararFioCruEntradas();
+
+  var lotes = _lerLotesFioCru();
+  var alvo = lotes.filter(function (l) { return l.linha === linha; })[0];
+  if (!alvo) throw new Error('Lote não encontrado — a lista pode ter mudado, recarregue a tela.');
+
+  lotes.filter(function (l) { return l.inicioBaixa && l.linha !== linha && _tipoFioBate(l.tipoFio, alvo.tipoFio); })
+    .forEach(function (l) { atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, l.linha, 'INICIO_BAIXA', ''); });
+  atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, 'INICIO_BAIXA', 'SIM');
+  return { ok: true };
+}
+
+/** Remove a marcação de início de baixa (volta ao FIFO normal, desde o começo). */
+function removerInicioBaixaFioCru(token, linha) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  _prepararFioCruEntradas();
+  atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, 'INICIO_BAIXA', '');
+  return { ok: true };
+}
+
+/**
+ * Edita um campo de um lote já lançado, pra corrigir um valor digitado
+ * errado. Cuidado ao editar TIPO_FIO ou NF de um lote que já tem baixas: o
+ * histórico antigo continua gravado com o tipo/NF ANTIGO, então pode
+ * "descolar" do lote editado (o saldo dele passaria a ignorar essas baixas
+ * antigas) — o mais seguro é corrigir isso antes de qualquer baixa
+ * acontecer no lote.
+ */
+function editarLoteFioCru(token, linha, campo, valor) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  if (FIO_CRU_CAMPOS_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
+  _prepararFioCruEntradas();
+
+  var valorFinal;
+  if (campo === 'QUANTIDADE' || campo === 'PRECO_UNITARIO') {
+    valorFinal = Number(valor);
+    if (isNaN(valorFinal) || valorFinal < 0) throw new Error('Valor numérico inválido.');
+  } else if (campo === 'DATA') {
+    valorFinal = _parseDataISO(valor);
+    if (!valorFinal) throw new Error('Data inválida.');
+  } else {
+    valorFinal = String(valor == null ? '' : valor).trim();
+    if (!valorFinal) throw new Error('Valor não pode ficar vazio.');
+  }
+  atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, campo, valorFinal);
+  return { ok: true };
 }
 
 /** Histórico de baixas do fio crú (mais recente primeiro), pra tela de administração. */
@@ -361,10 +539,10 @@ function lancarNotaFioCru(token, params) {
   if (isNaN(quantidade) || quantidade <= 0) throw new Error('Quantidade inválida.');
   if (!data) throw new Error('Data da NF inválida.');
 
-  var sh = _aba(CONFIG.SHEETS.FIO_CRU_ENTRADAS, FIO_CRU_ENTRADAS_HEADERS);
+  var sh = _prepararFioCruEntradas();
   sh.getRange(sh.getLastRow() + 1, 1, 1, FIO_CRU_ENTRADAS_HEADERS.length).setValues([[
     tipoFio, nf, String(params.fornecedor || '').trim(), quantidade,
-    Number(params.precoUnitario) || '', data, ''
+    Number(params.precoUnitario) || '', data, '', ''
   ]]);
   return { ok: true };
 }
@@ -427,11 +605,11 @@ function importarFioCruCearaInicial() {
     var chave = _chaveLoteFioCru(linha[0], linha[1]);
     if (existentes[chave]) return;
     existentes[chave] = true;
-    novas.push([linha[0], linha[1], linha[2], linha[3], linha[4], data, linha[6]]);
+    novas.push([linha[0], linha[1], linha[2], linha[3], linha[4], data, linha[6], '']);
   });
 
   if (novas.length) {
-    var sh = _aba(CONFIG.SHEETS.FIO_CRU_ENTRADAS, FIO_CRU_ENTRADAS_HEADERS);
+    var sh = _prepararFioCruEntradas();
     sh.getRange(sh.getLastRow() + 1, 1, novas.length, FIO_CRU_ENTRADAS_HEADERS.length).setValues(novas);
   }
   var msg = novas.length + ' de ' + dados.length + ' lote(s) importado(s) (' +

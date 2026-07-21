@@ -94,6 +94,7 @@ var MENUS = {
     { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
     { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
+    { id: 'assocfiocru',rotulo: 'Associação Fio Crú',  render: viewAssociacaoFioCru },
     { id: 'fiocru',     rotulo: 'Estoque Fio Crú',     render: viewFioCru },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
@@ -1385,6 +1386,85 @@ function lancarQuantidadeTingidaFio(idx, inp, chk) {
     });
 }
 
+/* ---------------------- view: Associação Fio Crú -------------------- */
+// Liga cada tipo de fio da Base de Tingimento à descrição correspondente no
+// estoque de fio crú — a baixa automática usa essa associação antes de
+// tentar achar o lote "por aproximação" (ver `_resolverTipoFioEstoque`).
+var _opcoesEstoqueFioCru = [];
+
+function viewAssociacaoFioCru(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Associação Fio Crú</h2>' +
+      '<p class="desc">Para cada tipo de fio da Base de Tingimento, escolha a descrição correspondente ' +
+      'no estoque de fio crú — assim a baixa automática acha o lote certo mesmo quando a redação é um ' +
+      'pouco diferente entre as duas planilhas. Sem associação aqui, o sistema tenta achar por ' +
+      'aproximação (texto "contido" num no outro), mas pode falhar.</p>' +
+      '<div id="assoc-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-associacao-fiocru"></div>' +
+    '</section>';
+  carregarAssociacaoFioCru();
+}
+
+function carregarAssociacaoFioCru() {
+  var wrap = document.getElementById('tabela-associacao-fiocru');
+  wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('listarAssociacaoFioCru', sessao.token)
+    .then(function (r) {
+      _opcoesEstoqueFioCru = r.opcoesEstoque || [];
+      renderAssociacaoFioCru(r.linhas);
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) wrap.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderAssociacaoFioCru(linhas) {
+  var wrap = document.getElementById('tabela-associacao-fiocru');
+  if (!linhas || !linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum tipo de fio cadastrado na Base de Tingimento ainda.</div>';
+    return;
+  }
+  function montarOpcoes(selecionado) {
+    var html = '<option value=""' + (!selecionado ? ' selected' : '') + '>— escolha —</option>';
+    _opcoesEstoqueFioCru.forEach(function (t) {
+      html += '<option value="' + escAttr(t) + '"' + (t === selecionado ? ' selected' : '') + '>' + t + '</option>';
+    });
+    return html;
+  }
+  var body = linhas.map(function (l) {
+    return '<tr>' +
+      '<td class="col-item">' + (l.tipoFioBase || '—') + '</td>' +
+      '<td><select class="assoc-select" data-tipo="' + escAttr(l.tipoFioBase) + '">' +
+        montarOpcoes(l.tipoFioEstoque) + '</select></td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:40%">Tipo de fio (Base de Tingimento)</th>' +
+      '<th style="width:60%">Descrição no estoque de fio crú</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+
+  Array.prototype.forEach.call(wrap.querySelectorAll('.assoc-select'), function (sel) {
+    sel.addEventListener('change', function () {
+      var msg = document.getElementById('assoc-msg');
+      var tipoFioBase = sel.getAttribute('data-tipo');
+      sel.disabled = true;
+      chamar('salvarAssociacaoFioCru', sessao.token, tipoFioBase, sel.value)
+        .then(function () {
+          sel.disabled = false;
+          msg.innerHTML = '<div class="aviso ok">Associação salva.</div>';
+        })
+        .catch(function (err) {
+          sel.disabled = false;
+          var m = tratarErro(err);
+          if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+        });
+    });
+  });
+}
+
 /* ------------------------ view: Estoque Fio Crú -------------------- */
 // Administração do estoque de fio crú: ver lotes/saldos, lançar NF nova,
 // cancelar uma NF e ver o histórico de baixas. Por ora só o master usa esta
@@ -1394,9 +1474,11 @@ function viewFioCru(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Estoque de Fio Crú</h2>' +
-      '<p class="desc">Lotes recebidos por NF. O saldo de cada um já considera as baixas do tingimento ' +
-      '(lançadas na tela de Tingimento/Confirmar Embarque). Uma NF cancelada some da conta de saldo, mas ' +
-      'o histórico dela continua registrado.</p>' +
+      '<p class="desc">Lotes recebidos por NF. Clique em qualquer campo pra editar (corrige um valor ' +
+      'digitado errado — o saldo é sempre recalculado, nunca precisa ajustar na mão). O saldo já ' +
+      'considera as baixas do tingimento. Uma NF cancelada some da conta de saldo, mas o histórico dela ' +
+      'continua registrado. Marque <b>Início</b> numa NF pra ignorar, daquele tipo de fio, tudo que for ' +
+      'mais antigo que ela (útil pra "zerar" NFs já usadas antes deste controle existir).</p>' +
       '<div class="linha-form">' +
         '<div class="campo"><label for="fc-tipo">Tipo de fio</label>' +
           '<input type="text" id="fc-tipo" placeholder="ex.: Fio Poliester"></div>' +
@@ -1445,12 +1527,21 @@ function renderEstoqueFioCru(linhas) {
   var body = linhas.map(function (l) {
     var cancelado = String(l.situacao || '').trim().toUpperCase() === 'CANCELADO';
     return '<tr' + (cancelado ? ' style="opacity:.55"' : (l.saldo <= 0 ? ' class="destaque"' : '')) + '>' +
-      '<td>' + (l.tipoFio || '—') + '</td>' +
-      '<td>' + (l.nf || '—') + '</td>' +
-      '<td>' + (l.fornecedor || '—') + '</td>' +
-      '<td style="text-align:right">' + num(l.quantidade) + '</td>' +
+      '<td><input class="fc-edit col-item" data-linha="' + l.linha + '" data-campo="TIPO_FIO" value="' +
+        escAttr(l.tipoFio) + '"></td>' +
+      '<td><input class="fc-edit" data-linha="' + l.linha + '" data-campo="NF" value="' + escAttr(l.nf) + '"></td>' +
+      '<td><input class="fc-edit" data-linha="' + l.linha + '" data-campo="FORNECEDOR" value="' +
+        escAttr(l.fornecedor) + '"></td>' +
+      '<td><input type="number" class="fc-edit" data-linha="' + l.linha + '" data-campo="QUANTIDADE" ' +
+        'min="0" step="any" value="' + l.quantidade + '"></td>' +
+      '<td><input type="number" class="fc-edit" data-linha="' + l.linha + '" data-campo="PRECO_UNITARIO" ' +
+        'min="0" step="any" value="' + (l.precoUnitario || '') + '"></td>' +
+      '<td><input type="date" class="fc-edit" data-linha="' + l.linha + '" data-campo="DATA" value="' +
+        brParaISO(l.data) + '"></td>' +
       '<td style="text-align:right">' + num(l.saldo) + '</td>' +
-      '<td>' + (l.data || '—') + '</td>' +
+      '<td style="text-align:center"><input type="checkbox" class="chk-inicio-baixa" data-linha="' + l.linha + '"' +
+        (l.inicioBaixa ? ' checked' : '') +
+        ' title="Marcar esta NF como início da baixa deste tipo de fio (ignora as mais antigas que ela)"></td>' +
       '<td>' + (cancelado ? 'CANCELADO' : '—') + '</td>' +
       '<td><button type="button" class="btn-atualizar-data btn-cancelar-nf" data-linha="' + l.linha +
         '" data-cancelado="' + (cancelado ? '0' : '1') + '">' + (cancelado ? '↺' : '✕') + '</button></td>' +
@@ -1458,11 +1549,27 @@ function renderEstoqueFioCru(linhas) {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:16%">Tipo de fio</th><th style="width:10%">NF</th><th style="width:14%">Fornecedor</th>' +
-      '<th style="text-align:right;width:12%">Quantidade</th><th style="text-align:right;width:10%">Saldo</th>' +
-      '<th style="width:10%">Data</th><th style="width:12%">Situação</th><th style="width:6%"></th>' +
+      '<th style="width:12%">Tipo de fio</th><th style="width:7%">NF</th><th style="width:10%">Fornecedor</th>' +
+      '<th style="width:8%">Quantidade</th><th style="width:8%">Preço unit.</th><th style="width:9%">Data</th>' +
+      '<th style="text-align:right;width:7%">Saldo</th><th style="width:6%">Início</th>' +
+      '<th style="width:8%">Situação</th><th style="width:5%"></th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
+  Array.prototype.forEach.call(wrap.querySelectorAll('.fc-edit'), function (inp) {
+    inp.addEventListener('change', function () {
+      salvarCampoFioCru(inp, Number(inp.getAttribute('data-linha')), inp.getAttribute('data-campo'), inp.value);
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.chk-inicio-baixa'), function (chk) {
+    chk.addEventListener('change', function () {
+      var linha = Number(chk.getAttribute('data-linha'));
+      var marcar = chk.checked;
+      chk.disabled = true;
+      chamar(marcar ? 'definirInicioBaixaFioCru' : 'removerInicioBaixaFioCru', sessao.token, linha)
+        .then(function () { carregarEstoqueFioCru(); })
+        .catch(function (err) { chk.disabled = false; chk.checked = !marcar; tratarErro(err); });
+    });
+  });
   Array.prototype.forEach.call(wrap.querySelectorAll('.btn-cancelar-nf'), function (btn) {
     btn.addEventListener('click', function () {
       var linha = Number(btn.getAttribute('data-linha'));
@@ -1473,6 +1580,22 @@ function renderEstoqueFioCru(linhas) {
         .catch(function (err) { btn.disabled = false; tratarErro(err); });
     });
   });
+}
+
+/** Salva a edição de um campo de um lote (corrige valor digitado errado). */
+function salvarCampoFioCru(inp, linha, campo, valor) {
+  inp.style.borderColor = '#CBD5E1';
+  chamar('editarLoteFioCru', sessao.token, linha, campo, valor)
+    .then(function () {
+      inp.style.borderColor = '#1F9D55';
+      // Quantidade muda o saldo (e o de outros lotes, se o "início" mudar de
+      // lugar na ordem) — recarrega pra refletir certinho.
+      if (campo === 'QUANTIDADE' || campo === 'DATA') carregarEstoqueFioCru();
+    })
+    .catch(function (err) {
+      inp.style.borderColor = '#D0342C';
+      tratarErro(err);
+    });
 }
 
 function lancarNfFioCru() {

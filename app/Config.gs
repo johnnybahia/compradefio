@@ -92,7 +92,8 @@ var CONFIG = {
     PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // backlog vivo: acumula até dar baixa (embarque confirmado ou remoção manual)
     RELACAO_COMPRA: 'RELACAO_COMPRA', // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
     FIO_CRU_ENTRADAS: 'FIO_CRU_ENTRADAS', // lotes de fio crú recebidos (um por NF + tipo de fio)
-    FIO_CRU_BAIXAS: 'FIO_CRU_BAIXAS'      // histórico de baixas no fio crú (tingimento consumindo os lotes)
+    FIO_CRU_BAIXAS: 'FIO_CRU_BAIXAS',     // histórico de baixas no fio crú (tingimento consumindo os lotes)
+    ASSOCIACAO_FIO_CRU: 'ASSOCIACAO_FIO_CRU' // tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de fio crú
   },
 
   /** Duração da sessão (token de login), em horas. */
