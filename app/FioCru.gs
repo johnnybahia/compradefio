@@ -64,38 +64,39 @@ function _ssAssociacaoFioCru() {
 }
 
 /**
- * Casos especiais de associação — tipos de fio crú que, para fins de LOTE
- * DE TINGIMENTO (baixa do estoque), servem pro mesmo tipo, mesmo com uma
- * descrição diferente na NF (ex.: "102 Lavado" é lançado no estoque com
- * esse nome mesmo — fica assim nos lotes e nos relatórios de saldo/consumo
- * —, mas pra baixa de tingimento de Poliéster ele PODE ser usado também).
- * Isso NÃO renomeia nem agrupa o tipo de fio em nenhuma tela — só amplia
- * quais lotes entram no FIFO da baixa. Universal (a composição do fio não
- * muda por unidade) — adicione novos casos aqui conforme aparecerem.
+ * Casos especiais de tingimento — itens cujo CÓDIGO cai num tipo (ex.:
+ * "102 lavado") que, só pra CALCULAR o pedido de fio, usa as máquinas de
+ * OUTRO tipo da BASE TINGIMENTO (ex.: poliéster), mas que pra todo o resto
+ * (tela, baixa no estoque de fio crú, relatórios) continua sendo o tipo
+ * PRÓPRIO. Ou seja: o pedido "empresta" a base do poliéster; o estoque
+ * continua sendo o "Fio 102 Lavado", e a baixa sai do lote com esse nome.
+ * Universal (a composição do fio não muda por unidade) — adicione novos
+ * casos aqui conforme aparecerem.
+ *   - kws:            palavras (normalizadas) que precisam aparecer TODAS no
+ *                     código do item pra ele cair neste caso
+ *   - baseTingimento: padrão (coluna A da BASE TINGIMENTO, normalizado) cujas
+ *                     máquinas/capacidades o cálculo do pedido deve usar
+ *   - tipoFio:        tipo de fio atribuído ao item (tela + baixa do estoque —
+ *                     precisa casar com a descrição do lote no fio crú)
  */
-var _CASOS_ESPECIAIS_FIO_CRU = [
-  ['poliester', '102 lavado']
+var _CASOS_ESPECIAIS_TINGIMENTO = [
+  { kws: ['102', 'lavado'], baseTingimento: 'poliester', tipoFio: 'Fio 102 Lavado' }
 ];
 
-/** true se `a` e `b` caem no mesmo caso especial (ver `_CASOS_ESPECIAIS_FIO_CRU`). */
-function _casoEspecialFioCru(a, b) {
-  var na = _norm(a), nb = _norm(b);
-  if (!na || !nb) return false;
-  return _CASOS_ESPECIAIS_FIO_CRU.some(function (grupo) {
-    var temA = grupo.some(function (termo) { return na.indexOf(termo) !== -1; });
-    var temB = grupo.some(function (termo) { return nb.indexOf(termo) !== -1; });
-    return temA && temB;
-  });
+/** Caso especial cujo `kws` todos aparecem no código do item (ou null). */
+function _casoEspecialTingimento(item) {
+  var it = _norm(item);
+  if (!it) return null;
+  return _CASOS_ESPECIAIS_TINGIMENTO.filter(function (c) {
+    return c.kws.every(function (kw) { return it.indexOf(_norm(kw)) !== -1; });
+  })[0] || null;
 }
 
-/** Dois textos de tipo de fio "batem" se um contém o outro (normalizado),
- * ou se caem no mesmo caso especial de associação (ver `_CASOS_ESPECIAIS_FIO_CRU`) —
- * usado só pra decidir quais lotes entram na baixa, nunca pra exibição. */
+/** Dois textos de tipo de fio "batem" se um contém o outro (normalizado). */
 function _tipoFioBate(a, b) {
   var na = _norm(a), nb = _norm(b);
   if (!na || !nb) return false;
-  if (na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1) return true;
-  return _casoEspecialFioCru(a, b);
+  return na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1;
 }
 
 /** Chave de um lote: tipo de fio (como veio na aba) + nº da NF, normalizados. */
