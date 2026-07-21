@@ -1030,6 +1030,62 @@ function removerLinhaTingimento(btn) {
     });
 }
 
+/* --------------------------- régua de navegação --------------------- */
+/**
+ * Navegação por ↑/↓ numa tabela: destaca a linha atual como uma "régua",
+ * pra ajudar a acompanhar item por item numa lista longa. Clicar numa linha
+ * também move a régua pra ela (sem roubar o foco de quem clicou num campo/
+ * checkbox — só rouba o foco ao clicar em texto "neutro" da linha, pra
+ * poder já usar as setas a partir daí). As setas nunca disputam com quem
+ * está digitando/usando o spinner de um campo numérico.
+ * Chame UMA vez por tela (ex.: ao montar a view); sobrevive a re-renders da
+ * tabela porque o estado fica guardado no próprio elemento do wrap.
+ */
+function ativarRegua(wrapId) {
+  var wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  wrap.setAttribute('tabindex', '0');
+  wrap._reguaIndice = -1;
+
+  wrap.addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    var editando = e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
+    if (editando) return; // não disputa a seta com quem está digitando
+    var trs = wrap.querySelectorAll('tbody tr');
+    if (!trs.length) return;
+    e.preventDefault();
+    wrap._reguaIndice = e.key === 'ArrowDown'
+      ? Math.min(wrap._reguaIndice + 1, trs.length - 1)
+      : Math.max(wrap._reguaIndice - 1, 0);
+    aplicarRegua(wrap);
+  });
+
+  wrap.addEventListener('click', function (e) {
+    var tr = e.target.closest && e.target.closest('tbody tr');
+    if (!tr) return;
+    var trs = Array.prototype.slice.call(wrap.querySelectorAll('tbody tr'));
+    var i = trs.indexOf(tr);
+    if (i === -1) return;
+    wrap._reguaIndice = i;
+    aplicarRegua(wrap);
+    var interativo = /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(e.target.tagName);
+    if (!interativo) wrap.focus(); // só rouba o foco se não clicou num campo/checkbox/botão
+  });
+}
+
+/** Reaplica o destaque da régua na linha certa — chame depois de recriar a
+ * tabela (ex.: após confirmar um item), pra régua não desaparecer sozinha. */
+function aplicarRegua(wrap) {
+  if (typeof wrap === 'string') wrap = document.getElementById(wrap);
+  if (!wrap) return;
+  var trs = wrap.querySelectorAll('tbody tr');
+  Array.prototype.forEach.call(trs, function (tr) { tr.classList.remove('regua-atual'); });
+  var i = wrap._reguaIndice;
+  if (i == null || i < 0 || i >= trs.length) return;
+  trs[i].classList.add('regua-atual');
+  trs[i].scrollIntoView({ block: 'nearest' });
+}
+
 /* ---------------------- view: Confirmar Embarque ------------------- */
 // Por ora só o master usa esta tela (papéis por item ainda serão definidos).
 var estadoConfirmarEmbarque = { linhas: [] };
@@ -1042,7 +1098,8 @@ function viewConfirmarEmbarque(alvo) {
       'total tingido lançado até aqui — edite se precisar corrigir (a linha fica marcada como ' +
       '<b>editada</b>). O valor CONFIRMADO aqui é o que sai do estoque de fio crú e vai para o e-mail, ' +
       'mesmo que seja diferente do que foi lançado antes: este é o procedimento final. O e-mail de ' +
-      'confirmação usa a mesma lista de destinatários configurada na tela de Tingimento.</p>' +
+      'confirmação usa a mesma lista de destinatários configurada na tela de Tingimento. Use as setas ' +
+      '↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
       '<div id="embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       '<div style="margin-top:16px">' +
@@ -1051,6 +1108,7 @@ function viewConfirmarEmbarque(alvo) {
     '</section>';
 
   document.getElementById('btn-confirmar-embarque').onclick = confirmarEmbarqueSelecionado;
+  ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
 }
 
@@ -1119,6 +1177,7 @@ function renderConfirmarEmbarque() {
     });
   });
   btn.style.display = '';
+  aplicarRegua(wrap);
 }
 
 function confirmarEmbarqueSelecionado() {
@@ -1226,10 +1285,12 @@ function viewQuantidadeTingida(alvo) {
       '<h2>Quantidade Tingida</h2>' +
       '<p class="desc">Lista do Pedido de Fio nº <b id="qt-numero-pedido">—</b> (<b id="qt-data-pedido">—</b>). ' +
       'Marque a caixa grande pra confirmar quanto foi tingido AGORA de cada item — soma ao total já ' +
-      'lançado e dá baixa no fio crú daquele tipo de fio.</p>' +
+      'lançado e dá baixa no fio crú daquele tipo de fio. Use as setas ↑/↓ (ou clique numa linha) para ' +
+      'navegar item por item.</p>' +
       '<div id="qt-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-qtd-tingida"></div>' +
     '</section>';
+  ativarRegua('tabela-qtd-tingida');
   carregarQuantidadeTingida();
 }
 
@@ -1292,6 +1353,7 @@ function renderQuantidadeTingida() {
       lancarQuantidadeTingidaFio(idx, inp, chk);
     });
   });
+  aplicarRegua(wrap);
 }
 
 /** Lança a quantidade tingida digitada (soma ao total já registrado daquele

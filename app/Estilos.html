@@ -161,6 +161,11 @@
 
   /* Tabelas */
   .tabela-wrap { overflow-x: auto; margin-top: 8px; }
+  .tabela-wrap:focus { outline: none; }
+  table.dados tbody tr.regua-atual {
+    background: #DCEBF7 !important;
+    box-shadow: inset 4px 0 0 0 var(--azul);
+  }
   table.dados { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
   table.dados th, table.dados td {
     border-bottom: 1px solid var(--borda); padding: 6px 7px; text-align: left;
