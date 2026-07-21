@@ -188,7 +188,7 @@ function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
   var numero = _numeroPedidoEscolhido(numeroManual);
   var agora = new Date();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
-  var html = _relatorioCompraHTML(regs, numero, dataFmt);
+  var html = _relatorioCompraHTML(regs, numero, dataFmt, unidade);
   var pdf = Utilities.newBlob(html, MimeType.HTML, 'pedido.html').getAs(MimeType.PDF)
     .setName('Pedido de Fio Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
 
@@ -231,9 +231,12 @@ function obterUltimaDataFimCompra(token) {
   return { ok: true, data: v || '' };
 }
 
-/** Monta o HTML do relatório de compra (usado no e-mail e no PDF anexado). */
-function _relatorioCompraHTML(regs, numero, dataFmt) {
+/** Monta o HTML do relatório de compra (usado no e-mail e no PDF anexado).
+ * `unidade` é o rótulo da unidade (ex.: 'BAHIA') pro título — sem ele, o
+ * título sai sem nome de unidade (nunca fixo no Ceará). */
+function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
   var cols = [
+    ['GERADO_EM', 'Solicitado em'],
     ['ITEM', 'Item'], ['DESCRICAO', 'Descrição'], ['CLIENTE', 'Cliente'],
     ['MAQUINAS', 'Máquinas'], ['SUGERIDO', 'Total (kg)'],
     ['DATA_LIMITE', 'Data limite'], ['OBS', 'Observação']
@@ -244,7 +247,7 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
   }).join('');
   var rows = regs.map(function (r) {
     return '<tr>' + cols.map(function (c) {
-      var v = (c[0] === 'DATA_LIMITE') ? _soData(r[c[0]]) : r[c[0]];
+      var v = (c[0] === 'DATA_LIMITE' || c[0] === 'GERADO_EM') ? _soData(r[c[0]]) : r[c[0]];
       if (v === '' || v == null) v = '';
       return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
     }).join('') + '</tr>';
@@ -253,7 +256,7 @@ function _relatorioCompraHTML(regs, numero, dataFmt) {
   // logo, sem quebrar, se por algum motivo o arquivo Logo não estiver disponível.
   var logo = _logoDataUri();
   var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">' +
-    'PEDIDO DE FIO MARFIM CEARÁ</h1>' +
+    ('PEDIDO DE FIO MARFIM ' + (unidade || '')).trim() + '</h1>' +
     '<p style="margin:0;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
     ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
   var cabecalho = logo
