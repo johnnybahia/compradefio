@@ -56,6 +56,7 @@ function obterListaTingimento(token) {
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
       dataLimite: _soData(r.DATA_LIMITE),
+      dataSolicitado: _soData(r.GERADO_EM),
       obs: r.OBS == null ? '' : String(r.OBS),
       saldoCritico: _saldoCritico(r)
     };

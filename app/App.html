@@ -967,6 +967,7 @@ function renderTingimento(linhas) {
 
   var body = linhas.map(function (l) {
     return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + '>' +
+      '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td>' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
@@ -984,10 +985,11 @@ function renderTingimento(linhas) {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:10%">Item</th><th style="width:26%">Descrição</th>' +
-      '<th style="width:14%">Cliente</th><th style="width:12%">Máquinas</th>' +
-      '<th style="text-align:right;width:8%">Total (kg)</th>' +
-      '<th style="width:14%">Data limite embarque</th><th style="width:16%">Observação</th>' +
+      '<th style="width:8%">Solicitado em</th>' +
+      '<th style="width:10%">Item</th><th style="width:24%">Descrição</th>' +
+      '<th style="width:13%">Cliente</th><th style="width:11%">Máquinas</th>' +
+      '<th style="text-align:right;width:7%">Total (kg)</th>' +
+      '<th style="width:13%">Data limite embarque</th><th style="width:14%">Observação</th>' +
       '<th class="no-print" style="width:4%"></th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
@@ -1173,6 +1175,7 @@ function carregarListaConfirmarEmbarque() {
         return {
           linha: l.linha, item: l.item, descricao: l.descricao, cliente: l.cliente,
           tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
+          dataSolicitado: l.dataSolicitado || '',
           quantidade: l.tingido ? String(l.tingido) : '', selecionado: false
         };
       });
@@ -1215,6 +1218,7 @@ function renderConfirmarEmbarque() {
     return '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>' +
       '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-embarcar" data-idx="' + i +
         '"' + (l.selecionado ? ' checked' : '') + '></td>' +
+      '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td class="col-item">' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
@@ -1228,10 +1232,11 @@ function renderConfirmarEmbarque() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:5%">Embarcar</th><th style="width:10%">Item</th><th style="width:15%">Descrição</th>' +
-      '<th style="width:10%">Cliente</th><th style="width:10%">Tipo de fio</th>' +
-      '<th style="text-align:right;width:7%">Alvo</th>' +
-      '<th style="text-align:right;width:9%">Já tingido</th><th style="width:12%">Quantidade a confirmar</th>' +
+      '<th style="width:5%">Embarcar</th><th style="width:7%">Solicitado em</th>' +
+      '<th style="width:9%">Item</th><th style="width:13%">Descrição</th>' +
+      '<th style="width:9%">Cliente</th><th style="width:9%">Tipo de fio</th>' +
+      '<th style="text-align:right;width:6%">Alvo</th>' +
+      '<th style="text-align:right;width:8%">Já tingido</th><th style="width:11%">Quantidade a confirmar</th>' +
       '<th style="width:22%">Situação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
@@ -1391,6 +1396,7 @@ function renderQuantidadeTingida() {
   }
   var body = linhas.map(function (l, i) {
     return '<tr>' +
+      '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td class="col-item">' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
@@ -1411,9 +1417,10 @@ function renderQuantidadeTingida() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:10%">Item</th><th style="width:20%">Descrição</th>' +
-      '<th style="width:11%">Cliente</th><th style="width:11%">Tipo de fio</th>' +
-      '<th style="width:9%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
+      '<th style="width:8%">Solicitado em</th>' +
+      '<th style="width:9%">Item</th><th style="width:18%">Descrição</th>' +
+      '<th style="width:10%">Cliente</th><th style="width:10%">Tipo de fio</th>' +
+      '<th style="width:8%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
       '<th style="text-align:right;width:9%">Já tingido</th>' +
       '<th style="width:11%">+ kg agora</th><th style="width:6%">Confirmar</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
