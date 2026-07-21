@@ -123,11 +123,11 @@ function _lerBaseTingimento() {
  * média — ver `_alvoTingimento`). Já pedido e ainda não enviado pode, sim,
  * zerar a sugestão: não faz sentido pedir de novo o que já está na fila.
  *
- * Um item cujo código é um caso especial do Poliéster (ver
- * `_casoEspecialFioCru`, em FioCru.gs — ex.: "102 Lavado") calcula o alvo e
- * escolhe as máquinas usando a linha do Poliéster, mesmo que não exista uma
- * linha própria dele na BASE TINGIMENTO — o nome original só volta a valer
- * depois, na baixa do estoque de fio crú.
+ * Um item de um caso especial (ver `_casoEspecialTingimento`, em FioCru.gs —
+ * ex.: "102 Lavado") calcula o alvo e escolhe as máquinas EMPRESTANDO a base
+ * de outro tipo (ex.: poliéster), mesmo que não exista linha própria dele na
+ * BASE TINGIMENTO — mas mantém o seu próprio tipo de fio, então a baixa no
+ * estoque de fio crú continua saindo do lote com o nome dele ("Fio 102 Lavado").
  */
 function _criarCalculadoraTingimento() {
   var base = _lerBaseTingimento();
@@ -143,16 +143,24 @@ function _criarCalculadoraTingimento() {
       }
     });
     if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
-    // Caso especial (ver `_casoEspecialFioCru`, em FioCru.gs): um item cujo
-    // CÓDIGO é do grupo do poliéster (ex.: "102 lavado") calcula o pedido pela
-    // linha do POLIÉSTER — mesmo que não exista linha própria dele na BASE
-    // TINGIMENTO, ou que a linha dele exista sem máquinas (aí o total sairia
-    // vazio). É comparado com o próprio padrão "poliester" da base, então não
-    // depende de como o tipo de fio está escrito. Só a baixa no estoque de fio
-    // crú é que continua podendo sair do lote com o nome próprio ("Fio 102 Lavado").
-    if (poliester && achado !== poliester && _casoEspecialFioCru(it, poliester.patternNorm)) {
-      achado = poliester;
+
+    // Caso especial (ver `_casoEspecialTingimento`, em FioCru.gs): um item cujo
+    // código é de um tipo que EMPRESTA a base de OUTRO tipo pra calcular o
+    // pedido (ex.: "102 lavado" usa as máquinas do poliéster) — vale mesmo que
+    // não exista linha própria dele na BASE TINGIMENTO. O tipo de fio do item
+    // continua sendo o PRÓPRIO (caso.tipoFio), então a baixa no estoque de fio
+    // crú sai do lote com esse nome ("Fio 102 Lavado"), não do poliéster.
+    var caso = _casoEspecialTingimento(it);
+    if (caso) {
+      var baseEmprestada = null;
+      base.forEach(function (b) { if (b.patternNorm === _norm(caso.baseTingimento)) baseEmprestada = b; });
+      if (baseEmprestada) {
+        var alvoCaso = Math.max(_alvoTingimento(saldo, media) - (Number(emAberto) || 0), 0);
+        var selCaso = _selecionarMaquinas(alvoCaso, baseEmprestada.caps);
+        return { tipoFio: caso.tipoFio, alvo: alvoCaso, maquinas: selCaso.maquinas, total: selCaso.total };
+      }
     }
+
     if (!achado) return { tipoFio: '', alvo: 0, maquinas: [], total: 0 };
     var alvoBruto = _alvoTingimento(saldo, media);
     var alvo = Math.max(alvoBruto - (Number(emAberto) || 0), 0);
