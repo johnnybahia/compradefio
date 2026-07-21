@@ -447,6 +447,14 @@ function obterListaFioParaTingir(token) {
   };
 }
 
+/** Tipo de fio de um item, pela lista pendente de compra (PENDENCIA_COMPRA). */
+function _tipoFioDoItemPendente(item) {
+  var itemNorm = _norm(item);
+  var pendente = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA)
+    .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
+  return pendente ? String(pendente.TIPO_FIO || '').trim() : '';
+}
+
 /**
  * Lança a quantidade tingida de UM item: acha o tipo de fio dele (pela
  * lista pendente de compra, PENDENCIA_COMPRA) e dá baixa no fio crú.
@@ -462,10 +470,7 @@ function registrarQuantidadeTingida(token, params) {
   var quantidade = Number(params.quantidade);
   if (isNaN(quantidade) || quantidade <= 0) throw new Error('Quantidade tingida inválida.');
 
-  var itemNorm = _norm(item);
-  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
-  var pendente = regs.filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
-  var tipoFio = pendente ? String(pendente.TIPO_FIO || '').trim() : '';
+  var tipoFio = _tipoFioDoItemPendente(item);
   if (!tipoFio) {
     throw new Error('Não achei o tipo de fio do item "' + item + '" na lista pendente — confira se ele ainda está lá.');
   }
@@ -473,6 +478,30 @@ function registrarQuantidadeTingida(token, params) {
   var baixa = _baixarFioCru(tipoFio, quantidade, item, s.usuario);
   if (!baixa.ok) throw new Error(baixa.mensagem);
   return { ok: true, tipoFio: baixa.tipoFio, quantidade: baixa.quantidade, lotes: baixa.lotes };
+}
+
+/**
+ * Corrige o total tingido já lançado de UM item pra um novo valor absoluto —
+ * usado quando um lançamento na tela "Quantidade Tingida" foi feito errado
+ * (ex.: um teste, ou valor digitado errado) e precisa ser desfeito/ajustado.
+ * Ajusta a baixa no fio crú pela DIFERENÇA (credita de volta, LIFO, se o
+ * novo total for menor — ver `_ajustarBaixaFioCru`), nunca duplica.
+ */
+function corrigirQuantidadeTingida(token, item, novoTotal) {
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  item = String(item || '').trim();
+  if (!item) throw new Error('Informe o item.');
+  novoTotal = Number(novoTotal);
+  if (isNaN(novoTotal) || novoTotal < 0) throw new Error('Valor inválido.');
+
+  var tipoFio = _tipoFioDoItemPendente(item);
+  if (!tipoFio) {
+    throw new Error('Não achei o tipo de fio do item "' + item + '" na lista pendente — confira se ele ainda está lá.');
+  }
+
+  var ajuste = _ajustarBaixaFioCru(tipoFio, item, novoTotal, s.usuario);
+  if (!ajuste.ok) throw new Error(ajuste.mensagem || 'Não foi possível corrigir.');
+  return { ok: true, tipoFio: ajuste.tipoFio, diferenca: ajuste.diferenca, lotes: ajuste.lotes, tingido: novoTotal };
 }
 
 /**
