@@ -851,3 +851,58 @@ function importarFioCruCearaInicial() {
   Logger.log(msg);
   return { importados: novas.length, jaExistiam: dados.length - novas.length };
 }
+
+/**
+ * MIGRAÇÃO ÚNICA — importa a planilha "FIOS CRÚ MARFIM BAHIA - Entradas por
+ * NF" pra dentro da aba FIO_CRU_ENTRADAS (unidade Bahia). Idempotente: pula
+ * qualquer linha [tipo de fio + NF] que já exista (não duplica se rodar de
+ * novo, nem se algum desses lotes já tiver sido lançado manualmente antes
+ * pela tela). Rode pelo editor do Apps Script (Executar → importarFioCruBahiaInicial).
+ */
+function importarFioCruBahiaInicial() {
+  _definirUnidadeAtiva('BAHIA');
+  var dados = [
+    ['Fio 102 Lavado', '158376', 'AVANTI', 3190.00, 12.70, '30/12/2025', ''],
+    ['Fio 102 Lavado', '158374', 'AVANTI', 800.00, 12.18, '30/12/2025', ''],
+    ['Fio 102 Lavado', '364737', 'UNIFI', 4010.80, 12.20, '26/05/2026', ''],
+    ['Fio BT-76/36', '361269', 'UNIFI', 1009.91, 21.83, '25/03/2026', ''],
+    ['Fio PET de 1 Cabo', '358239', 'UNIFI', 1393.20, 17.97, '26/01/2026', ''],
+    ['Fio PET de 1 Cabo', '358240', 'UNIFI', 997.35, 17.97, '26/01/2026', ''],
+    ['Fio PET de 1 Cabo', '361270', 'UNIFI', 609.05, 17.97, '25/03/2026', ''],
+    ['Fio PET de 1 Cabo', '361269', 'UNIFI', 2003.75, 17.97, '25/03/2026', ''],
+    ['Fio PET de 1 Cabo', '363253', 'UNIFI', 1507.00, 19.14, '29/04/2026', ''],
+    ['Fio Polimp', '363252', 'UNIFI', 1010.25, 18.80, '29/04/2026', ''],
+    ['Fio Poliéster', '359657', 'UNIFI', 3010.60, 16.73, '24/02/2026', ''],
+    ['Fio Poliéster', '361269', 'UNIFI', 3015.30, 16.73, '25/03/2026', ''],
+    ['Fio Poliéster', '364760', 'UNIFI', 3004.35, 17.95, '26/05/2026', ''],
+    ['Fio Reflexx', '263251', 'UNIFI', 2006.00, 18.55, '29/04/2026', ''],
+    ['Fio Reflexx Pet', '358241', 'UNIFI', 3005.55, 17.39, '26/01/2026', ''],
+    ['Fio Reflexx Pet', '359656', 'UNIFI', 3004.10, 17.38, '24/02/2026', ''],
+    ['Fio Reflexx Pet', '361269', 'UNIFI', 2005.15, 17.38, '25/03/2026', ''],
+    ['Fio Reflexx Pet', '263254', 'UNIFI', 2005.41, 18.56, '29/04/2026', ''],
+    ['Fio Reflexx Pet', '364718', 'UNIFI', 3010.10, 18.56, '26/05/2026', ''],
+    ['Fio Reflexx Pet', '366526', 'UNIFI', 1879.39, 18.80, '26/06/2026', ''],
+    ['Fio Helanca', '42809', 'VENTUNO', 1884.90, 26.70, '23/03/2026', '']
+  ];
+
+  var existentes = {};
+  _lerLotesFioCru().forEach(function (l) { existentes[l.chave] = true; });
+
+  var novas = [];
+  dados.forEach(function (linha) {
+    var data = _parseDataBR(linha[5]);
+    var chave = _chaveLoteFioCru(linha[0], linha[1]);
+    if (existentes[chave]) return;
+    existentes[chave] = true;
+    novas.push([linha[0], linha[1], linha[2], linha[3], linha[4], data, linha[6], '']);
+  });
+
+  if (novas.length) {
+    var sh = _prepararFioCruEntradas();
+    sh.getRange(sh.getLastRow() + 1, 1, novas.length, FIO_CRU_ENTRADAS_HEADERS.length).setValues(novas);
+  }
+  var msg = novas.length + ' de ' + dados.length + ' lote(s) importado(s) (' +
+    (dados.length - novas.length) + ' já existiam).';
+  Logger.log(msg);
+  return { importados: novas.length, jaExistiam: dados.length - novas.length };
+}
