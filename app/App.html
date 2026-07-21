@@ -1097,10 +1097,12 @@ function viewConfirmarEmbarque(alvo) {
       '<h2>Confirmar Embarque</h2>' +
       '<p class="desc">Marque os itens que vão embarcar agora. A quantidade já vem preenchida com o ' +
       'total tingido lançado até aqui — edite se precisar corrigir (a linha fica marcada como ' +
-      '<b>editada</b>). O valor CONFIRMADO aqui é o que sai do estoque de fio crú e vai para o e-mail, ' +
-      'mesmo que seja diferente do que foi lançado antes: este é o procedimento final. O e-mail de ' +
-      'confirmação usa a mesma lista de destinatários configurada na tela de Tingimento. Use as setas ' +
-      '↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
+      '<b>editada</b>). Linhas em <span class="badge-tingido-completo">verde</span> já bateram o alvo de ' +
+      'tingimento; em <span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele. O valor ' +
+      'CONFIRMADO aqui é o que sai do estoque de fio crú e vai para o e-mail, mesmo que seja diferente do ' +
+      'que foi lançado antes: este é o procedimento final. O e-mail de confirmação usa a mesma lista de ' +
+      'destinatários configurada na tela de Tingimento. Use as setas ↑/↓ (ou clique numa linha) para ' +
+      'navegar item por item.</p>' +
       '<div id="embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       '<div style="margin-top:16px">' +
@@ -1116,13 +1118,13 @@ function viewConfirmarEmbarque(alvo) {
 function carregarListaConfirmarEmbarque() {
   var msg = document.getElementById('embarque-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
-  chamar('obterListaTingimento', sessao.token)
+  chamar('obterListaFioParaTingir', sessao.token)
     .then(function (r) {
       msg.innerHTML = '';
       estadoConfirmarEmbarque.linhas = (r.linhas || []).map(function (l) {
         return {
           linha: l.linha, item: l.item, descricao: l.descricao, cliente: l.cliente,
-          tipoFio: l.tipoFio, tingido: l.tingido || 0,
+          tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
           quantidade: l.tingido ? String(l.tingido) : '', selecionado: false
         };
       });
@@ -1132,6 +1134,16 @@ function carregarListaConfirmarEmbarque() {
       var m = tratarErro(err);
       if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
+}
+
+/** 'completo' (tingido cobriu o alvo), 'parcial' (já tem algo tingido, mas
+ * não bateu o alvo, ou não há alvo calculado) ou 'nenhum'. */
+function statusTingidoEmbarque(l) {
+  var total = Number(l.total) || 0;
+  var tingido = Number(l.tingido) || 0;
+  if (tingido <= 0) return 'nenhum';
+  if (total > 0 && tingido >= total) return 'completo';
+  return 'parcial';
 }
 
 function renderConfirmarEmbarque() {
@@ -1145,25 +1157,34 @@ function renderConfirmarEmbarque() {
   }
   var body = linhas.map(function (l, i) {
     var editado = String(l.quantidade || '') !== String(l.tingido || '');
-    return '<tr' + (editado ? ' class="destaque-abastecido"' : '') + '>' +
+    var status = statusTingidoEmbarque(l);
+    var rowClass = editado ? 'destaque-abastecido' :
+      (status === 'completo' ? 'destaque-tingido-completo' : (status === 'parcial' ? 'destaque-tingido-parcial' : ''));
+    var badges = [];
+    if (status === 'completo') badges.push('<span class="badge-tingido-completo">tingido completo</span>');
+    else if (status === 'parcial') badges.push('<span class="badge-tingido-parcial">tingido parcial</span>');
+    if (editado) badges.push('<span class="badge-editado">editado</span>');
+    return '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>' +
       '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-embarcar" data-idx="' + i +
         '"' + (l.selecionado ? ' checked' : '') + '></td>' +
       '<td class="col-item">' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
+      '<td style="text-align:right">' + (l.total ? num(l.total) : '—') + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg</td>' +
       '<td><input type="number" class="qtd-embarcar-input" data-idx="' + i + '" min="0" step="any" value="' +
         escAttr(l.quantidade) + '"></td>' +
-      '<td>' + (editado ? '<span class="badge-editado">editado</span>' : '—') + '</td>' +
+      '<td>' + (badges.length ? badges.join(' ') : '—') + '</td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:6%">Embarcar</th><th style="width:12%">Item</th><th style="width:18%">Descrição</th>' +
-      '<th style="width:12%">Cliente</th><th style="width:12%">Tipo de fio</th>' +
+      '<th style="width:5%">Embarcar</th><th style="width:10%">Item</th><th style="width:15%">Descrição</th>' +
+      '<th style="width:10%">Cliente</th><th style="width:10%">Tipo de fio</th>' +
+      '<th style="text-align:right;width:7%">Alvo</th>' +
       '<th style="text-align:right;width:9%">Já tingido</th><th style="width:12%">Quantidade a confirmar</th>' +
-      '<th style="width:8%"></th>' +
+      '<th style="width:22%">Situação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.chk-embarcar'), function (chk) {
@@ -1286,8 +1307,9 @@ function viewQuantidadeTingida(alvo) {
       '<h2>Quantidade Tingida</h2>' +
       '<p class="desc">Lista do Pedido de Fio nº <b id="qt-numero-pedido">—</b> (<b id="qt-data-pedido">—</b>). ' +
       'Marque a caixa grande pra confirmar quanto foi tingido AGORA de cada item — soma ao total já ' +
-      'lançado e dá baixa no fio crú daquele tipo de fio. Use as setas ↑/↓ (ou clique numa linha) para ' +
-      'navegar item por item.</p>' +
+      'lançado e dá baixa no fio crú daquele tipo de fio. Errou um lançamento (ou foi só um teste)? Use o ' +
+      'botão <b>✎</b> ao lado do "Já tingido" pra corrigir o total pro valor certo. Use as setas ↑/↓ (ou ' +
+      'clique numa linha) para navegar item por item.</p>' +
       '<div id="qt-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-qtd-tingida"></div>' +
     '</section>';
@@ -1327,7 +1349,9 @@ function renderQuantidadeTingida() {
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
-      '<td style="text-align:right">' + num(l.tingido) + ' kg</td>' +
+      '<td style="text-align:right">' + num(l.tingido) + ' kg ' +
+        '<button type="button" class="btn-atualizar-data btn-corrigir-tingido" data-idx="' + i +
+          '" title="Corrigir o total tingido lançado (ex.: desfazer um lançamento errado)">✎</button></td>' +
       '<td style="text-align:center">' +
         '<input type="number" class="qtd-input-grande" data-idx="' + i + '" min="0" step="any" placeholder="+ kg">' +
       '</td>' +
@@ -1354,7 +1378,80 @@ function renderQuantidadeTingida() {
       lancarQuantidadeTingidaFio(idx, inp, chk);
     });
   });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-corrigir-tingido'), function (btn) {
+    btn.addEventListener('click', function () {
+      var idx = Number(btn.getAttribute('data-idx'));
+      var alvo = estadoQuantidadeTingida.linhas[idx];
+      if (!alvo) return;
+      abrirModalCorrigirTingido(alvo.item, alvo.tingido || 0, function (novoTotal) {
+        var msg = document.getElementById('qt-msg');
+        btn.disabled = true;
+        chamar('corrigirQuantidadeTingida', sessao.token, alvo.item, novoTotal)
+          .then(function () {
+            btn.disabled = false;
+            alvo.tingido = novoTotal;
+            renderQuantidadeTingida();
+            msg.innerHTML = '<div class="aviso ok">Total tingido de "' + alvo.item + '" corrigido para ' +
+              num(novoTotal) + ' kg.</div>';
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            var m = tratarErro(err);
+            if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+          });
+      });
+    });
+  });
   aplicarRegua(wrap);
+}
+
+/** Modal pra corrigir o total tingido já lançado de um item — pede o valor
+ * CORRETO (absoluto), não a diferença; o servidor ajusta a baixa no fio crú
+ * pra bater com o novo total (credita de volta se for menor — ver
+ * `corrigirQuantidadeTingida`). Serve tanto pra corrigir um valor digitado
+ * errado quanto pra desfazer um lançamento de teste (corrigindo pro valor
+ * de antes, ou pra zero). */
+function abrirModalCorrigirTingido(item, tingidoAtual, callback) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;' +
+      'padding:26px 26px 22px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
+      '<h3 style="margin:0 0 8px;color:#0B4576;font-size:17px">Corrigir quantidade tingida</h3>' +
+      '<p style="margin:0 0 16px;color:#475569;font-size:14px;line-height:1.5">' +
+        'Item ' + escAttr(item) + '. Total tingido lançado até aqui: <b>' + num(tingidoAtual) + ' kg</b>. ' +
+        'Informe o valor CORRETO do total (não a diferença) — o sistema ajusta a baixa no fio crú pra ' +
+        'bater com esse novo total, creditando de volta se for menor (ex.: pra desfazer um lançamento ' +
+        'de teste, informe o valor de antes).</p>' +
+      '<div style="margin-bottom:8px">' +
+        '<label style="display:block;font-size:13px;color:#334155;margin-bottom:4px">Novo total tingido (kg)</label>' +
+        '<input type="number" id="modal-corrigir-total" min="0" step="any" value="' + tingidoAtual + '" ' +
+          'style="width:100%;padding:8px 10px;border:1px solid #D8E0E8;border-radius:8px;font-size:14px;box-sizing:border-box">' +
+      '</div>' +
+      '<div id="modal-corrigir-erro" style="color:#D0342C;font-size:13px;min-height:18px;margin-bottom:6px"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+        '<button id="modal-btn-secundario" style="padding:10px 16px;border:1px solid #D8E0E8;' +
+          'border-radius:8px;background:#fff;cursor:pointer;font-size:14px">Cancelar</button>' +
+        '<button id="modal-btn-destaque" style="padding:10px 18px;border:none;border-radius:8px;' +
+          'background:#0F5FA0;color:#fff;cursor:pointer;font-size:14px;font-weight:600">Corrigir</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  var inp = overlay.querySelector('#modal-corrigir-total');
+  var erroEl = overlay.querySelector('#modal-corrigir-erro');
+  function fechar() { document.body.removeChild(overlay); }
+  overlay.querySelector('#modal-btn-secundario').onclick = fechar;
+  overlay.querySelector('#modal-btn-destaque').onclick = function () {
+    var novoTotal = Number(inp.value);
+    if (inp.value === '' || isNaN(novoTotal) || novoTotal < 0) {
+      erroEl.textContent = 'Informe um valor válido (zero ou maior).'; return;
+    }
+    fechar();
+    callback(novoTotal);
+  };
+  inp.focus();
+  inp.select();
 }
 
 /** Lança a quantidade tingida digitada (soma ao total já registrado daquele
