@@ -1482,9 +1482,11 @@ function viewFioCru(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Estoque de Fio Crú</h2>' +
-      '<p class="desc">Marque <b>Editar</b> num lote pra corrigir um valor digitado errado (o saldo é ' +
-      'sempre recalculado; a edição fica registrada com data e usuário na planilha). O saldo já ' +
-      'considera as baixas do tingimento. Uma NF cancelada some da conta de saldo, mas o histórico dela ' +
+      '<p class="desc">Marque <b>Editar</b> num lote pra corrigir um valor digitado errado (a edição fica ' +
+      'registrada com data e usuário na planilha). A <b>Quantidade</b> é o valor recebido na NF e fica ' +
+      'sempre fixa — pra corrigir o saldo (ex.: depois de uma contagem física), use o botão <b>⚖</b>, que ' +
+      'registra um ajuste à parte, sem tocar nesse valor original. O saldo já considera as baixas do ' +
+      'tingimento e os ajustes manuais. Uma NF cancelada some da conta de saldo, mas o histórico dela ' +
       'continua registrado. Marque <b>Início</b> numa NF pra ignorar, daquele tipo de fio, tudo que for ' +
       'mais antigo que ela.</p>' +
       '<div class="linha-form">' +
@@ -1548,6 +1550,13 @@ function viewFioCru(alvo) {
       '<p class="desc">Cada linha é uma baixa (ou um crédito de volta, quando negativa) registrada por ' +
       'lote — a mais recente primeiro.</p>' +
       '<div class="tabela-wrap" id="tabela-fiocru-baixas"></div>' +
+    '</section>' +
+
+    '<section class="painel">' +
+      '<h2>Histórico de ajustes de saldo</h2>' +
+      '<p class="desc">Ajustes manuais (ex.: contagem física — botão ⚖ na tabela acima), separados das ' +
+      'baixas do tingimento. Nunca alteram a quantidade original recebida na NF.</p>' +
+      '<div class="tabela-wrap" id="tabela-fiocru-ajustes"></div>' +
     '</section>';
 
   document.getElementById('btn-lancar-nf').onclick = lancarNfFioCru;
@@ -1575,6 +1584,7 @@ function viewFioCru(alvo) {
 
   carregarEstoqueFioCru();
   carregarBaixasFioCru();
+  carregarAjustesFioCru();
 }
 
 function carregarEstoqueFioCru() {
@@ -1661,16 +1671,22 @@ function renderEstoqueFioCru() {
       '<td class="col-item">' + campo(l, editando, 'TIPO_FIO', l.tipoFio) + '</td>' +
       '<td>' + campo(l, editando, 'NF', l.nf) + '</td>' +
       '<td>' + campo(l, editando, 'FORNECEDOR', l.fornecedor) + '</td>' +
-      '<td>' + campo(l, editando, 'QUANTIDADE', l.quantidade, 'numero') + '</td>' +
+      '<td title="Valor recebido na NF — fixo, nunca editável (garante o histórico de entrada)">' +
+        (l.quantidade ? num(l.quantidade) : '—') + '</td>' +
       '<td>' + campo(l, editando, 'PRECO_UNITARIO', l.precoUnitario, 'numero') + '</td>' +
       '<td>' + campo(l, editando, 'DATA', l.data, 'data') + '</td>' +
-      '<td style="text-align:right">' + num(l.saldo) + '</td>' +
+      '<td style="text-align:right">' + num(l.saldo) +
+        (l.ajustado ? '<br><span style="font-size:10px;color:var(--texto-fraco)">ajuste: ' +
+          (l.ajustado > 0 ? '+' : '') + num(l.ajustado) + '</span>' : '') + '</td>' +
       '<td style="text-align:center"><input type="checkbox" class="chk-inicio-baixa" data-linha="' + l.linha + '"' +
         (l.inicioBaixa ? ' checked' : '') +
         ' title="Marcar esta NF como início da baixa deste tipo de fio (ignora as mais antigas que ela)"></td>' +
       '<td>' + (cancelado ? 'CANCELADO' : '—') + '</td>' +
       '<td style="font-size:10px;color:var(--texto-fraco)">' + auditoria + '</td>' +
-      '<td><button type="button" class="btn-atualizar-data btn-cancelar-nf" data-linha="' + l.linha +
+      '<td style="white-space:nowrap">' +
+        '<button type="button" class="btn-atualizar-data btn-ajustar-saldo" data-linha="' + l.linha +
+          '" title="Ajustar saldo (ex.: contagem física) sem alterar a quantidade original da NF">⚖</button> ' +
+        '<button type="button" class="btn-atualizar-data btn-cancelar-nf" data-linha="' + l.linha +
         '" data-cancelado="' + (cancelado ? '0' : '1') + '">' + (cancelado ? '↺' : '✕') + '</button></td>' +
     '</tr>';
   }).join('');
@@ -1680,7 +1696,7 @@ function renderEstoqueFioCru() {
       '<th style="width:11%">Tipo de fio</th><th style="width:6%">NF</th><th style="width:9%">Fornecedor</th>' +
       '<th style="width:7%">Quantidade</th><th style="width:7%">Preço unit.</th><th style="width:8%">Data</th>' +
       '<th style="text-align:right;width:6%">Saldo</th><th style="width:5%">Início</th>' +
-      '<th style="width:7%">Situação</th><th style="width:14%">Última edição</th><th style="width:4%"></th>' +
+      '<th style="width:7%">Situação</th><th style="width:14%">Última edição</th><th style="width:6%"></th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.chk-editar-lote'), function (chk) {
@@ -1714,6 +1730,75 @@ function renderEstoqueFioCru() {
         .catch(function (err) { btn.disabled = false; tratarErro(err); });
     });
   });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-ajustar-saldo'), function (btn) {
+    btn.addEventListener('click', function () {
+      var linha = Number(btn.getAttribute('data-linha'));
+      var lote = estadoFioCru.linhas.filter(function (l) { return l.linha === linha; })[0];
+      if (!lote) return;
+      abrirModalAjusteSaldoFioCru(lote, function (delta, motivo) {
+        btn.disabled = true;
+        chamar('ajustarSaldoFioCru', sessao.token, linha, delta, motivo)
+          .then(function () { carregarEstoqueFioCru(); carregarAjustesFioCru(); })
+          .catch(function (err) { btn.disabled = false; tratarErro(err); });
+      });
+    });
+  });
+}
+
+/** Modal pra registrar um ajuste manual de saldo (ex.: contagem física) — nunca
+ * altera a QUANTIDADE original da NF, só soma/subtrai do saldo, com motivo e
+ * autoria registrados (ver `ajustarSaldoFioCru`). Evita prompt() nativo pelo
+ * mesmo motivo do `confirmarModal`: o sandbox do HtmlService pode bloqueá-lo. */
+function abrirModalAjusteSaldoFioCru(lote, callback) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;' +
+      'padding:26px 26px 22px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
+      '<h3 style="margin:0 0 8px;color:#0B4576;font-size:17px">Ajustar saldo</h3>' +
+      '<p style="margin:0 0 18px;color:#475569;font-size:14px;line-height:1.5">' +
+        'NF ' + escAttr(lote.nf) + ' — ' + escAttr(lote.tipoFio) + '. Saldo atual: <b>' + num(lote.saldo) + ' kg</b>. ' +
+        'A quantidade original recebida na NF não é alterada — isto só corrige o saldo, com um lançamento ' +
+        'à parte, auditado.</p>' +
+      '<div style="margin-bottom:14px">' +
+        '<label style="display:block;font-size:13px;color:#334155;margin-bottom:4px">' +
+          'Diferença a aplicar no saldo (kg — negativo para reduzir)</label>' +
+        '<input type="number" id="modal-ajuste-delta" step="any" ' +
+          'style="width:100%;padding:8px 10px;border:1px solid #D8E0E8;border-radius:8px;font-size:14px;box-sizing:border-box">' +
+      '</div>' +
+      '<div style="margin-bottom:8px">' +
+        '<label style="display:block;font-size:13px;color:#334155;margin-bottom:4px">Motivo</label>' +
+        '<input type="text" id="modal-ajuste-motivo" placeholder="ex.: contagem física de 20/07" ' +
+          'style="width:100%;padding:8px 10px;border:1px solid #D8E0E8;border-radius:8px;font-size:14px;box-sizing:border-box">' +
+      '</div>' +
+      '<div id="modal-ajuste-erro" style="color:#D0342C;font-size:13px;min-height:18px;margin-bottom:6px"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+        '<button id="modal-btn-secundario" style="padding:10px 16px;border:1px solid #D8E0E8;' +
+          'border-radius:8px;background:#fff;cursor:pointer;font-size:14px">Cancelar</button>' +
+        '<button id="modal-btn-destaque" style="padding:10px 18px;border:none;border-radius:8px;' +
+          'background:#0F5FA0;color:#fff;cursor:pointer;font-size:14px;font-weight:600">Ajustar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  var inpDelta = overlay.querySelector('#modal-ajuste-delta');
+  var inpMotivo = overlay.querySelector('#modal-ajuste-motivo');
+  var erroEl = overlay.querySelector('#modal-ajuste-erro');
+  function fechar() { document.body.removeChild(overlay); }
+  overlay.querySelector('#modal-btn-secundario').onclick = fechar;
+  overlay.querySelector('#modal-btn-destaque').onclick = function () {
+    var delta = Number(inpDelta.value);
+    var motivo = inpMotivo.value.trim();
+    if (inpDelta.value === '' || isNaN(delta) || delta === 0) {
+      erroEl.textContent = 'Informe uma diferença de saldo diferente de zero.'; return;
+    }
+    if (!motivo) {
+      erroEl.textContent = 'Informe o motivo do ajuste.'; return;
+    }
+    fechar();
+    callback(delta, motivo);
+  };
+  inpDelta.focus();
 }
 
 /** Salva a edição de um campo de um lote (corrige valor digitado errado;
@@ -1897,6 +1982,43 @@ function renderBaixasFioCru(linhas) {
       '<th style="width:16%">Data/hora</th><th style="width:14%">Item</th><th style="width:16%">Tipo de fio</th>' +
       '<th style="width:10%">NF</th><th style="text-align:right;width:14%">Quantidade</th>' +
       '<th style="text-align:right;width:14%">Saldo da NF após</th><th style="width:12%">Usuário</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+function carregarAjustesFioCru() {
+  var wrap = document.getElementById('tabela-fiocru-ajustes');
+  wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('listarAjustesFioCru', sessao.token)
+    .then(function (r) { renderAjustesFioCru(r.linhas); })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) wrap.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderAjustesFioCru(linhas) {
+  var wrap = document.getElementById('tabela-fiocru-ajustes');
+  if (!linhas || !linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum ajuste de saldo registrado ainda.</div>';
+    return;
+  }
+  var body = linhas.map(function (l) {
+    return '<tr' + (Number(l.quantidade) < 0 ? ' class="destaque-abastecido"' : '') + '>' +
+      '<td>' + (l.dataHora || '—') + '</td>' +
+      '<td class="col-item">' + (l.tipoFio || '—') + '</td>' +
+      '<td>' + (l.nf || '—') + '</td>' +
+      '<td style="text-align:right">' + (Number(l.quantidade) > 0 ? '+' : '') + num(l.quantidade) + '</td>' +
+      '<td>' + (l.motivo || '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.saldoApos) + '</td>' +
+      '<td>' + (l.usuario || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:14%">Data/hora</th><th style="width:14%">Tipo de fio</th>' +
+      '<th style="width:9%">NF</th><th style="text-align:right;width:11%">Diferença</th>' +
+      '<th style="width:24%">Motivo</th><th style="text-align:right;width:14%">Saldo após</th>' +
+      '<th style="width:14%">Usuário</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 

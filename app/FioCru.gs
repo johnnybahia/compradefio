@@ -46,7 +46,11 @@ var FIO_CRU_ENTRADAS_HEADERS = [
 ];
 var FIO_CRU_BAIXAS_HEADERS = ['DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'ITEM', 'QUANTIDADE', 'SALDO_NF_APOS', 'USUARIO'];
 var ASSOCIACAO_FIO_CRU_HEADERS = ['TIPO_FIO_BASE', 'TIPO_FIO_ESTOQUE'];
-var FIO_CRU_CAMPOS_EDITAVEIS = ['TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA'];
+var FIO_CRU_AJUSTES_HEADERS = ['DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'QUANTIDADE', 'MOTIVO', 'SALDO_NF_APOS', 'USUARIO'];
+// QUANTIDADE (valor recebido na NF) fica de fora de propósito: é histórico
+// fixo, nunca editável — ver `ajustarSaldoFioCru` pra corrigir o saldo sem
+// tocar nesse valor original.
+var FIO_CRU_CAMPOS_EDITAVEIS = ['TIPO_FIO', 'NF', 'FORNECEDOR', 'PRECO_UNITARIO', 'DATA'];
 
 /**
  * ASSOCIACAO_FIO_CRU é universal — mora sempre na planilha da unidade
@@ -128,17 +132,32 @@ function _baixasPorLoteFioCru() {
   return mapa;
 }
 
-/** Todos os lotes com o saldo atual já calculado (quantidade − baixas). */
+/** Soma de ajustes manuais de saldo já registrados por lote (ver `ajustarSaldoFioCru`). */
+function _ajustesPorLoteFioCru() {
+  var mapa = {};
+  lerRegistros(CONFIG.SHEETS.FIO_CRU_AJUSTES).forEach(function (r) {
+    var k = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
+    if (!k) return;
+    mapa[k] = (mapa[k] || 0) + (Number(r.QUANTIDADE) || 0);
+  });
+  return mapa;
+}
+
+/** Todos os lotes com o saldo atual já calculado (quantidade original −
+ * baixas + ajustes manuais — ver `ajustarSaldoFioCru`). A QUANTIDADE em si
+ * nunca é tocada por baixa nem por ajuste, só o saldo derivado dela. */
 function _saldosFioCru() {
   var baixas = _baixasPorLoteFioCru();
+  var ajustes = _ajustesPorLoteFioCru();
   return _lerLotesFioCru().map(function (l) {
     var baixado = baixas[l.chave] || 0;
+    var ajustado = ajustes[l.chave] || 0;
     return {
       linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
       quantidade: l.quantidade, precoUnitario: l.precoUnitario, data: l.data,
       situacao: l.situacao, cancelado: l.cancelado, inicioBaixa: l.inicioBaixa,
       editadoEm: l.editadoEm, editadoPor: l.editadoPor, chave: l.chave,
-      baixado: baixado, saldo: l.quantidade - baixado
+      baixado: baixado, ajustado: ajustado, saldo: l.quantidade - baixado + ajustado
     };
   });
 }
@@ -481,7 +500,7 @@ function listarEstoqueFioCru(token) {
     return {
       linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
       quantidade: l.quantidade, precoUnitario: l.precoUnitario, data: _soData(l.data),
-      situacao: l.situacao, saldo: l.saldo, inicioBaixa: l.inicioBaixa,
+      situacao: l.situacao, saldo: l.saldo, ajustado: l.ajustado, inicioBaixa: l.inicioBaixa,
       editadoEm: l.editadoEm ? Utilities.formatDate(l.editadoEm, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '',
       editadoPor: l.editadoPor
     };
@@ -642,6 +661,53 @@ function editarLoteFioCru(token, linha, campo, valor) {
   atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, 'EDITADO_EM', new Date());
   atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, 'EDITADO_POR', s.usuario);
   return { ok: true };
+}
+
+/**
+ * Ajusta manualmente o SALDO de um lote (ex.: depois de uma contagem física
+ * de estoque), sem nunca alterar a QUANTIDADE original recebida na NF — essa
+ * fica sempre fixa, como registro histórico de quanto entrou em cada nota.
+ * Funciona como um lançamento à parte (ledger próprio, FIO_CRU_AJUSTES),
+ * igual ao histórico de baixas: nunca reescreve um ajuste anterior, só
+ * acrescenta um novo.
+ * @param {number} delta Diferença a aplicar no saldo (positiva ou negativa).
+ * @param {string} motivo Justificativa do ajuste (obrigatória).
+ */
+function ajustarSaldoFioCru(token, linha, delta, motivo) {
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  delta = Number(delta);
+  if (isNaN(delta) || delta === 0) throw new Error('Informe uma diferença de saldo diferente de zero.');
+  motivo = String(motivo || '').trim();
+  if (!motivo) throw new Error('Informe o motivo do ajuste.');
+
+  var lote = _saldosFioCru().filter(function (l) { return l.linha === linha; })[0];
+  if (!lote) throw new Error('Lote não encontrado — a lista pode ter mudado, recarregue a tela.');
+
+  var saldoApos = lote.saldo + delta;
+  var sh = _aba(CONFIG.SHEETS.FIO_CRU_AJUSTES, FIO_CRU_AJUSTES_HEADERS);
+  sh.getRange(sh.getLastRow() + 1, 1, 1, FIO_CRU_AJUSTES_HEADERS.length).setValues([[
+    new Date(), lote.tipoFio, lote.nf, lote.data || '', delta, motivo, saldoApos, s.usuario || ''
+  ]]);
+  return { ok: true, saldoApos: saldoApos };
+}
+
+/** Histórico de ajustes manuais de saldo (mais recente primeiro), pra tela de administração. */
+function listarAjustesFioCru(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var regs = lerRegistros(CONFIG.SHEETS.FIO_CRU_AJUSTES);
+  var linhas = regs.map(function (r) {
+    return {
+      linha: r.__row,
+      dataHora: r.DATA_HORA instanceof Date
+        ? Utilities.formatDate(r.DATA_HORA, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+        : String(r.DATA_HORA || ''),
+      tipoFio: r.TIPO_FIO, nf: r.NF, dataNf: _soData(r.DATA_NF),
+      quantidade: r.QUANTIDADE, motivo: r.MOTIVO, saldoApos: r.SALDO_NF_APOS, usuario: r.USUARIO
+    };
+  }).reverse();
+  return { ok: true, linhas: linhas };
 }
 
 /** Histórico de baixas do fio crú (mais recente primeiro), pra tela de administração. */
