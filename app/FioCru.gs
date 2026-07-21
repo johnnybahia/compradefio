@@ -63,11 +63,39 @@ function _ssAssociacaoFioCru() {
   return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
 }
 
-/** Dois textos de tipo de fio "batem" se um contém o outro (normalizado). */
+/**
+ * Casos especiais de associação — tipos de fio crú que, para fins de LOTE
+ * DE TINGIMENTO (baixa do estoque), servem pro mesmo tipo, mesmo com uma
+ * descrição diferente na NF (ex.: "102 Lavado" é lançado no estoque com
+ * esse nome mesmo — fica assim nos lotes e nos relatórios de saldo/consumo
+ * —, mas pra baixa de tingimento de Poliéster ele PODE ser usado também).
+ * Isso NÃO renomeia nem agrupa o tipo de fio em nenhuma tela — só amplia
+ * quais lotes entram no FIFO da baixa. Universal (a composição do fio não
+ * muda por unidade) — adicione novos casos aqui conforme aparecerem.
+ */
+var _CASOS_ESPECIAIS_FIO_CRU = [
+  ['poliester', '102 lavado']
+];
+
+/** true se `a` e `b` caem no mesmo caso especial (ver `_CASOS_ESPECIAIS_FIO_CRU`). */
+function _casoEspecialFioCru(a, b) {
+  var na = _norm(a), nb = _norm(b);
+  if (!na || !nb) return false;
+  return _CASOS_ESPECIAIS_FIO_CRU.some(function (grupo) {
+    var temA = grupo.some(function (termo) { return na.indexOf(termo) !== -1; });
+    var temB = grupo.some(function (termo) { return nb.indexOf(termo) !== -1; });
+    return temA && temB;
+  });
+}
+
+/** Dois textos de tipo de fio "batem" se um contém o outro (normalizado),
+ * ou se caem no mesmo caso especial de associação (ver `_CASOS_ESPECIAIS_FIO_CRU`) —
+ * usado só pra decidir quais lotes entram na baixa, nunca pra exibição. */
 function _tipoFioBate(a, b) {
   var na = _norm(a), nb = _norm(b);
   if (!na || !nb) return false;
-  return na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1;
+  if (na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1) return true;
+  return _casoEspecialFioCru(a, b);
 }
 
 /** Chave de um lote: tipo de fio (como veio na aba) + nº da NF, normalizados. */

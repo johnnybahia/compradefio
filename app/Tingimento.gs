@@ -122,6 +122,11 @@ function _lerBaseTingimento() {
  * saldo físico/estoque encontrado, que nunca deixa o alvo cair abaixo da
  * média — ver `_alvoTingimento`). Já pedido e ainda não enviado pode, sim,
  * zerar a sugestão: não faz sentido pedir de novo o que já está na fila.
+ *
+ * Um padrão cujo tipo de fio é um caso especial do Poliéster (ver
+ * `_casoEspecialFioCru`, em FioCru.gs — ex.: "102 Lavado") calcula o alvo e
+ * escolhe as máquinas usando o padrão do Poliéster, não o próprio — o nome
+ * original só volta a valer depois, na baixa do estoque de fio crú.
  */
 function _criarCalculadoraTingimento() {
   var base = _lerBaseTingimento();
@@ -137,6 +142,14 @@ function _criarCalculadoraTingimento() {
       }
     });
     if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
+    // Caso especial (ver `_casoEspecialFioCru`, em FioCru.gs): um padrão cujo
+    // tipo de fio é, na prática, o mesmo material que o Poliéster com outro
+    // nome na base (ex.: "102 Lavado") usa o ALVO/máquinas do Poliéster pra
+    // calcular o pedido de fio — só a baixa no estoque de fio crú é que
+    // continua podendo sair do lote com o nome próprio (ex.: "Fio 102 Lavado").
+    if (achado && poliester && achado !== poliester && _casoEspecialFioCru(achado.tipoFio, poliester.tipoFio)) {
+      achado = poliester;
+    }
     if (!achado) return { tipoFio: '', alvo: 0, maquinas: [], total: 0 };
     var alvoBruto = _alvoTingimento(saldo, media);
     var alvo = Math.max(alvoBruto - (Number(emAberto) || 0), 0);
