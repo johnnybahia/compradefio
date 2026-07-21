@@ -47,17 +47,20 @@ function _saldoCritico(r) {
 function obterListaTingimento(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
+  var tingidoPorItem = _tingidoPorItem(); // FioCru.gs — soma já lançada como tingida, por item
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
       item: r.ITEM,
       descricao: r.DESCRICAO,
       cliente: r.CLIENTE,
+      tipoFio: r.TIPO_FIO,
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
       dataLimite: _soData(r.DATA_LIMITE),
       obs: r.OBS == null ? '' : String(r.OBS),
-      saldoCritico: _saldoCritico(r)
+      saldoCritico: _saldoCritico(r),
+      tingido: tingidoPorItem[_norm(r.ITEM)] || 0
     };
   });
   return { ok: true, linhas: linhas };

@@ -90,9 +90,9 @@ var CONFIG = {
     MAPA_EMBARQUE: 'MAPA_EMBARQUE',   // aprendizado: descrição do PDF → item
     PENDENCIAS_EMBARQUE: 'PENDENCIAS EMBARQUE', // itens de embarque parcialmente lançados no estoque
     PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // backlog vivo: acumula até dar baixa (embarque confirmado ou remoção manual)
-    RELACAO_COMPRA: 'RELACAO_COMPRA'  // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
-    // Demais tabelas (FIO_CRU, PEDIDOS, TINGIMENTO, EMBARQUES...)
-    // serão adicionadas conforme definirmos as regras de negócio.
+    RELACAO_COMPRA: 'RELACAO_COMPRA', // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
+    FIO_CRU_ENTRADAS: 'FIO_CRU_ENTRADAS', // lotes de fio crú recebidos (um por NF + tipo de fio)
+    FIO_CRU_BAIXAS: 'FIO_CRU_BAIXAS'      // histórico de baixas no fio crú (tingimento consumindo os lotes)
   },
 
   /** Duração da sessão (token de login), em horas. */
