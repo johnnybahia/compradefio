@@ -839,7 +839,7 @@ function importarFioCruCearaInicial() {
     var chave = _chaveLoteFioCru(linha[0], linha[1]);
     if (existentes[chave]) return;
     existentes[chave] = true;
-    novas.push([linha[0], linha[1], linha[2], linha[3], linha[4], data, linha[6], '']);
+    novas.push([linha[0], linha[1], linha[2], linha[3], linha[4], data, linha[6], '', '', '']);
   });
 
   if (novas.length) {
@@ -894,7 +894,7 @@ function importarFioCruBahiaInicial() {
     var chave = _chaveLoteFioCru(linha[0], linha[1]);
     if (existentes[chave]) return;
     existentes[chave] = true;
-    novas.push([linha[0], linha[1], linha[2], linha[3], linha[4], data, linha[6], '']);
+    novas.push([linha[0], linha[1], linha[2], linha[3], linha[4], data, linha[6], '', '', '']);
   });
 
   if (novas.length) {
