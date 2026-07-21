@@ -522,6 +522,30 @@ function listarUltimosEmbarques(token, limite) {
   return { ok: true, numeros: numeros };
 }
 
+/**
+ * Histórico dos embarques já confirmados (aba EMBARQUES — recebe tanto os
+ * lançados por PDF quanto os manuais, ambos pela mesma `_registrarEmbarqueEDarBaixa`),
+ * mais recente primeiro. Existe pra tela de Confirmar Embarque poder mostrar
+ * o que já foi confirmado (e assim já saiu da lista de pendentes) sem
+ * precisar manter esses itens ocupando espaço na lista principal.
+ * @param {number} limite  quantas linhas devolver — padrão 200.
+ */
+function listarHistoricoEmbarquesConfirmados(token, limite) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  limite = parseInt(limite, 10) || 200;
+  var regs = lerRegistros(CONFIG.SHEETS.EMBARQUES);
+  var linhas = regs.map(function (r) {
+    return {
+      linha: r.__row,
+      item: r.CORES,
+      quantidade: Number(r.PESO) || 0,
+      numero: r.EMBARQUE,
+      data: _soData(r.DATA)
+    };
+  }).reverse().slice(0, limite);
+  return { ok: true, linhas: linhas };
+}
+
 /** dd/MM/aaaa → Date (local), ou null. */
 function _parseDataBR(s) {
   var m = String(s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
