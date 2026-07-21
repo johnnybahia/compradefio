@@ -93,7 +93,8 @@ var CONFIG = {
     RELACAO_COMPRA: 'RELACAO_COMPRA', // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
     FIO_CRU_ENTRADAS: 'FIO_CRU_ENTRADAS', // lotes de fio crú recebidos (um por NF + tipo de fio)
     FIO_CRU_BAIXAS: 'FIO_CRU_BAIXAS',     // histórico de baixas no fio crú (tingimento consumindo os lotes)
-    ASSOCIACAO_FIO_CRU: 'ASSOCIACAO_FIO_CRU' // tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de fio crú
+    ASSOCIACAO_FIO_CRU: 'ASSOCIACAO_FIO_CRU', // tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de fio crú
+    FIO_CRU_AJUSTES: 'FIO_CRU_AJUSTES' // ajustes manuais de saldo (ex.: contagem física), nunca altera a QUANTIDADE original da NF
   },
 
   /** Duração da sessão (token de login), em horas. */
