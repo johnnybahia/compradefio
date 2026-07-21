@@ -1107,12 +1107,60 @@ function viewConfirmarEmbarque(alvo) {
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       '<div style="margin-top:16px">' +
         '<button class="btn-principal" id="btn-confirmar-embarque" style="display:none">Confirmar Embarque</button>' +
+        '<button class="btn-principal" id="btn-historico-embarque">Ver histórico de embarques confirmados</button>' +
       '</div>' +
+    '</section>' +
+
+    '<section class="painel" id="painel-historico-embarque" style="display:none">' +
+      '<h2>Histórico de embarques confirmados</h2>' +
+      '<p class="desc">Itens já confirmados (por aqui ou pelo PDF) — já saíram da lista de pendentes ' +
+      'acima; aqui é só pra consulta, mais recente primeiro.</p>' +
+      '<div class="tabela-wrap" id="tabela-historico-embarque"></div>' +
     '</section>';
 
   document.getElementById('btn-confirmar-embarque').onclick = confirmarEmbarqueSelecionado;
+  document.getElementById('btn-historico-embarque').onclick = togglePainelHistoricoEmbarque;
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
+}
+
+function togglePainelHistoricoEmbarque() {
+  var painel = document.getElementById('painel-historico-embarque');
+  var abrir = painel.style.display === 'none';
+  painel.style.display = abrir ? '' : 'none';
+  if (abrir) carregarHistoricoEmbarque();
+}
+
+function carregarHistoricoEmbarque() {
+  var wrap = document.getElementById('tabela-historico-embarque');
+  wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('listarHistoricoEmbarquesConfirmados', sessao.token)
+    .then(function (r) { renderHistoricoEmbarque(r.linhas); })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) wrap.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderHistoricoEmbarque(linhas) {
+  var wrap = document.getElementById('tabela-historico-embarque');
+  if (!linhas || !linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum embarque confirmado ainda.</div>';
+    return;
+  }
+  var body = linhas.map(function (l) {
+    return '<tr>' +
+      '<td class="col-item">' + (l.item || '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.quantidade) + ' kg</td>' +
+      '<td>' + (l.numero != null && l.numero !== '' ? l.numero : '—') + '</td>' +
+      '<td>' + (l.data || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:35%">Item</th><th style="text-align:right;width:20%">Quantidade</th>' +
+      '<th style="width:20%">Nº embarque</th><th style="width:25%">Data</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 
 function carregarListaConfirmarEmbarque() {
