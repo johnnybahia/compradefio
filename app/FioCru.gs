@@ -232,6 +232,40 @@ function _nfsDoItem(item) {
 }
 
 /**
+ * Lista para a tela "Quantidade Tingida" — SEPARADA da tela "Relação de
+ * compra / Tingimento" (que fica intocada; ver `obterListaTingimento`, em
+ * Consultas.gs). É a mesma lista de itens do Pedido de Fio (PENDENCIA_COMPRA
+ * em aberto, na mesma ordem por data limite), mas com o número/data do
+ * pedido junto e o quanto já foi lançado como tingido — o processo de baixa
+ * do fio crú começa por aqui. Pensada pra, no futuro, ser um trabalho de um
+ * grupo de usuários à parte (por ora só o master usa — ver `exigirSessao`).
+ * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido}] }
+ */
+function obterListaFioParaTingir(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
+  var tingidoPorItem = _tingidoPorItem();
+  var linhas = regs.map(function (r) {
+    return {
+      linha: r.__row,
+      item: r.ITEM,
+      descricao: r.DESCRICAO,
+      cliente: r.CLIENTE,
+      tipoFio: r.TIPO_FIO,
+      maquinas: r.MAQUINAS,
+      total: r.SUGERIDO,
+      tingido: tingidoPorItem[_norm(r.ITEM)] || 0
+    };
+  });
+  return {
+    ok: true,
+    numeroPedido: _numeroPedidoAtual(),
+    dataPedido: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+    linhas: linhas
+  };
+}
+
+/**
  * Lança a quantidade tingida de UM item: acha o tipo de fio dele (pela
  * lista pendente de compra, PENDENCIA_COMPRA) e dá baixa no fio crú.
  * Por ora, só o master usa esta tela (papéis por item ainda serão

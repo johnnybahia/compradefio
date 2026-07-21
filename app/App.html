@@ -92,6 +92,7 @@ var MENUS = {
   master: [
     { id: 'analise',    rotulo: 'Análise de Compra',  render: viewAnalise },
     { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
+    { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'fiocru',     rotulo: 'Estoque Fio Crú',     render: viewFioCru },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
@@ -970,13 +971,6 @@ function renderTingimento(linhas) {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
-      '<td class="no-print"><div class="tingido-cel">' +
-        '<span class="tingido-total">' + num(l.tingido) + ' kg tingido</span>' +
-        '<input type="number" class="tingido-input" data-linha="' + l.linha + '" min="0" step="any" ' +
-          'placeholder="+ kg" title="Quantidade tingida AGORA — soma ao total já lançado e dá baixa no fio crú">' +
-        '<input type="checkbox" class="chk-grande chk-tingido" data-linha="' + l.linha + '" ' +
-          'title="Marcar para confirmar e dar baixa no fio crú">' +
-      '</div></td>' +
       '<td><input type="date" class="data-input" data-linha="' + l.linha + '" value="' +
         brParaISO(l.dataLimite) + '"></td>' +
       '<td><input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) +
@@ -989,11 +983,10 @@ function renderTingimento(linhas) {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:9%">Item</th><th style="width:20%">Descrição</th>' +
-      '<th style="width:12%">Cliente</th><th style="width:10%">Máquinas</th>' +
-      '<th style="text-align:right;width:6%">Total (kg)</th>' +
-      '<th class="no-print" style="width:14%">Quantidade tingida</th>' +
-      '<th style="width:12%">Data limite embarque</th><th style="width:13%">Observação</th>' +
+      '<th style="width:10%">Item</th><th style="width:26%">Descrição</th>' +
+      '<th style="width:14%">Cliente</th><th style="width:12%">Máquinas</th>' +
+      '<th style="text-align:right;width:8%">Total (kg)</th>' +
+      '<th style="width:14%">Data limite embarque</th><th style="width:16%">Observação</th>' +
       '<th class="no-print" style="width:4%"></th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
@@ -1013,47 +1006,9 @@ function renderTingimento(linhas) {
       });
     });
   });
-  Array.prototype.forEach.call(wrap.querySelectorAll('.chk-tingido'), function (chk) {
-    chk.addEventListener('change', function () {
-      if (!chk.checked) return; // a caixa só dispara a ação ao marcar
-      var linha = Number(chk.getAttribute('data-linha'));
-      var inp = wrap.querySelector('.tingido-input[data-linha="' + linha + '"]');
-      lancarQuantidadeTingida(linha, inp, chk);
-    });
-  });
   Array.prototype.forEach.call(wrap.querySelectorAll('.btn-remover-linha'), function (btn) {
     btn.addEventListener('click', function () { removerLinhaTingimento(btn); });
   });
-}
-
-/** Lança a quantidade tingida digitada (soma ao total já registrado daquele
- * item) e dá baixa no fio crú — ver `registrarQuantidadeTingida`. */
-function lancarQuantidadeTingida(linha, inp, chk) {
-  var msg = document.getElementById('ting-msg');
-  var alvo = null;
-  estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
-  var quantidade = inp ? Number(inp.value) : NaN;
-  if (!alvo || !inp || inp.value === '' || isNaN(quantidade) || quantidade <= 0) {
-    chk.checked = false;
-    if (inp) inp.style.borderColor = '#D0342C';
-    return;
-  }
-
-  chk.disabled = true; inp.disabled = true;
-  chamar('registrarQuantidadeTingida', sessao.token, { item: alvo.item, quantidade: quantidade })
-    .then(function (r) {
-      chk.disabled = false; inp.disabled = false; chk.checked = false;
-      inp.value = ''; inp.style.borderColor = '';
-      alvo.tingido = (alvo.tingido || 0) + quantidade;
-      renderTingimento(estadoTingimento.linhas);
-      var nfsTxt = r.lotes.map(function (l) { return 'NF ' + l.nf + ' (saldo: ' + num(l.saldoApos) + ' kg)'; }).join(', ');
-      msg.innerHTML = '<div class="aviso ok">Baixa no fio crú (' + r.tipoFio + ', ' + quantidade + ' kg): ' + nfsTxt + '.</div>';
-    })
-    .catch(function (err) {
-      chk.disabled = false; inp.disabled = false; chk.checked = false;
-      var m = tratarErro(err);
-      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
-    });
 }
 
 /** Remove uma linha da lista pendente (PENDENCIA_COMPRA), com confirmação —
@@ -1134,7 +1089,7 @@ function renderConfirmarEmbarque() {
     return '<tr' + (editado ? ' class="destaque-abastecido"' : '') + '>' +
       '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-embarcar" data-idx="' + i +
         '"' + (l.selecionado ? ' checked' : '') + '></td>' +
-      '<td>' + (l.item || '—') + '</td>' +
+      '<td class="col-item">' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
@@ -1146,7 +1101,7 @@ function renderConfirmarEmbarque() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:6%">Embarcar</th><th style="width:9%">Item</th><th style="width:21%">Descrição</th>' +
+      '<th style="width:6%">Embarcar</th><th style="width:12%">Item</th><th style="width:18%">Descrição</th>' +
       '<th style="width:12%">Cliente</th><th style="width:12%">Tipo de fio</th>' +
       '<th style="text-align:right;width:9%">Já tingido</th><th style="width:12%">Quantidade a confirmar</th>' +
       '<th style="width:8%"></th>' +
@@ -1255,6 +1210,116 @@ function salvarCampoTing(inp, campo, valor, aoSalvar) {
     .catch(function (err) {
       inp.style.borderColor = '#D0342C';
       tratarErro(err);
+    });
+}
+
+/* ------------------------ view: Quantidade Tingida ------------------ */
+// Aba SEPARADA da "Relação de compra / Tingimento" (que fica intocada) —
+// pensada pra virar, no futuro, o trabalho de um grupo de usuários à parte.
+// É a mesma lista do Pedido de Fio (mesmo número/data), e é dela que começa
+// o processo de baixa do fio crú. Por ora só o master usa (ver `exigirSessao`).
+var estadoQuantidadeTingida = { linhas: [] };
+
+function viewQuantidadeTingida(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Quantidade Tingida</h2>' +
+      '<p class="desc">Lista do Pedido de Fio nº <b id="qt-numero-pedido">—</b> (<b id="qt-data-pedido">—</b>). ' +
+      'Marque a caixa grande pra confirmar quanto foi tingido AGORA de cada item — soma ao total já ' +
+      'lançado e dá baixa no fio crú daquele tipo de fio.</p>' +
+      '<div id="qt-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-qtd-tingida"></div>' +
+    '</section>';
+  carregarQuantidadeTingida();
+}
+
+function carregarQuantidadeTingida() {
+  var msg = document.getElementById('qt-msg');
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('obterListaFioParaTingir', sessao.token)
+    .then(function (r) {
+      msg.innerHTML = '';
+      document.getElementById('qt-numero-pedido').textContent = r.numeroPedido != null ? r.numeroPedido : '—';
+      document.getElementById('qt-data-pedido').textContent = r.dataPedido || '—';
+      estadoQuantidadeTingida.linhas = r.linhas || [];
+      renderQuantidadeTingida();
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderQuantidadeTingida() {
+  var wrap = document.getElementById('tabela-qtd-tingida');
+  var linhas = estadoQuantidadeTingida.linhas;
+  if (!linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum item pendente para tingir.</div>';
+    return;
+  }
+  var body = linhas.map(function (l, i) {
+    return '<tr>' +
+      '<td class="col-item">' + (l.item || '—') + '</td>' +
+      '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
+      '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
+      '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
+      '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
+      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.tingido) + ' kg</td>' +
+      '<td style="text-align:center">' +
+        '<input type="number" class="qtd-input-grande" data-idx="' + i + '" min="0" step="any" placeholder="+ kg">' +
+      '</td>' +
+      '<td style="text-align:center">' +
+        '<input type="checkbox" class="chk-grande chk-confirmar-tingido" data-idx="' + i +
+          '" title="Marcar para confirmar e dar baixa no fio crú">' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:10%">Item</th><th style="width:20%">Descrição</th>' +
+      '<th style="width:11%">Cliente</th><th style="width:11%">Tipo de fio</th>' +
+      '<th style="width:9%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
+      '<th style="text-align:right;width:9%">Já tingido</th>' +
+      '<th style="width:11%">+ kg agora</th><th style="width:6%">Confirmar</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+
+  Array.prototype.forEach.call(wrap.querySelectorAll('.chk-confirmar-tingido'), function (chk) {
+    chk.addEventListener('change', function () {
+      if (!chk.checked) return; // a caixa só dispara a ação ao marcar
+      var idx = Number(chk.getAttribute('data-idx'));
+      var inp = wrap.querySelector('.qtd-input-grande[data-idx="' + idx + '"]');
+      lancarQuantidadeTingidaFio(idx, inp, chk);
+    });
+  });
+}
+
+/** Lança a quantidade tingida digitada (soma ao total já registrado daquele
+ * item) e dá baixa no fio crú — ver `registrarQuantidadeTingida`. */
+function lancarQuantidadeTingidaFio(idx, inp, chk) {
+  var msg = document.getElementById('qt-msg');
+  var alvo = estadoQuantidadeTingida.linhas[idx];
+  var quantidade = inp ? Number(inp.value) : NaN;
+  if (!alvo || !inp || inp.value === '' || isNaN(quantidade) || quantidade <= 0) {
+    chk.checked = false;
+    if (inp) inp.style.borderColor = '#D0342C';
+    return;
+  }
+
+  chk.disabled = true; inp.disabled = true;
+  chamar('registrarQuantidadeTingida', sessao.token, { item: alvo.item, quantidade: quantidade })
+    .then(function (r) {
+      chk.disabled = false; inp.disabled = false; chk.checked = false;
+      inp.value = ''; inp.style.borderColor = '';
+      alvo.tingido = (alvo.tingido || 0) + quantidade;
+      renderQuantidadeTingida();
+      var nfsTxt = r.lotes.map(function (l) { return 'NF ' + l.nf + ' (saldo: ' + num(l.saldoApos) + ' kg)'; }).join(', ');
+      msg.innerHTML = '<div class="aviso ok">Baixa no fio crú (' + r.tipoFio + ', ' + quantidade + ' kg): ' + nfsTxt + '.</div>';
+    })
+    .catch(function (err) {
+      chk.disabled = false; inp.disabled = false; chk.checked = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
 }
 
