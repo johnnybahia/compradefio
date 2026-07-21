@@ -64,49 +64,38 @@ function _ssAssociacaoFioCru() {
 }
 
 /**
- * Grupos de material — tipos de fio crú com nomes diferentes na NF mas que
- * são, na prática, o MESMO material (ex.: "102 Lavado" é uma variação de
- * Poliéster) — pra não deixar o estoque de um lote "de fora" da baixa só
- * porque a descrição da NF não é literalmente a mesma palavra, e pra somar
- * junto nos relatórios por tipo de fio (saldo, consumo). Universal (a
- * composição do fio não muda por unidade) — adicione novos grupos aqui
- * conforme aparecerem outros casos assim. `rotulo` é o nome usado nos
- * relatórios agregados; `termos` são os textos (normalizados) que
- * pertencem ao grupo.
+ * Casos especiais de associação — tipos de fio crú que, para fins de LOTE
+ * DE TINGIMENTO (baixa do estoque), servem pro mesmo tipo, mesmo com uma
+ * descrição diferente na NF (ex.: "102 Lavado" é lançado no estoque com
+ * esse nome mesmo — fica assim nos lotes e nos relatórios de saldo/consumo
+ * —, mas pra baixa de tingimento de Poliéster ele PODE ser usado também).
+ * Isso NÃO renomeia nem agrupa o tipo de fio em nenhuma tela — só amplia
+ * quais lotes entram no FIFO da baixa. Universal (a composição do fio não
+ * muda por unidade) — adicione novos casos aqui conforme aparecerem.
  */
-var _GRUPOS_MATERIAL_FIO_CRU = [
-  { rotulo: 'Poliéster', termos: ['poliester', '102 lavado'] }
+var _CASOS_ESPECIAIS_FIO_CRU = [
+  ['poliester', '102 lavado']
 ];
 
-function _grupoMaterialFioCru(tipoFio) {
-  var n = _norm(tipoFio);
-  if (!n) return null;
-  return _GRUPOS_MATERIAL_FIO_CRU.filter(function (grupo) {
-    return grupo.termos.some(function (termo) { return n.indexOf(termo) !== -1; });
-  })[0] || null;
-}
-
-/** true se `a` e `b` caem no mesmo grupo de material (ver `_GRUPOS_MATERIAL_FIO_CRU`). */
-function _mesmoGrupoMaterialFioCru(a, b) {
-  var grupoA = _grupoMaterialFioCru(a);
-  return !!grupoA && grupoA === _grupoMaterialFioCru(b);
-}
-
-/** Rótulo pra agregar `tipoFio` nos relatórios por tipo (saldo, consumo) —
- * o nome do grupo de material (ver `_GRUPOS_MATERIAL_FIO_CRU`) quando ele
- * pertencer a um, senão o próprio texto original. */
-function _rotuloAgregadoFioCru(tipoFio) {
-  var grupo = _grupoMaterialFioCru(tipoFio);
-  return grupo ? grupo.rotulo : (tipoFio || '(sem tipo)');
+/** true se `a` e `b` caem no mesmo caso especial (ver `_CASOS_ESPECIAIS_FIO_CRU`). */
+function _casoEspecialFioCru(a, b) {
+  var na = _norm(a), nb = _norm(b);
+  if (!na || !nb) return false;
+  return _CASOS_ESPECIAIS_FIO_CRU.some(function (grupo) {
+    var temA = grupo.some(function (termo) { return na.indexOf(termo) !== -1; });
+    var temB = grupo.some(function (termo) { return nb.indexOf(termo) !== -1; });
+    return temA && temB;
+  });
 }
 
 /** Dois textos de tipo de fio "batem" se um contém o outro (normalizado),
- * ou se os dois caem no mesmo grupo de material (ver `_GRUPOS_MATERIAL_FIO_CRU`). */
+ * ou se caem no mesmo caso especial de associação (ver `_CASOS_ESPECIAIS_FIO_CRU`) —
+ * usado só pra decidir quais lotes entram na baixa, nunca pra exibição. */
 function _tipoFioBate(a, b) {
   var na = _norm(a), nb = _norm(b);
   if (!na || !nb) return false;
   if (na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1) return true;
-  return _mesmoGrupoMaterialFioCru(a, b);
+  return _casoEspecialFioCru(a, b);
 }
 
 /** Chave de um lote: tipo de fio (como veio na aba) + nº da NF, normalizados. */
@@ -588,7 +577,7 @@ function listarSaldoPorTipoFio(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   var porTipo = {};
   _saldosFioCru().filter(function (l) { return !l.cancelado; }).forEach(function (l) {
-    var t = _rotuloAgregadoFioCru(l.tipoFio);
+    var t = l.tipoFio || '(sem tipo)';
     porTipo[t] = (porTipo[t] || 0) + l.saldo;
   });
   var linhas = Object.keys(porTipo).map(function (t) {
@@ -643,7 +632,7 @@ function listarConsumoFioCru(token, dataInicio, dataFim, agrupamento) {
   lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).forEach(function (r) {
     var data = r.DATA_HORA instanceof Date ? r.DATA_HORA : _parseData(r.DATA_HORA);
     if (!data || data.getTime() < inicio.getTime() || data.getTime() > fim.getTime()) return;
-    var tipoFio = _rotuloAgregadoFioCru(String(r.TIPO_FIO || '').trim());
+    var tipoFio = String(r.TIPO_FIO || '').trim() || '(sem tipo)';
     var qtd = Number(r.QUANTIDADE) || 0;
     var periodoChave = _chavePeriodoFioCru(data, agrupamento);
     var k = tipoFio + '||' + periodoChave;
