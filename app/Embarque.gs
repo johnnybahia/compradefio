@@ -223,10 +223,34 @@ function analisarEmbarquePdf(token, base64, nome) {
   };
 }
 
+var EMBARQUES_HEADERS = ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO'];
+
 /**
- * Grava o embarque conferido na aba EMBARQUES, memoriza as descrições novas
- * e dá baixa automática na lista pendente (PENDENCIA_COMPRA) pelo que acabou
- * de embarcar (ver `_baixarPendenciaCompraPorEmbarque`).
+ * Núcleo comum a QUALQUER confirmação de embarque: grava as linhas em
+ * EMBARQUES e dá a baixa automática na lista pendente (PENDENCIA_COMPRA —
+ * ver `_baixarPendenciaCompraPorEmbarque`). Usado tanto pelo PDF
+ * (`gravarEmbarque`) quanto pelo lançamento manual direto nos itens
+ * (`confirmarEmbarqueManual`) — as duas pontas fazem exatamente a mesma
+ * coisa a partir daqui, só muda de onde vêm o item/quantidade.
+ * @param {Array} itens [{item, quantidade}]
+ * @param {number} doc  número do embarque
+ * @param {Date} data
+ * @return {Object} { gravados, baixados }
+ */
+function _registrarEmbarqueEDarBaixa(itens, doc, data) {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES, EMBARQUES_HEADERS);
+  var linhas = itens.map(function (it) {
+    return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, ''];
+  });
+  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, EMBARQUES_HEADERS.length).setValues(linhas);
+  var baixa = _baixarPendenciaCompraPorEmbarque(itens);
+  return { gravados: linhas.length, baixados: baixa.baixados };
+}
+
+/**
+ * Grava o embarque conferido (lido de PDF) na aba EMBARQUES, memoriza as
+ * descrições novas e dá baixa automática na lista pendente — ver
+ * `_registrarEmbarqueEDarBaixa`.
  * @param {Object} dados { doc, data:'dd/MM/aaaa', itens:[{descricao,item,quantidade}] }
  */
 function gravarEmbarque(token, dados) {
@@ -245,14 +269,144 @@ function gravarEmbarque(token, dados) {
     return { descricao: it.descricao, item: it.item };
   }));
 
-  var sh = _aba(CONFIG.SHEETS.EMBARQUES, ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO']);
-  var linhas = itens.map(function (it) {
-    return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, ''];
-  });
-  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, 5).setValues(linhas);
+  var r = _registrarEmbarqueEDarBaixa(itens, doc, data);
+  return { ok: true, gravados: r.gravados, baixados: r.baixados };
+}
 
-  var baixa = _baixarPendenciaCompraPorEmbarque(itens);
-  return { ok: true, gravados: linhas.length, baixados: baixa.baixados };
+/**
+ * Número do PRÓXIMO embarque lançado manualmente (sem PDF) — sequência
+ * própria por unidade, pra não colidir com o número real de relatório de
+ * transportadora usado no fluxo por PDF. Começa em 1.
+ */
+function _numeroEmbarqueManualAtual() {
+  var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('NUMERO_EMBARQUE_MANUAL'));
+  var n = parseInt(v, 10);
+  return (v && !isNaN(n)) ? n : 1;
+}
+function _avancarNumeroEmbarqueManual() {
+  PropertiesService.getScriptProperties()
+    .setProperty(_propUnidade('NUMERO_EMBARQUE_MANUAL'), String(_numeroEmbarqueManualAtual() + 1));
+}
+
+/**
+ * Confirma manualmente um embarque, direto nos itens (sem PDF): faz
+ * EXATAMENTE o que o fluxo do PDF faz — grava em EMBARQUES e dá baixa em
+ * PENDENCIA_COMPRA (`_registrarEmbarqueEDarBaixa`) — só que o número do
+ * embarque e a data são gerados agora (hoje), em vez de lidos do PDF.
+ *
+ * A quantidade aqui é a que MANDA de verdade: se o valor tiver sido editado
+ * nesta tela em relação ao que foi lançado antes como "quantidade tingida",
+ * a baixa do fio crú é AJUSTADA pra bater com o valor confirmado agora —
+ * nunca soma os dois (ver `_ajustarBaixaFioCru`, em FioCru.gs). Esta
+ * confirmação é o procedimento final: quem der certo aqui é o que sai do
+ * estoque.
+ *
+ * Ao final, dispara um e-mail com a lista confirmada e um resumo por tipo
+ * de fio (quanto foi tingido, de qual NF do fio crú saiu, e o saldo que
+ * ficou nela).
+ *
+ * Por ora, só o master usa esta tela (papéis por item ainda serão
+ * definidos) — ver `exigirSessao`.
+ * @param {Object} params { itens: [{item, quantidade}] }
+ * @return {Object} { ok, numero, gravados, baixados, resumo }
+ */
+function confirmarEmbarqueManual(token, params) {
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  params = params || {};
+  var itens = (params.itens || [])
+    .filter(function (it) { return it.item && Number(it.quantidade) > 0; })
+    .map(function (it) { return { item: String(it.item).trim(), quantidade: Number(it.quantidade) }; });
+  if (!itens.length) throw new Error('Marque ao menos um item, com quantidade, para confirmar o embarque.');
+
+  var lista = _destinatariosCompra().split(/[;,]/)
+    .map(function (e) { return e.trim(); })
+    .filter(function (e) { return e && e.indexOf('@') !== -1; });
+  if (!lista.length) {
+    throw new Error('Informe pelo menos um e-mail de destino (mesma lista da tela de Tingimento) antes de confirmar.');
+  }
+
+  var tipoFioPorItem = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (k && !tipoFioPorItem[k]) tipoFioPorItem[k] = String(r.TIPO_FIO || '').trim();
+  });
+
+  // Confirma (ou corrige) a baixa do fio crú de cada item pro valor que está
+  // sendo confirmado agora, ANTES de gravar o embarque.
+  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, nfs: {nf -> {...}} }
+  itens.forEach(function (it) {
+    var tipoFio = tipoFioPorItem[_norm(it.item)] || '';
+    _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
+    var chaveTipo = tipoFio || '(tipo de fio não identificado)';
+    if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, nfs: {} };
+    porTipo[chaveTipo].totalTingido += it.quantidade;
+    _nfsDoItem(it.item).forEach(function (n) {
+      porTipo[chaveTipo].nfs[String(n.nf)] = { nf: n.nf, dataNf: n.dataNf, saldoApos: n.saldoAtual };
+    });
+  });
+  var resumo = Object.keys(porTipo).map(function (t) {
+    var g = porTipo[t];
+    return { tipoFio: g.tipoFio, totalTingido: g.totalTingido, nfs: Object.keys(g.nfs).map(function (nf) { return g.nfs[nf]; }) };
+  });
+
+  var numero = _numeroEmbarqueManualAtual();
+  var agora = new Date();
+  var r = _registrarEmbarqueEDarBaixa(itens, numero, agora);
+  _avancarNumeroEmbarqueManual(); // só agora — o registro já foi gravado
+
+  var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
+  var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  MailApp.sendEmail({
+    to: lista.join(','),
+    subject: 'Confirmação de Embarque ' + unidade + ' nº ' + numero + ' - ' + dataFmt,
+    htmlBody: _confirmacaoEmbarqueHTML(itens, numero, dataFmt, resumo)
+  });
+
+  return { ok: true, numero: numero, gravados: r.gravados, baixados: r.baixados, resumo: resumo, destinatarios: lista.length };
+}
+
+/** Monta o HTML do e-mail de confirmação de embarque (lista + resumo por tipo de fio). */
+function _confirmacaoEmbarqueHTML(itens, numero, dataFmt, resumo) {
+  var thItens = ['Item', 'Quantidade (kg)'].map(function (t) {
+    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
+      'color:#fff;text-align:left;font-size:13px">' + t + '</th>';
+  }).join('');
+  var rowsItens = itens.map(function (it) {
+    return '<tr>' +
+      '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + it.item + '</td>' +
+      '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + it.quantidade + '</td>' +
+    '</tr>';
+  }).join('');
+
+  var resumoHtml = resumo.map(function (g) {
+    var nfsTxt = g.nfs.length
+      ? g.nfs.map(function (n) {
+          return 'NF ' + n.nf + ' (' + (n.dataNf || '—') + ') — saldo restante: ' + n.saldoApos + ' kg';
+        }).join('; ')
+      : 'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)';
+    return '<li style="margin-bottom:4px"><b>' + g.tipoFio + '</b>: ' + g.totalTingido + ' kg tingido — ' + nfsTxt + '</li>';
+  }).join('');
+
+  var logo = _logoDataUri();
+  var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">' +
+    'CONFIRMAÇÃO DE EMBARQUE</h1>' +
+    '<p style="margin:0;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
+    ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
+  var cabecalho = logo
+    ? '<table style="border-collapse:collapse;margin-bottom:16px"><tr>' +
+        '<td style="padding:0 14px 0 0;vertical-align:middle">' +
+          '<img src="' + logo + '" style="height:56px;width:auto;display:block"></td>' +
+        '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
+      '</tr></table>'
+    : '<div style="margin-bottom:16px">' + tituloTxt + '</div>';
+
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
+    cabecalho +
+    '<table style="border-collapse:collapse">' +
+    '<thead><tr>' + thItens + '</tr></thead><tbody>' + rowsItens + '</tbody></table>' +
+    '<h3 style="color:#0B4576;margin:18px 0 8px;font-size:15px">Resumo por tipo de fio</h3>' +
+    '<ul style="font-size:13px;color:#1c2733;margin:0 0 14px;padding-left:20px">' + resumoHtml + '</ul>' +
+    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
 /**
