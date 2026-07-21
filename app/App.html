@@ -1451,13 +1451,17 @@ function renderAssociacaoFioCru(linhas) {
       var msg = document.getElementById('assoc-msg');
       var tipoFioBase = sel.getAttribute('data-tipo');
       sel.disabled = true;
+      sel.style.borderColor = '#CBD5E1';
       chamar('salvarAssociacaoFioCru', sessao.token, tipoFioBase, sel.value)
         .then(function () {
           sel.disabled = false;
-          msg.innerHTML = '<div class="aviso ok">Associação salva.</div>';
+          sel.style.borderColor = '#1F9D55';
+          msg.innerHTML = '<div class="aviso ok">Associação salva: "' + tipoFioBase + '" → "' +
+            (sel.value || '(nenhuma)') + '".</div>';
         })
         .catch(function (err) {
           sel.disabled = false;
+          sel.style.borderColor = '#D0342C';
           var m = tratarErro(err);
           if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
         });
