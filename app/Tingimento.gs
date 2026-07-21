@@ -4,18 +4,48 @@
  * as capacidades das máquinas do fornecedor (aba BASE TINGIMENTO).
  *
  * Regra do alvo (kg a tingir), validada com os exemplos do cliente:
- *   - saldo < 0  → alvo = MAX(2 × |saldo|, média)  (cobre o déficit, nunca menos que a média)
- *   - saldo ≥ 0  → alvo = média                    (repõe ~1 mês de consumo)
+ *   - consumo médio ALTO (média mensal > 250 kg): não repõe 1 mês de uma vez.
+ *     Trabalha por PRAZO em dias — começa mirando 15 dias e sobe de 5 em 5
+ *     (15, 20, 25…) até que, depois de repor, sobre PELO MENOS 15 dias de
+ *     consumo (`saldo + alvo ≥ consumo de 15 dias`). Assim cobre o déficit e
+ *     mantém um piso de 15 dias, sem encher demais. Se o saldo já cobre 15+
+ *     dias, alvo = 0 (nada a pedir).
+ *   - demais casos (média ≤ 250 kg):
+ *       - saldo < 0  → alvo = MAX(2 × |saldo|, média)  (cobre o déficit, nunca menos que a média)
+ *       - saldo ≥ 0  → alvo = média                    (repõe ~1 mês de consumo)
  *
  * Seleção de máquinas: escolhe capacidades (repetição permitida) cuja soma
  * fique o mais perto possível do alvo, usando o MENOR número de máquinas
  * (aceita um pouco a menos ou um pouco a mais — não precisa ser exato).
  */
 
-/** Alvo em kg a ser coberto pelo tingimento. */
+/** Consumo médio mensal (kg) acima do qual o alvo passa a trabalhar por prazo
+ * em dias (base de 15 dias, subindo de 5 em 5) em vez de repor 1 mês inteiro. */
+var LIMITE_CONSUMO_ALTO = 250;
+/** Dias de consumo mínimos de base (piso) e passo de aumento do prazo. */
+var DIAS_BASE_TINGIMENTO = 15;
+var PASSO_DIAS_TINGIMENTO = 5;
+
+/** Alvo em kg a ser coberto pelo tingimento (ver regra no topo do arquivo). */
 function _alvoTingimento(saldo, media) {
   saldo = Number(saldo) || 0;
   media = Number(media) || 0;
+
+  // Consumo alto: trabalha por prazo em dias (base 15, passo 5) até cobrir o
+  // déficit e deixar pelo menos 15 dias de consumo em estoque.
+  if (media > LIMITE_CONSUMO_ALTO) {
+    var diario = media / 30;
+    if (diario <= 0) return 0;
+    var base = diario * DIAS_BASE_TINGIMENTO;   // consumo de 15 dias (piso)
+    if (saldo >= base) return 0;                // já tem 15+ dias de base
+    // Menor prazo (múltiplo de 5, começando em 15 dias) cujo consumo, somado
+    // ao saldo, alcança os 15 dias de base.
+    var diasNecessarios = (base - saldo) / diario;
+    var passos = Math.ceil((diasNecessarios - DIAS_BASE_TINGIMENTO) / PASSO_DIAS_TINGIMENTO);
+    var dias = DIAS_BASE_TINGIMENTO + Math.max(0, passos) * PASSO_DIAS_TINGIMENTO;
+    return diario * dias;
+  }
+
   if (saldo < 0) return Math.max(2 * Math.abs(saldo), media);
   return media;
 }
