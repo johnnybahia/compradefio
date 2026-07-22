@@ -108,7 +108,7 @@ var MENUS = {
     { id: 'importarnf', rotulo: 'Importar NF (Fio Crú)', render: viewImportarNfFioCru },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
-    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') },
+    { id: 'relatorio',   rotulo: 'Relatório',           render: viewRelatorio },
     { id: 'usuarios',   rotulo: 'Usuários',            render: viewUsuarios }
   ],
   // Tingimento: edita Quantidade Tingida (é a tela feita pra quem tinge
@@ -119,7 +119,7 @@ var MENUS = {
     { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
-    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') }
+    { id: 'relatorio',   rotulo: 'Relatório',           render: viewRelatorio }
   ],
   // Almoxarifado 1: só VÊ Quantidade Tingida (não lança tingimento); edita
   // Confirmar Embarque, Associação Fio Crú, Estoque Fio Crú e Importar NF —
@@ -132,10 +132,10 @@ var MENUS = {
     { id: 'importarnf', rotulo: 'Importar NF (Fio Crú)', render: viewImportarNfFioCru },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
-    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') }
+    { id: 'relatorio',   rotulo: 'Relatório',           render: viewRelatorio }
   ],
   almoxarifado2: [
-    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') },
+    { id: 'relatorio',   rotulo: 'Relatório',           render: viewRelatorio },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
   ]
 };
@@ -2667,6 +2667,82 @@ function abrirModalNovaSenha(usuario, callback) {
     callback(senha);
   };
   inp.focus();
+}
+
+/* --------------------------- view: Relatório -------------------------- */
+// O MESMO relatório que sai por e-mail (ver enviarRelatorioCompra /
+// obterRelatorioCompraAtual) — só pra consultar direto no sistema, sem
+// esperar/procurar o e-mail. Compartilhada por TODOS os papéis (ver MENUS),
+// só leitura. Régua de navegação (setas ↑/↓) igual às outras listas.
+var estadoRelatorio = { linhas: [] };
+
+function viewRelatorio(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<div class="cabecalho-relatorio em-tela">' +
+        '<img id="rel-logo" class="logo-relatorio" alt="" style="display:none">' +
+        '<div>' +
+          '<h1 id="rel-titulo" style="color:#0B4576">PEDIDO DE FIO MARFIM</h1>' +
+          '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
+        '</div>' +
+      '</div>' +
+      '<p class="desc">O mesmo pedido que sai por e-mail — pra consultar direto no sistema, sem esperar. ' +
+      'Linha destacada em <span style="color:#C0392B;font-weight:600">vermelho</span> tem saldo de estoque ' +
+      'crítico. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
+      '<div id="rel-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-relatorio"></div>' +
+    '</section>';
+  ativarRegua('tabela-relatorio');
+  carregarLogoRelatorio();
+  carregarRelatorio();
+}
+
+function carregarRelatorio() {
+  var msg = document.getElementById('rel-msg');
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('obterRelatorioCompraAtual', sessao.token)
+    .then(function (r) {
+      msg.innerHTML = '';
+      document.getElementById('rel-titulo').textContent =
+        'PEDIDO DE FIO MARFIM ' + (r.unidadeRotulo || '').toUpperCase();
+      document.getElementById('rel-numero').textContent = r.numeroPedido != null ? r.numeroPedido : '—';
+      document.getElementById('rel-data').textContent = r.dataPedido || '—';
+      estadoRelatorio.linhas = r.linhas || [];
+      renderRelatorio();
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderRelatorio() {
+  var wrap = document.getElementById('tabela-relatorio');
+  var linhas = estadoRelatorio.linhas;
+  if (!linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum item pendente no momento.</div>';
+    return;
+  }
+  var body = linhas.map(function (l) {
+    return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + '>' +
+      '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
+      '<td class="col-item">' + (l.item || '—') + '</td>' +
+      '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
+      '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
+      '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
+      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
+      '<td>' + (l.obs ? l.obs : '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:9%">Solicitado em</th><th style="width:10%">Item</th>' +
+      '<th style="width:22%">Descrição</th><th style="width:13%">Cliente</th>' +
+      '<th style="width:12%">Máquinas</th><th style="text-align:right;width:8%">Total (kg)</th>' +
+      '<th style="width:10%">Data limite</th><th style="width:16%">Observação</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+  aplicarRegua(wrap);
 }
 
 /* --------------------- view: Consulta de Estoque ------------------ */
