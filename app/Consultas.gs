@@ -92,6 +92,11 @@ function obterRelatorioCompraAtual(token) {
     ok: true,
     numeroPedido: _numeroPedidoAtual(),
     dataPedido: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+    // Horário de Fortaleza/Brasil sempre — fixo, não depende do fuso horário
+    // configurado no projeto do Apps Script (Project Settings). Separado da
+    // "Data" do pedido (que é só o dia) porque este é o instante em que a
+    // TELA foi consultada, com hora e minuto.
+    atualizadoEm: Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm'),
     unidadeRotulo: CONFIG.getUnidadeInfo(s.unidade).rotulo,
     linhas: linhas
   };

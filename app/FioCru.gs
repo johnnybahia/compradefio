@@ -415,34 +415,6 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
 }
 
 /**
- * De quais NFs (lotes) de fio crú a baixa TOTAL de um item está vindo hoje,
- * com o saldo ATUAL de cada uma — usado no resumo da Confirmação de
- * Embarque. NF cuja contribuição pra este item já foi totalmente creditada
- * de volta (ver `_ajustarBaixaFioCru`) não aparece.
- */
-function _nfsDoItem(item) {
-  var porNf = {};
-  lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS)
-    .filter(function (r) { return _norm(r.ITEM) === _norm(item); })
-    .forEach(function (r) {
-      var k = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
-      if (!k) return;
-      if (!porNf[k]) porNf[k] = { tipoFio: r.TIPO_FIO, nf: r.NF, total: 0 };
-      porNf[k].total += Number(r.QUANTIDADE) || 0;
-    });
-  var saldos = _saldosFioCru();
-  return Object.keys(porNf)
-    .filter(function (k) { return porNf[k].total > 0.001; })
-    .map(function (k) {
-      var lote = saldos.filter(function (l) { return l.chave === k; })[0];
-      return {
-        nf: porNf[k].nf, dataNf: lote ? _soData(lote.data) : '',
-        quantidadeDesteItem: porNf[k].total, saldoAtual: lote ? lote.saldo : null
-      };
-    });
-}
-
-/**
  * Lista para a tela "Quantidade Tingida" — SEPARADA da tela "Relação de
  * compra / Tingimento" (que fica intocada; ver `obterListaTingimento`, em
  * Consultas.gs). É a mesma lista de itens do Pedido de Fio (PENDENCIA_COMPRA

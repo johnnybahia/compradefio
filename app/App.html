@@ -2684,6 +2684,8 @@ function viewRelatorio(alvo) {
         '<div>' +
           '<h1 id="rel-titulo" style="color:#0B4576">PEDIDO DE FIO MARFIM</h1>' +
           '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
+          '<p style="font-size:12px;color:var(--texto-fraco)">Atualizado em <b id="rel-atualizado-em">—</b> ' +
+            '(horário de Fortaleza)</p>' +
         '</div>' +
       '</div>' +
       '<p class="desc">O mesmo pedido que sai por e-mail — pra consultar direto no sistema, sem esperar. ' +
@@ -2707,6 +2709,7 @@ function carregarRelatorio() {
         'PEDIDO DE FIO MARFIM ' + (r.unidadeRotulo || '').toUpperCase();
       document.getElementById('rel-numero').textContent = r.numeroPedido != null ? r.numeroPedido : '—';
       document.getElementById('rel-data').textContent = r.dataPedido || '—';
+      document.getElementById('rel-atualizado-em').textContent = r.atualizadoEm || '—';
       estadoRelatorio.linhas = r.linhas || [];
       renderRelatorio();
     })
