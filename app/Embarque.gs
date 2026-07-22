@@ -301,9 +301,10 @@ function _avancarNumeroEmbarqueManual() {
  * confirmação é o procedimento final: quem der certo aqui é o que sai do
  * estoque.
  *
- * Ao final, dispara um e-mail com a lista confirmada e um resumo por tipo
- * de fio (quanto foi tingido, de qual NF do fio crú saiu, e o saldo que
- * ficou nela).
+ * Ao final, dispara um e-mail com a lista confirmada e o consumo no estoque
+ * de fio crú desta confirmação — por tipo de fio: item, NF, data da NF,
+ * peso REALMENTE consumido dela (pode ser negativo, se for um crédito de
+ * volta) e o saldo que ficou depois.
  *
  * Por ora, só o master usa esta tela (papéis por item ainda serão
  * definidos) — ver `exigirSessao`.
@@ -332,21 +333,25 @@ function confirmarEmbarqueManual(token, params) {
   });
 
   // Confirma (ou corrige) a baixa do fio crú de cada item pro valor que está
-  // sendo confirmado agora, ANTES de gravar o embarque.
-  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, nfs: {nf -> {...}} }
+  // sendo confirmado agora, ANTES de gravar o embarque. `ajuste.lotes` traz o
+  // PESO real tirado (ou creditado de volta, se negativo) de cada NF NESTA
+  // confirmação — é isso que vai no e-mail, não um resumo histórico do item.
+  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, lotes: [{item,nf,dataNf,peso,saldoApos}] }
   itens.forEach(function (it) {
     var tipoFio = tipoFioPorItem[_norm(it.item)] || '';
-    _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
+    var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
-    if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, nfs: {} };
+    if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, lotes: [] };
     porTipo[chaveTipo].totalTingido += it.quantidade;
-    _nfsDoItem(it.item).forEach(function (n) {
-      porTipo[chaveTipo].nfs[String(n.nf)] = { nf: n.nf, dataNf: n.dataNf, saldoApos: n.saldoAtual };
+    (ajuste.lotes || []).forEach(function (l) {
+      porTipo[chaveTipo].lotes.push({
+        item: it.item, nf: l.nf, dataNf: l.dataNf, peso: l.quantidadeBaixada, saldoApos: l.saldoApos
+      });
     });
   });
   var resumo = Object.keys(porTipo).map(function (t) {
     var g = porTipo[t];
-    return { tipoFio: g.tipoFio, totalTingido: g.totalTingido, nfs: Object.keys(g.nfs).map(function (nf) { return g.nfs[nf]; }) };
+    return { tipoFio: g.tipoFio, totalTingido: g.totalTingido, lotes: g.lotes };
   });
 
   var numero = _numeroEmbarqueManualAtual();
@@ -378,13 +383,27 @@ function _confirmacaoEmbarqueHTML(itens, numero, dataFmt, resumo) {
     '</tr>';
   }).join('');
 
+  var thLotes = ['Item', 'NF', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)'].map(function (t) {
+    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
+      'color:#fff;text-align:left;font-size:13px">' + t + '</th>';
+  }).join('');
   var resumoHtml = resumo.map(function (g) {
-    var nfsTxt = g.nfs.length
-      ? g.nfs.map(function (n) {
-          return 'NF ' + n.nf + ' (' + (n.dataNf || '—') + ') — saldo restante: ' + n.saldoApos + ' kg';
-        }).join('; ')
-      : 'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)';
-    return '<li style="margin-bottom:4px"><b>' + g.tipoFio + '</b>: ' + g.totalTingido + ' kg tingido — ' + nfsTxt + '</li>';
+    var linhasLotes = g.lotes.length
+      ? g.lotes.map(function (l) {
+          return '<tr>' +
+            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + l.item + '</td>' +
+            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + (l.nf || '—') + '</td>' +
+            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + (l.dataNf || '—') + '</td>' +
+            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + l.peso + '</td>' +
+            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + l.saldoApos + '</td>' +
+          '</tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px;color:#94a3b8">' +
+          'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)</td></tr>';
+    return '<h4 style="color:#0B4576;margin:14px 0 6px;font-size:14px">' + g.tipoFio + ' — ' +
+      g.totalTingido + ' kg tingido</h4>' +
+      '<table style="border-collapse:collapse;margin-bottom:6px">' +
+      '<thead><tr>' + thLotes + '</tr></thead><tbody>' + linhasLotes + '</tbody></table>';
   }).join('');
 
   var logo = _logoDataUri();
@@ -404,8 +423,8 @@ function _confirmacaoEmbarqueHTML(itens, numero, dataFmt, resumo) {
     cabecalho +
     '<table style="border-collapse:collapse">' +
     '<thead><tr>' + thItens + '</tr></thead><tbody>' + rowsItens + '</tbody></table>' +
-    '<h3 style="color:#0B4576;margin:18px 0 8px;font-size:15px">Resumo por tipo de fio</h3>' +
-    '<ul style="font-size:13px;color:#1c2733;margin:0 0 14px;padding-left:20px">' + resumoHtml + '</ul>' +
+    '<h3 style="color:#0B4576;margin:18px 0 8px;font-size:15px">Consumo no estoque de fio crú</h3>' +
+    resumoHtml +
     '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 

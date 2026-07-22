@@ -267,6 +267,9 @@
   .cabecalho-relatorio .logo-relatorio { height: 48px; width: auto; }
   .cabecalho-relatorio h1 { margin: 0 0 6px; font-size: 20px; letter-spacing: .02em; }
   .cabecalho-relatorio p { margin: 0 0 16px; font-size: 13px; color: #334155; }
+  /* Mesmo cabeçalho do relatório, mas visível na TELA (não só na impressão) —
+     usado na aba "Relatório", que espelha o e-mail direto no sistema. */
+  .cabecalho-relatorio.em-tela { display: flex; }
   @media print {
     @page { margin: 16mm 14mm; }
     .topo, .usuario-box, #menu, .no-print, #ting-msg, #legenda-critico { display: none !important; }

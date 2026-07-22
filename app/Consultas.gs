@@ -64,6 +64,44 @@ function obterListaTingimento(token) {
   return { ok: true, linhas: linhas };
 }
 
+/**
+ * O MESMO relatório que sai por e-mail (ver `_relatorioCompraHTML`,
+ * `enviarRelatorioCompra`) — pra qualquer usuário ver direto no sistema, sem
+ * precisar esperar/procurar o e-mail. Tela "Relatório", compartilhada por
+ * todos os papéis (por isso sem restrição de papel aqui — qualquer sessão
+ * válida serve).
+ */
+function obterRelatorioCompraAtual(token) {
+  var s = exigirSessao(token);
+  var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
+  var linhas = regs.map(function (r) {
+    return {
+      linha: r.__row,
+      dataSolicitado: _soData(r.GERADO_EM),
+      item: r.ITEM,
+      descricao: r.DESCRICAO,
+      cliente: r.CLIENTE,
+      maquinas: r.MAQUINAS,
+      total: r.SUGERIDO,
+      dataLimite: _soData(r.DATA_LIMITE),
+      obs: r.OBS == null ? '' : String(r.OBS),
+      saldoCritico: _saldoCritico(r)
+    };
+  });
+  return {
+    ok: true,
+    numeroPedido: _numeroPedidoAtual(),
+    dataPedido: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+    // Horário de Fortaleza/Brasil sempre — fixo, não depende do fuso horário
+    // configurado no projeto do Apps Script (Project Settings). Separado da
+    // "Data" do pedido (que é só o dia) porque este é o instante em que a
+    // TELA foi consultada, com hora e minuto.
+    atualizadoEm: Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm'),
+    unidadeRotulo: CONFIG.getUnidadeInfo(s.unidade).rotulo,
+    linhas: linhas
+  };
+}
+
 /* ----------------------- E-mail / impressão ---------------------- */
 
 /**
