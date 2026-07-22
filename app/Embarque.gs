@@ -289,6 +289,28 @@ function _avancarNumeroEmbarqueManual() {
 }
 
 /**
+ * Última taxa de mão de obra (R$/kg) usada nesta unidade — memorizada a cada
+ * confirmação de embarque pra pré-preencher a tela na próxima vez. Guardada
+ * por unidade (ver `_propUnidade`), como os e-mails e a numeração. Devolve
+ * null se nunca foi definida.
+ */
+function _custoMaoObraSalvo() {
+  var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('CUSTO_MAO_OBRA'));
+  var n = parseFloat(v);
+  return (v != null && v !== '' && !isNaN(n)) ? n : null;
+}
+function _definirCustoMaoObra(n) {
+  PropertiesService.getScriptProperties()
+    .setProperty(_propUnidade('CUSTO_MAO_OBRA'), String(Number(n) || 0));
+}
+
+/** Taxa de mão de obra (R$/kg) memorizada, pra pré-preencher a tela Confirmar Embarque. */
+function obterCustoMaoObra(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  return { ok: true, custoMaoObra: _custoMaoObraSalvo() };
+}
+
+/**
  * Confirma manualmente um embarque, direto nos itens (sem PDF): faz
  * EXATAMENTE o que o fluxo do PDF faz — grava em EMBARQUES e dá baixa em
  * PENDENCIA_COMPRA (`_registrarEmbarqueEDarBaixa`) — só que o número do
@@ -301,15 +323,22 @@ function _avancarNumeroEmbarqueManual() {
  * confirmação é o procedimento final: quem der certo aqui é o que sai do
  * estoque.
  *
- * Ao final, dispara um e-mail com a lista confirmada e o consumo no estoque
- * de fio crú desta confirmação — por tipo de fio: item, NF, data da NF,
- * peso REALMENTE consumido dela (pode ser negativo, se for um crédito de
- * volta) e o saldo que ficou depois.
+ * Ao final, dispara um e-mail com o relatório em ANEXO (PDF) — o corpo do
+ * e-mail só avisa o que está sendo enviado. O relatório é separado por tipo
+ * de fio (um bloco por tipo): os itens tingidos daquele tipo com o custo de
+ * mão de obra de cada um, e logo abaixo o consumo no estoque de fio crú —
+ * item, NF, fornecedor, data da NF, peso REALMENTE consumido dela (pode ser
+ * negativo, se for um crédito de volta) e o saldo que ficou depois. Cada
+ * bloco mostra o total de mão de obra do tipo de fio, e no fim vem o total
+ * geral.
  *
- * Por ora, só o master usa esta tela (papéis por item ainda serão
- * definidos) — ver `exigirSessao`.
- * @param {Object} params { itens: [{item, quantidade}] }
- * @return {Object} { ok, numero, gravados, baixados, resumo }
+ * O custo de mão de obra é uma taxa ÚNICA em R$ por kg tingido (params.
+ * custoMaoObra), aplicada a todos os itens: o valor de cada item é
+ * quantidade confirmada × taxa.
+ *
+ * Por ora, só o master e o almoxarifado 1 usam esta tela — ver `exigirSessao`.
+ * @param {Object} params { itens: [{item, quantidade}], custoMaoObra }
+ * @return {Object} { ok, numero, gravados, baixados, resumo, custoMaoObra }
  */
 function confirmarEmbarqueManual(token, params) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
@@ -318,6 +347,11 @@ function confirmarEmbarqueManual(token, params) {
     .filter(function (it) { return it.item && Number(it.quantidade) > 0; })
     .map(function (it) { return { item: String(it.item).trim(), quantidade: Number(it.quantidade) }; });
   if (!itens.length) throw new Error('Marque ao menos um item, com quantidade, para confirmar o embarque.');
+
+  // Taxa de mão de obra (R$ por kg tingido), única para todo o embarque.
+  // Aceita vírgula ou ponto como separador decimal; nunca negativa; vazio = 0.
+  var custoMaoObra = parseFloat(String(params.custoMaoObra == null ? '' : params.custoMaoObra).replace(',', '.'));
+  if (isNaN(custoMaoObra) || custoMaoObra < 0) custoMaoObra = 0;
 
   var lista = _destinatariosCompra().split(/[;,]/)
     .map(function (e) { return e.trim(); })
@@ -335,23 +369,28 @@ function confirmarEmbarqueManual(token, params) {
   // Confirma (ou corrige) a baixa do fio crú de cada item pro valor que está
   // sendo confirmado agora, ANTES de gravar o embarque. `ajuste.lotes` traz o
   // PESO real tirado (ou creditado de volta, se negativo) de cada NF NESTA
-  // confirmação — é isso que vai no e-mail, não um resumo histórico do item.
-  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, lotes: [{item,nf,dataNf,peso,saldoApos}] }
+  // confirmação — é isso que vai no relatório, não um resumo histórico do item.
+  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, itens:[{item,quantidade}], lotes:[{item,nf,fornecedor,dataNf,peso,saldoApos}] }
   itens.forEach(function (it) {
     var tipoFio = tipoFioPorItem[_norm(it.item)] || '';
     var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
-    if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, lotes: [] };
+    if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, itens: [], lotes: [] };
     porTipo[chaveTipo].totalTingido += it.quantidade;
+    porTipo[chaveTipo].itens.push({ item: it.item, quantidade: it.quantidade });
     (ajuste.lotes || []).forEach(function (l) {
       porTipo[chaveTipo].lotes.push({
-        item: it.item, nf: l.nf, dataNf: l.dataNf, peso: l.quantidadeBaixada, saldoApos: l.saldoApos
+        item: it.item, nf: l.nf, fornecedor: l.fornecedor || '',
+        dataNf: l.dataNf, peso: l.quantidadeBaixada, saldoApos: l.saldoApos
       });
     });
   });
   var resumo = Object.keys(porTipo).map(function (t) {
     var g = porTipo[t];
-    return { tipoFio: g.tipoFio, totalTingido: g.totalTingido, lotes: g.lotes };
+    return {
+      tipoFio: g.tipoFio, totalTingido: g.totalTingido,
+      maoObra: g.totalTingido * custoMaoObra, itens: g.itens, lotes: g.lotes
+    };
   });
 
   var numero = _numeroEmbarqueManualAtual();
@@ -361,55 +400,109 @@ function confirmarEmbarqueManual(token, params) {
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  var html = _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade);
+  var pdf = Utilities.newBlob(html, MimeType.HTML, 'confirmacao.html').getAs(MimeType.PDF)
+    .setName('Confirmacao de Embarque Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
   MailApp.sendEmail({
     to: lista.join(','),
     subject: 'Confirmação de Embarque ' + unidade + ' nº ' + numero + ' - ' + dataFmt,
-    htmlBody: _confirmacaoEmbarqueHTML(itens, numero, dataFmt, resumo)
+    htmlBody: '<p style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">Segue em anexo a Confirmação ' +
+      'de Embarque ' + unidade + ' nº <b>' + numero + '</b>, de <b>' + dataFmt + '</b> — com os itens ' +
+      'embarcados, o consumo no estoque de fio crú (por tipo de fio, com NF e fornecedor) e o custo de ' +
+      'mão de obra.</p>',
+    attachments: [pdf]
   });
+  // Memoriza a taxa usada agora, pra pré-preencher a próxima confirmação
+  // desta unidade (o e-mail já saiu — isto é só registro).
+  _definirCustoMaoObra(custoMaoObra);
 
-  return { ok: true, numero: numero, gravados: r.gravados, baixados: r.baixados, resumo: resumo, destinatarios: lista.length };
+  return {
+    ok: true, numero: numero, gravados: r.gravados, baixados: r.baixados,
+    resumo: resumo, custoMaoObra: custoMaoObra, destinatarios: lista.length
+  };
 }
 
-/** Monta o HTML do e-mail de confirmação de embarque (lista + resumo por tipo de fio). */
-function _confirmacaoEmbarqueHTML(itens, numero, dataFmt, resumo) {
-  var thItens = ['Item', 'Quantidade (kg)'].map(function (t) {
+/** Formata um número como moeda em Reais (ex.: 1234.5 → "R$ 1.234,50"). */
+function _moedaBR(v) {
+  var n = Number(v) || 0;
+  var neg = n < 0;
+  n = Math.abs(n);
+  var partes = n.toFixed(2).split('.');
+  var inteiro = partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return (neg ? '-' : '') + 'R$ ' + inteiro + ',' + partes[1];
+}
+
+/**
+ * Monta o HTML do relatório de Confirmação de Embarque (usado como PDF em
+ * anexo). Um bloco por tipo de fio: cabeçalho do tipo (com total tingido e o
+ * total de mão de obra do grupo), a tabela de itens tingidos daquele tipo
+ * (com o custo de mão de obra de cada item) e, abaixo, o consumo no estoque
+ * de fio crú (item, NF, fornecedor, data da NF, peso consumido e saldo
+ * restante — listando TODAS as NFs usadas). No fim, o total geral de mão de
+ * obra do embarque.
+ * @param {number} custoMaoObra  taxa única em R$ por kg tingido.
+ */
+function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade) {
+  function th(t) {
     return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
       'color:#fff;text-align:left;font-size:13px">' + t + '</th>';
-  }).join('');
-  var rowsItens = itens.map(function (it) {
-    return '<tr>' +
-      '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + it.item + '</td>' +
-      '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + it.quantidade + '</td>' +
-    '</tr>';
+  }
+  function td(v) {
+    return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
+  }
+
+  var thItens = ['Item', 'Quantidade (kg)', 'Mão de obra (R$)'].map(th).join('');
+  var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)']
+    .map(th).join('');
+
+  var totalGeral = 0;
+  var blocos = resumo.map(function (g) {
+    totalGeral += g.maoObra || 0;
+
+    var rowsItens = g.itens.map(function (it) {
+      return '<tr>' + td(it.item) + td(it.quantidade) + td(_moedaBR(it.quantidade * custoMaoObra)) + '</tr>';
+    }).join('');
+
+    var rowsLotes = g.lotes.length
+      ? g.lotes.map(function (l) {
+          return '<tr>' + td(l.item) + td(l.nf || '—') + td(l.fornecedor || '—') +
+            td(l.dataNf || '—') + td(l.peso) + td(l.saldoApos) + '</tr>';
+        }).join('')
+      : '<tr><td colspan="6" style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px;color:#94a3b8">' +
+          'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)</td></tr>';
+
+    var titulo = '<table style="border-collapse:collapse;width:100%;margin-bottom:10px"><tr>' +
+      '<td style="vertical-align:middle">' +
+        '<span style="color:#0B4576;font-size:16px;font-weight:bold">' + g.tipoFio + '</span>' +
+        '<span style="color:#64748b;font-size:13px">&nbsp;— ' + g.totalTingido + ' kg tingido</span></td>' +
+      '<td style="text-align:right;vertical-align:middle">' +
+        '<span style="background:#dcfce7;color:#166534;font-size:13px;font-weight:bold;' +
+        'padding:4px 10px;border-radius:6px">Mão de obra: ' + _moedaBR(g.maoObra) + '</span></td>' +
+    '</tr></table>';
+
+    var rotulo = 'margin:6px 0 4px;font-size:12px;color:#475569;font-weight:bold;' +
+      'text-transform:uppercase;letter-spacing:.04em';
+
+    return '<div style="border:1px solid #cbd5e1;border-radius:8px;padding:14px 16px;margin-bottom:16px">' +
+      titulo +
+      '<p style="' + rotulo + '">Itens tingidos</p>' +
+      '<table style="border-collapse:collapse;width:100%;margin-bottom:12px">' +
+        '<thead><tr>' + thItens + '</tr></thead><tbody>' + rowsItens + '</tbody></table>' +
+      '<p style="' + rotulo + '">Consumo no estoque de fio crú</p>' +
+      '<table style="border-collapse:collapse;width:100%">' +
+        '<thead><tr>' + thLotes + '</tr></thead><tbody>' + rowsLotes + '</tbody></table>' +
+    '</div>';
   }).join('');
 
-  var thLotes = ['Item', 'NF', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)'].map(function (t) {
-    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
-      'color:#fff;text-align:left;font-size:13px">' + t + '</th>';
-  }).join('');
-  var resumoHtml = resumo.map(function (g) {
-    var linhasLotes = g.lotes.length
-      ? g.lotes.map(function (l) {
-          return '<tr>' +
-            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + l.item + '</td>' +
-            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + (l.nf || '—') + '</td>' +
-            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + (l.dataNf || '—') + '</td>' +
-            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + l.peso + '</td>' +
-            '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + l.saldoApos + '</td>' +
-          '</tr>';
-        }).join('')
-      : '<tr><td colspan="5" style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px;color:#94a3b8">' +
-          'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)</td></tr>';
-    return '<h4 style="color:#0B4576;margin:14px 0 6px;font-size:14px">' + g.tipoFio + ' — ' +
-      g.totalTingido + ' kg tingido</h4>' +
-      '<table style="border-collapse:collapse;margin-bottom:6px">' +
-      '<thead><tr>' + thLotes + '</tr></thead><tbody>' + linhasLotes + '</tbody></table>';
-  }).join('');
+  var totalGeralHtml = '<table style="border-collapse:collapse;width:100%;margin-top:4px"><tr>' +
+    '<td style="text-align:right;padding:8px 12px;background:#0B4576;color:#fff;font-size:14px;' +
+    'font-weight:bold;border-radius:6px">Total geral de mão de obra: ' + _moedaBR(totalGeral) + '</td>' +
+  '</tr></table>';
 
   // CONFIG.LOGO_URL: URL externa fixa (ver Config.gs) — sem arquivo/base64
-  // embutido; se o link não carregar, o e-mail só fica sem a imagem (alt).
+  // embutido; se o link não carregar, o PDF só fica sem a imagem (alt).
   var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">' +
-    'CONFIRMAÇÃO DE EMBARQUE</h1>' +
+    ('CONFIRMAÇÃO DE EMBARQUE ' + (unidade || '')).trim() + '</h1>' +
     '<p style="margin:0;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
     ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
   var cabecalho = '<table style="border-collapse:collapse;margin-bottom:16px"><tr>' +
@@ -420,10 +513,8 @@ function _confirmacaoEmbarqueHTML(itens, numero, dataFmt, resumo) {
 
   return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
     cabecalho +
-    '<table style="border-collapse:collapse">' +
-    '<thead><tr>' + thItens + '</tr></thead><tbody>' + rowsItens + '</tbody></table>' +
-    '<h3 style="color:#0B4576;margin:18px 0 8px;font-size:15px">Consumo no estoque de fio crú</h3>' +
-    resumoHtml +
+    blocos +
+    totalGeralHtml +
     '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
