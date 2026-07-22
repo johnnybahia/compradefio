@@ -521,6 +521,18 @@ function num(v) {
   return isNaN(n) ? v : n.toLocaleString('pt-BR');
 }
 
+/** Formata um número como moeda em Reais (ex.: 1234.5 → "R$ 1.234,50"). */
+function moeda(v) {
+  var n = Number(v) || 0;
+  return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Converte texto digitado (com vírgula ou ponto) em número; vazio/ inválido → 0. */
+function parseNumeroBR(v) {
+  var n = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+
 function renderLista(itens) {
   var painel = document.getElementById('painel-lista');
   var wrap = document.getElementById('tabela-lista');
@@ -1129,6 +1141,14 @@ function viewConfirmarEmbarque(alvo) {
       '<p class="desc">' + desc + '</p>' +
       '<div id="embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
+      (editavel
+        ? '<div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+            '<label for="custo-mao-obra" style="font-weight:600">Custo de mão de obra (R$/kg):</label>' +
+            '<input type="text" inputmode="decimal" id="custo-mao-obra" placeholder="ex.: 2,00" ' +
+              'style="width:120px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px">' +
+            '<span class="desc" style="margin:0">Taxa única, aplicada a todos os itens (kg confirmado × esta taxa).</span>' +
+          '</div>'
+        : '') +
       '<div style="margin-top:16px">' +
         '<button class="btn-principal" id="btn-confirmar-embarque" style="display:none">Confirmar Embarque</button>' +
         '<button class="btn-principal" id="btn-historico-embarque">Ver histórico de embarques confirmados</button>' +
@@ -1296,11 +1316,17 @@ function confirmarEmbarqueSelecionado() {
     return;
   }
   var totalKg = selecionados.reduce(function (acc, l) { return acc + Number(l.quantidade); }, 0);
+  var campoCusto = document.getElementById('custo-mao-obra');
+  var custoMaoObra = campoCusto ? campoCusto.value : '';
+  var taxa = parseNumeroBR(custoMaoObra);
+  var linhaMaoObra = taxa > 0
+    ? ' Mão de obra: ' + moeda(taxa) + '/kg (total ' + moeda(totalKg * taxa) + ').'
+    : ' Sem custo de mão de obra informado (R$ 0,00).';
   confirmarModal(
     'Confirmar embarque?',
     'Isso vai gravar ' + selecionados.length + ' item(ns) (total ' + num(totalKg) + ' kg) como embarcados, ' +
-    'dar baixa na lista pendente de compra e no estoque de fio crú, e enviar o e-mail de confirmação. ' +
-    'Não pode ser desfeito por aqui.',
+    'dar baixa na lista pendente de compra e no estoque de fio crú, e enviar o e-mail de confirmação ' +
+    '(relatório em PDF anexo).' + linhaMaoObra + ' Não pode ser desfeito por aqui.',
     'Confirmar', 'Cancelar',
     function (ok) {
       if (!ok) return;
@@ -1308,14 +1334,14 @@ function confirmarEmbarqueSelecionado() {
       btn.disabled = true;
       msg.innerHTML = '<div class="aviso"><span class="carregando">Confirmando e enviando e-mail…</span></div>';
       var itens = selecionados.map(function (l) { return { item: l.item, quantidade: Number(l.quantidade) }; });
-      chamar('confirmarEmbarqueManual', sessao.token, { itens: itens })
+      chamar('confirmarEmbarqueManual', sessao.token, { itens: itens, custoMaoObra: custoMaoObra })
         .then(function (r) {
           btn.disabled = false;
           var resumoTxt = r.resumo.map(function (g) {
-            return g.tipoFio + ': ' + num(g.totalTingido) + ' kg';
+            return g.tipoFio + ': ' + num(g.totalTingido) + ' kg' + (g.maoObra ? ' (' + moeda(g.maoObra) + ')' : '');
           }).join(' · ');
           msg.innerHTML = '<div class="aviso ok">Embarque nº ' + r.numero + ' confirmado (' + r.gravados +
-            ' item(ns)) — e-mail enviado para ' + r.destinatarios + ' destinatário(s). ' + resumoTxt + '</div>';
+            ' item(ns)) — e-mail com PDF enviado para ' + r.destinatarios + ' destinatário(s). ' + resumoTxt + '</div>';
           carregarListaConfirmarEmbarque();
         })
         .catch(function (err) {
