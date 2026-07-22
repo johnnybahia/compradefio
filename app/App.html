@@ -1643,7 +1643,12 @@ function viewFioCru(alvo) {
       'mais antigo que ela.</p>' +
       '<div class="linha-form">' +
         '<div class="campo"><label for="fc-tipo">Tipo de fio</label>' +
-          '<input type="text" id="fc-tipo" placeholder="ex.: Fio Poliester"></div>' +
+          '<select id="fc-tipo" class="assoc-select">' +
+            '<option value="">— escolha o tipo de fio —</option>' +
+            '<option value="__novo__">+ Novo tipo de fio…</option>' +
+          '</select>' +
+          '<input type="text" id="fc-tipo-novo" placeholder="descrição do novo tipo" ' +
+            'style="display:none;margin-top:6px"></div>' +
         '<div class="campo"><label for="fc-nf">Nº da NF</label><input type="text" id="fc-nf"></div>' +
         '<div class="campo"><label for="fc-fornecedor">Fornecedor</label><input type="text" id="fc-fornecedor"></div>' +
         '<div class="campo" style="max-width:150px"><label for="fc-qtd">Quantidade (kg)</label>' +
@@ -1712,6 +1717,12 @@ function viewFioCru(alvo) {
     '</section>';
 
   document.getElementById('btn-lancar-nf').onclick = lancarNfFioCru;
+  document.getElementById('fc-tipo').onchange = function () {
+    var novo = document.getElementById('fc-tipo-novo');
+    var ehNovo = this.value === '__novo__';
+    novo.style.display = ehNovo ? '' : 'none';
+    if (ehNovo) novo.focus(); else novo.value = '';
+  };
   document.getElementById('btn-saldo-tipo').onclick = togglePainelSaldoTipo;
   document.getElementById('btn-consumo-periodo').onclick = togglePainelConsumo;
   document.getElementById('btn-gerar-consumo').onclick = gerarConsumoFioCru;
@@ -1746,6 +1757,7 @@ function carregarEstoqueFioCru() {
     .then(function (r) {
       estadoFioCru.linhas = r.linhas || [];
       estadoFioCru.editando = {};
+      preencherSeletorTipoFioCru(r.tipos || []);
       renderEstoqueFioCru();
     })
     .catch(function (err) {
@@ -2072,10 +2084,38 @@ function renderConsumoDetalhe(linhas) {
     '<th style="text-align:right;width:30%">Consumido</th></tr></thead><tbody>' + body + '</tbody></table>';
 }
 
+/** Preenche o seletor de tipo de fio do lançamento de NF com os tipos que já
+ * existem no estoque (mantém a opção "novo tipo") — o usuário escolhe um
+ * existente em vez de redigitar, evitando duplicar o mesmo fio com grafias
+ * diferentes. Preserva a escolha atual se ela ainda estiver na lista. */
+function preencherSeletorTipoFioCru(tipos) {
+  var sel = document.getElementById('fc-tipo');
+  if (!sel) return;
+  var atual = sel.value;
+  var opcoes = ['<option value="">— escolha o tipo de fio —</option>'];
+  (tipos || []).forEach(function (t) {
+    opcoes.push('<option value="' + escAttr(t) + '">' + t + '</option>');
+  });
+  opcoes.push('<option value="__novo__">+ Novo tipo de fio…</option>');
+  sel.innerHTML = opcoes.join('');
+  // Preserva a seleção anterior (ex.: "__novo__" enquanto digita), se ainda válida.
+  if (atual && Array.prototype.some.call(sel.options, function (o) { return o.value === atual; })) {
+    sel.value = atual;
+  }
+}
+
 function lancarNfFioCru() {
   var msg = document.getElementById('fc-msg');
+  var sel = document.getElementById('fc-tipo');
+  var tipoFio = sel.value === '__novo__'
+    ? document.getElementById('fc-tipo-novo').value.trim()
+    : sel.value;
+  if (!tipoFio) {
+    msg.innerHTML = '<div class="aviso erro">Escolha o tipo de fio (ou informe um novo).</div>';
+    return;
+  }
   var dados = {
-    tipoFio: document.getElementById('fc-tipo').value,
+    tipoFio: tipoFio,
     nf: document.getElementById('fc-nf').value,
     fornecedor: document.getElementById('fc-fornecedor').value,
     quantidade: document.getElementById('fc-qtd').value,
@@ -2089,9 +2129,12 @@ function lancarNfFioCru() {
     .then(function () {
       btn.disabled = false;
       msg.innerHTML = '<div class="aviso ok">NF lançada.</div>';
-      ['fc-tipo', 'fc-nf', 'fc-fornecedor', 'fc-qtd', 'fc-preco'].forEach(function (id) {
+      ['fc-nf', 'fc-fornecedor', 'fc-qtd', 'fc-preco', 'fc-tipo-novo'].forEach(function (id) {
         document.getElementById(id).value = '';
       });
+      document.getElementById('fc-tipo-novo').style.display = 'none';
+      sel.value = '';
+      // Recarrega o estoque: o tipo novo (se houver) já entra no seletor.
       carregarEstoqueFioCru();
     })
     .catch(function (err) {

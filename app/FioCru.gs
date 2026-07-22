@@ -567,7 +567,12 @@ function listarEstoqueFioCru(token) {
     if (a.tipoFio !== b.tipoFio) return a.tipoFio.localeCompare(b.tipoFio);
     return _parseData(a.data) - _parseData(b.data);
   });
-  return { ok: true, linhas: linhas };
+  // Tipos de fio distintos JÁ cadastrados no estoque (unidade ativa), pra
+  // oferecer num seletor no lançamento de NF — assim o usuário escolhe um
+  // existente em vez de redigitar (evita duplicar o mesmo fio com grafias
+  // diferentes). Um tipo novo só entra pela opção "novo tipo" do formulário.
+  var tipos = _listarTiposFioEstoque().sort(function (a, b) { return a.localeCompare(b); });
+  return { ok: true, linhas: linhas, tipos: tipos };
 }
 
 /**
