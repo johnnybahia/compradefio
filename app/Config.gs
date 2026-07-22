@@ -15,8 +15,10 @@ var CONFIG = {
    * de uma implantação separada por empresa.
    */
   UNIDADES: [
-    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA', propCnpj: 'CNPJ_CEARA' },
-    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA', propCnpj: 'CNPJ_BAHIA' }
+    // cnpjPadrao (só dígitos) identifica a filial ao importar NF de fio crú;
+    // pode ser sobrescrito por CNPJ_CEARA/CNPJ_BAHIA nas Propriedades do script.
+    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA', propCnpj: 'CNPJ_CEARA', cnpjPadrao: '19542918000190' },
+    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA', propCnpj: 'CNPJ_BAHIA', cnpjPadrao: '05645301000196' }
   ],
 
   /** Unidade usada quando o login ainda não escolheu nenhuma. */
@@ -67,8 +69,8 @@ var CONFIG = {
    */
   getCnpjUnidade: function (unidadeId) {
     var u = this.getUnidadeInfo(unidadeId);
-    if (!u.propCnpj) return '';
-    var v = PropertiesService.getScriptProperties().getProperty(u.propCnpj);
+    var v = u.propCnpj ? PropertiesService.getScriptProperties().getProperty(u.propCnpj) : '';
+    if (!v) v = u.cnpjPadrao || '';
     return v ? String(v).replace(/\D/g, '') : '';
   },
 

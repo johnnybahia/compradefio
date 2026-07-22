@@ -110,6 +110,13 @@ function _parseNfeXml(xmlTexto) {
   var emit = _xmlPrimeiro(inf, 'emit');
   var dest = _xmlPrimeiro(inf, 'dest');
   var entrega = _xmlPrimeiro(inf, 'entrega');
+  var infAdic = _xmlPrimeiro(inf, 'infAdic');
+
+  // Informações complementares (texto livre): em NF triangular ("remessa por
+  // conta e ordem de"), a Marfim real (e seu CNPJ) aparece SÓ aqui — o
+  // destinatário é a intermediária. Extraímos todos os CNPJs desse texto.
+  var infCpl = infAdic ? _xmlTexto(infAdic, 'infCpl') : '';
+  var cnpjsInfCpl = _extrairCnpjs(infCpl);
 
   var nf = ide ? _xmlTexto(ide, 'nNF') : '';
   var dataBruta = ide ? (_xmlTexto(ide, 'dhEmi') || _xmlTexto(ide, 'dEmi')) : '';
@@ -132,8 +139,24 @@ function _parseNfeXml(xmlTexto) {
     fornecedor: emit ? _xmlTexto(emit, 'xNome') : '',
     cnpjDest: dest ? (_xmlTexto(dest, 'CNPJ') || _xmlTexto(dest, 'CPF')) : '',
     cnpjEntrega: entrega ? (_xmlTexto(entrega, 'CNPJ') || _xmlTexto(entrega, 'CPF')) : '',
+    cnpjsInfCpl: cnpjsInfCpl,
     itens: itens
   };
+}
+
+/** Extrai CNPJs (só dígitos) de um texto livre — formatado (00.000.000/0000-00)
+ * ou 14 dígitos seguidos. */
+function _extrairCnpjs(texto) {
+  texto = String(texto || '');
+  var achados = {};
+  var out = [];
+  var re = /\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g;
+  var m;
+  while ((m = re.exec(texto)) !== null) {
+    var d = m[0].replace(/\D/g, '');
+    if (d.length === 14 && !achados[d]) { achados[d] = true; out.push(d); }
+  }
+  return out;
 }
 
 /* --------------------------- API (cliente) ------------------------------- */
@@ -152,12 +175,15 @@ function analisarNfFioCruXml(token, base64, nome) {
   if (!dados.nf) throw new Error('Não achei o número da NF no XML.');
   if (!dados.itens.length) throw new Error('Não achei itens (produtos) no XML.');
 
-  var filialId = CONFIG.detectarUnidadePorCnpj([dados.cnpjEntrega, dados.cnpjDest]);
+  // Prioridade: local de entrega (triangulação estruturada) → CNPJ citado nas
+  // informações complementares ("remessa por conta e ordem de") → destinatário.
+  var candidatos = [dados.cnpjEntrega].concat(dados.cnpjsInfCpl).concat([dados.cnpjDest]);
+  var filialId = CONFIG.detectarUnidadePorCnpj(candidatos);
   if (!filialId) {
-    var achado = [dados.cnpjEntrega, dados.cnpjDest].filter(function (c) { return c; }).join(' / ') || '(nenhum)';
+    var achado = candidatos.filter(function (c) { return c; }).join(' / ') || '(nenhum)';
     throw new Error(
-      'Não consegui identificar a filial pelo CNPJ da NF (encontrei: ' + achado + '). ' +
-      'Configure CNPJ_CEARA e CNPJ_BAHIA nas Propriedades do script.'
+      'Não consegui identificar a filial (Ceará/Bahia) pelos CNPJs da NF (encontrei: ' + achado + '). ' +
+      'Se for uma filial nova, ajuste os CNPJs em Config (cnpjPadrao) ou nas Propriedades do script.'
     );
   }
 
@@ -180,11 +206,17 @@ function analisarNfFioCruXml(token, base64, nome) {
     });
   } catch (e) {}
 
+  // Triangular = a filial detectada NÃO é o destinatário da nota (a
+  // mercadoria vai pra Marfim, mas quem consta como destinatário é a
+  // intermediária). Vale tanto pra <entrega> quanto pra "conta e ordem".
+  var cnpjFilial = CONFIG.getCnpjUnidade(filialId);
+  var triangular = !!(cnpjFilial && cnpjFilial !== String(dados.cnpjDest || '').replace(/\D/g, ''));
+
   return {
     ok: true,
     filialId: filialId,
     filialRotulo: CONFIG.getUnidadeInfo(filialId).rotulo,
-    triangular: !!(dados.cnpjEntrega && _normNumero(dados.cnpjEntrega) !== _normNumero(dados.cnpjDest)),
+    triangular: triangular,
     nf: dados.nf,
     fornecedor: dados.fornecedor,
     dataIso: dados.dataIso,
