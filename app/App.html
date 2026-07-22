@@ -5,6 +5,9 @@
 
 var TOKEN_KEY = 'marfim_token';
 var sessao = { token: null, nome: null, papel: null, unidade: null, unidades: [] };
+// URL fixa do logo (mesmo link usado em Index.html/CONFIG.LOGO_URL e nos
+// e-mails) — sem arquivo/base64 embutido; se cair, a tag <img> só se oculta.
+var LOGO_URL = 'https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg';
 
 /* ---- ponte com o servidor (google.script.run → Promise) ---- */
 function chamar(fn) {
@@ -855,7 +858,7 @@ function viewTingimento(alvo) {
       '</div>' +
       '<div id="ting-msg"></div>' +
       '<div class="cabecalho-relatorio so-print">' +
-        '<img id="rel-logo" class="logo-relatorio" alt="" style="display:none">' +
+        '<img id="rel-logo" class="logo-relatorio" alt="" src="' + LOGO_URL + '" onerror="this.style.display=\'none\'">' +
         '<div>' +
           '<h1>PEDIDO DE FIO MARFIM ' + (sessao.unidade ? sessao.unidade.rotulo.toUpperCase() : '') + '</h1>' +
           '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
@@ -887,7 +890,6 @@ function viewTingimento(alvo) {
     .catch(function () {});
 
   carregarNumeroPedido();
-  carregarLogoRelatorio();
 
   var msg = document.getElementById('ting-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
@@ -927,16 +929,6 @@ function carregarNumeroPedido() {
  * recente do servidor. */
 function imprimirRelatorioTingimento() {
   window.print();
-}
-
-/** Reaproveita o mesmo logo já carregado no topo da tela (evita nova ida ao servidor). */
-function carregarLogoRelatorio() {
-  var elTopo = document.querySelector('.topo .marca img');
-  var elRel = document.getElementById('rel-logo');
-  if (elTopo && elRel && elTopo.src && elTopo.src.indexOf('data:') === 0) {
-    elRel.src = elTopo.src;
-    elRel.style.display = '';
-  }
 }
 
 function salvarEmailsCompra() {
@@ -2680,7 +2672,7 @@ function viewRelatorio(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<div class="cabecalho-relatorio em-tela">' +
-        '<img id="rel-logo" class="logo-relatorio" alt="" style="display:none">' +
+        '<img id="rel-logo" class="logo-relatorio" alt="" src="' + LOGO_URL + '" onerror="this.style.display=\'none\'">' +
         '<div>' +
           '<h1 id="rel-titulo" style="color:#0B4576">PEDIDO DE FIO MARFIM</h1>' +
           '<p>Data: <b id="rel-data">—</b> &nbsp;&nbsp;&nbsp; Nº: <b id="rel-numero">—</b></p>' +
@@ -2695,7 +2687,6 @@ function viewRelatorio(alvo) {
       '<div class="tabela-wrap" id="tabela-relatorio"></div>' +
     '</section>';
   ativarRegua('tabela-relatorio');
-  carregarLogoRelatorio();
   carregarRelatorio();
 }
 

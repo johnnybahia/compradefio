@@ -9,14 +9,14 @@
 
   <!-- ========================== CARREGANDO ======================== -->
   <div id="splash" class="splash">
-    <img class="logo" src="<?= LOGO ?>" alt="Marfim">
+    <img class="logo" src="<?= LOGO_URL ?>" alt="Marfim" onerror="this.style.display='none'">
     <div class="spinner"></div>
   </div>
 
   <!-- =========================== LOGIN =========================== -->
   <div id="tela-login" class="tela-login oculto">
     <form class="card-login" id="form-login" autocomplete="on">
-      <img class="logo" src="<?= LOGO ?>" alt="Marfim">
+      <img class="logo" src="<?= LOGO_URL ?>" alt="Marfim" onerror="this.style.display='none'">
       <h1>Gestão de Compras</h1>
       <p class="sub">Acesso restrito · informe suas credenciais</p>
 
@@ -41,7 +41,7 @@
   <div id="app" class="app oculto">
     <header class="topo">
       <div class="marca">
-        <img src="<?= LOGO ?>" alt="Marfim">
+        <img src="<?= LOGO_URL ?>" alt="Marfim" onerror="this.style.display='none'">
         <span>Gestão de Compras</span>
       </div>
       <nav id="menu"></nav>

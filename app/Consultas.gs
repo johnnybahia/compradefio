@@ -290,20 +290,17 @@ function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
       return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
     }).join('') + '</tr>';
   }).join('');
-  // _logoDataUri() está em Codigo.gs (mesmo logo do topo da tela); PDF sai sem
-  // logo, sem quebrar, se por algum motivo o arquivo Logo não estiver disponível.
-  var logo = _logoDataUri();
+  // CONFIG.LOGO_URL: URL externa fixa (ver Config.gs) — sem arquivo/base64
+  // embutido; se o link não carregar, o e-mail só fica sem a imagem (alt).
   var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">' +
     ('PEDIDO DE FIO MARFIM ' + (unidade || '')).trim() + '</h1>' +
     '<p style="margin:0;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
     ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
-  var cabecalho = logo
-    ? '<table style="border-collapse:collapse;margin-bottom:16px"><tr>' +
-        '<td style="padding:0 14px 0 0;vertical-align:middle">' +
-          '<img src="' + logo + '" style="height:56px;width:auto;display:block"></td>' +
-        '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
-      '</tr></table>'
-    : '<div style="margin-bottom:16px">' + tituloTxt + '</div>';
+  var cabecalho = '<table style="border-collapse:collapse;margin-bottom:16px"><tr>' +
+    '<td style="padding:0 14px 0 0;vertical-align:middle">' +
+      '<img src="' + CONFIG.LOGO_URL + '" alt="Marfim" style="height:56px;width:auto;display:block"></td>' +
+    '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
+  '</tr></table>';
   return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
     cabecalho +
     '<table style="border-collapse:collapse">' +

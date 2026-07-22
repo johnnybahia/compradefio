@@ -38,8 +38,10 @@ sua própria Propriedade do script).
   SHA-256 iterado). A sessão é um **token assinado (HMAC)**, guardado no
   navegador e verificado no servidor a cada ação.
 - **Interface** de página única: `Index.html` (estrutura), `Estilos.html` (CSS)
-  e `App.html` (JavaScript). O logo da Marfim vai embutido (base64) em
-  `Logo.html`, então o app é autossuficiente.
+  e `App.html` (JavaScript). O logo da Marfim é uma URL externa fixa
+  (`CONFIG.LOGO_URL`, em `Config.gs`) — usada na tela (splash/login/topo) e
+  nos e-mails; se o link cair, a imagem só se oculta (`onerror`), nunca
+  quebra a página. `Logo.html` é um arquivo antigo (base64), sem uso.
 
 ## Arquivos
 
@@ -51,7 +53,7 @@ sua própria Propriedade do script).
 | `Auth.gs` | Login, hash de senha, token de sessão, cadastro de usuários |
 | `Codigo.gs` | `doGet` (entrada do Web App) e utilitários |
 | `Analise.gs` | Motor da análise de compra (esqueleto, lógica a preencher) |
-| `Index.html` / `Estilos.html` / `App.html` / `Logo.html` | Interface |
+| `Index.html` / `Estilos.html` / `App.html` | Interface |
 
 ## Como publicar (primeira vez)
 
