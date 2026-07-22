@@ -289,6 +289,28 @@ function _avancarNumeroEmbarqueManual() {
 }
 
 /**
+ * Última taxa de mão de obra (R$/kg) usada nesta unidade — memorizada a cada
+ * confirmação de embarque pra pré-preencher a tela na próxima vez. Guardada
+ * por unidade (ver `_propUnidade`), como os e-mails e a numeração. Devolve
+ * null se nunca foi definida.
+ */
+function _custoMaoObraSalvo() {
+  var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('CUSTO_MAO_OBRA'));
+  var n = parseFloat(v);
+  return (v != null && v !== '' && !isNaN(n)) ? n : null;
+}
+function _definirCustoMaoObra(n) {
+  PropertiesService.getScriptProperties()
+    .setProperty(_propUnidade('CUSTO_MAO_OBRA'), String(Number(n) || 0));
+}
+
+/** Taxa de mão de obra (R$/kg) memorizada, pra pré-preencher a tela Confirmar Embarque. */
+function obterCustoMaoObra(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  return { ok: true, custoMaoObra: _custoMaoObraSalvo() };
+}
+
+/**
  * Confirma manualmente um embarque, direto nos itens (sem PDF): faz
  * EXATAMENTE o que o fluxo do PDF faz — grava em EMBARQUES e dá baixa em
  * PENDENCIA_COMPRA (`_registrarEmbarqueEDarBaixa`) — só que o número do
@@ -390,6 +412,9 @@ function confirmarEmbarqueManual(token, params) {
       'mão de obra.</p>',
     attachments: [pdf]
   });
+  // Memoriza a taxa usada agora, pra pré-preencher a próxima confirmação
+  // desta unidade (o e-mail já saiu — isto é só registro).
+  _definirCustoMaoObra(custoMaoObra);
 
   return {
     ok: true, numero: numero, gravados: r.gravados, baixados: r.baixados,

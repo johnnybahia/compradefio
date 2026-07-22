@@ -1166,6 +1166,20 @@ function viewConfirmarEmbarque(alvo) {
   document.getElementById('btn-historico-embarque').onclick = togglePainelHistoricoEmbarque;
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
+  carregarCustoMaoObra();
+}
+
+/** Pré-preenche o campo de mão de obra com a última taxa usada nesta unidade. */
+function carregarCustoMaoObra() {
+  var campo = document.getElementById('custo-mao-obra');
+  if (!campo) return; // só existe pra quem edita
+  chamar('obterCustoMaoObra', sessao.token)
+    .then(function (r) {
+      if (r && r.custoMaoObra != null && r.custoMaoObra !== '') {
+        campo.value = String(r.custoMaoObra).replace('.', ',');
+      }
+    })
+    .catch(function () {});
 }
 
 function togglePainelHistoricoEmbarque() {
