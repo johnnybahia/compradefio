@@ -567,7 +567,12 @@ function listarEstoqueFioCru(token) {
     if (a.tipoFio !== b.tipoFio) return a.tipoFio.localeCompare(b.tipoFio);
     return _parseData(a.data) - _parseData(b.data);
   });
-  return { ok: true, linhas: linhas };
+  // Tipos de fio distintos JÁ cadastrados no estoque (unidade ativa), pra
+  // oferecer num seletor no lançamento de NF — assim o usuário escolhe um
+  // existente em vez de redigitar (evita duplicar o mesmo fio com grafias
+  // diferentes). Um tipo novo só entra pela opção "novo tipo" do formulário.
+  var tipos = _listarTiposFioEstoque().sort(function (a, b) { return a.localeCompare(b); });
+  return { ok: true, linhas: linhas, tipos: tipos };
 }
 
 /**
@@ -787,8 +792,23 @@ function listarBaixasFioCru(token) {
 }
 
 /**
- * Cadastra manualmente uma NF (lote) nova de fio crú. Acessível só ao master
- * por ora — a leitura automática de PDF de NF fica para uma etapa futura.
+ * Monta uma linha de FIO_CRU_ENTRADAS alinhada ao cabeçalho atual (10 colunas:
+ * TIPO_FIO, NF, FORNECEDOR, QUANTIDADE, PRECO_UNITARIO, DATA, SITUACAO,
+ * INICIO_BAIXA, EDITADO_EM, EDITADO_POR) — evita erro de "nº de colunas não
+ * corresponde" se o cabeçalho ganhar colunas novas. Campos de auditoria/marca
+ * nascem vazios.
+ */
+function _linhaFioCruEntrada(o) {
+  var por = {
+    TIPO_FIO: o.tipoFio, NF: o.nf, FORNECEDOR: o.fornecedor, QUANTIDADE: o.quantidade,
+    PRECO_UNITARIO: (o.precoUnitario === '' || o.precoUnitario == null) ? '' : o.precoUnitario,
+    DATA: o.data, SITUACAO: o.situacao || '', INICIO_BAIXA: '', EDITADO_EM: '', EDITADO_POR: ''
+  };
+  return FIO_CRU_ENTRADAS_HEADERS.map(function (h) { return por.hasOwnProperty(h) ? por[h] : ''; });
+}
+
+/**
+ * Cadastra manualmente uma NF (lote) nova de fio crú. Acessível só ao master.
  * @param {Object} params { tipoFio, nf, fornecedor, quantidade, precoUnitario, data:'yyyy-MM-dd' }
  */
 function lancarNotaFioCru(token, params) {
@@ -804,10 +824,11 @@ function lancarNotaFioCru(token, params) {
   if (!data) throw new Error('Data da NF inválida.');
 
   var sh = _prepararFioCruEntradas();
-  sh.getRange(sh.getLastRow() + 1, 1, 1, FIO_CRU_ENTRADAS_HEADERS.length).setValues([[
-    tipoFio, nf, String(params.fornecedor || '').trim(), quantidade,
-    Number(params.precoUnitario) || '', data, '', ''
-  ]]);
+  var linha = _linhaFioCruEntrada({
+    tipoFio: tipoFio, nf: nf, fornecedor: String(params.fornecedor || '').trim(),
+    quantidade: quantidade, precoUnitario: Number(params.precoUnitario) || '', data: data
+  });
+  sh.getRange(sh.getLastRow() + 1, 1, 1, linha.length).setValues([linha]);
   return { ok: true };
 }
 

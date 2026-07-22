@@ -96,6 +96,7 @@ var MENUS = {
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'assocfiocru',rotulo: 'Associação Fio Crú',  render: viewAssociacaoFioCru },
     { id: 'fiocru',     rotulo: 'Estoque Fio Crú',     render: viewFioCru },
+    { id: 'importarnf', rotulo: 'Importar NF (Fio Crú)', render: viewImportarNfFioCru },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
     { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') },
@@ -1643,7 +1644,12 @@ function viewFioCru(alvo) {
       'mais antigo que ela.</p>' +
       '<div class="linha-form">' +
         '<div class="campo"><label for="fc-tipo">Tipo de fio</label>' +
-          '<input type="text" id="fc-tipo" placeholder="ex.: Fio Poliester"></div>' +
+          '<select id="fc-tipo" class="assoc-select">' +
+            '<option value="">— escolha o tipo de fio —</option>' +
+            '<option value="__novo__">+ Novo tipo de fio…</option>' +
+          '</select>' +
+          '<input type="text" id="fc-tipo-novo" placeholder="descrição do novo tipo" ' +
+            'style="display:none;margin-top:6px"></div>' +
         '<div class="campo"><label for="fc-nf">Nº da NF</label><input type="text" id="fc-nf"></div>' +
         '<div class="campo"><label for="fc-fornecedor">Fornecedor</label><input type="text" id="fc-fornecedor"></div>' +
         '<div class="campo" style="max-width:150px"><label for="fc-qtd">Quantidade (kg)</label>' +
@@ -1712,6 +1718,12 @@ function viewFioCru(alvo) {
     '</section>';
 
   document.getElementById('btn-lancar-nf').onclick = lancarNfFioCru;
+  document.getElementById('fc-tipo').onchange = function () {
+    var novo = document.getElementById('fc-tipo-novo');
+    var ehNovo = this.value === '__novo__';
+    novo.style.display = ehNovo ? '' : 'none';
+    if (ehNovo) novo.focus(); else novo.value = '';
+  };
   document.getElementById('btn-saldo-tipo').onclick = togglePainelSaldoTipo;
   document.getElementById('btn-consumo-periodo').onclick = togglePainelConsumo;
   document.getElementById('btn-gerar-consumo').onclick = gerarConsumoFioCru;
@@ -1746,6 +1758,7 @@ function carregarEstoqueFioCru() {
     .then(function (r) {
       estadoFioCru.linhas = r.linhas || [];
       estadoFioCru.editando = {};
+      preencherSeletorTipoFioCru(r.tipos || []);
       renderEstoqueFioCru();
     })
     .catch(function (err) {
@@ -2072,10 +2085,38 @@ function renderConsumoDetalhe(linhas) {
     '<th style="text-align:right;width:30%">Consumido</th></tr></thead><tbody>' + body + '</tbody></table>';
 }
 
+/** Preenche o seletor de tipo de fio do lançamento de NF com os tipos que já
+ * existem no estoque (mantém a opção "novo tipo") — o usuário escolhe um
+ * existente em vez de redigitar, evitando duplicar o mesmo fio com grafias
+ * diferentes. Preserva a escolha atual se ela ainda estiver na lista. */
+function preencherSeletorTipoFioCru(tipos) {
+  var sel = document.getElementById('fc-tipo');
+  if (!sel) return;
+  var atual = sel.value;
+  var opcoes = ['<option value="">— escolha o tipo de fio —</option>'];
+  (tipos || []).forEach(function (t) {
+    opcoes.push('<option value="' + escAttr(t) + '">' + t + '</option>');
+  });
+  opcoes.push('<option value="__novo__">+ Novo tipo de fio…</option>');
+  sel.innerHTML = opcoes.join('');
+  // Preserva a seleção anterior (ex.: "__novo__" enquanto digita), se ainda válida.
+  if (atual && Array.prototype.some.call(sel.options, function (o) { return o.value === atual; })) {
+    sel.value = atual;
+  }
+}
+
 function lancarNfFioCru() {
   var msg = document.getElementById('fc-msg');
+  var sel = document.getElementById('fc-tipo');
+  var tipoFio = sel.value === '__novo__'
+    ? document.getElementById('fc-tipo-novo').value.trim()
+    : sel.value;
+  if (!tipoFio) {
+    msg.innerHTML = '<div class="aviso erro">Escolha o tipo de fio (ou informe um novo).</div>';
+    return;
+  }
   var dados = {
-    tipoFio: document.getElementById('fc-tipo').value,
+    tipoFio: tipoFio,
     nf: document.getElementById('fc-nf').value,
     fornecedor: document.getElementById('fc-fornecedor').value,
     quantidade: document.getElementById('fc-qtd').value,
@@ -2089,9 +2130,12 @@ function lancarNfFioCru() {
     .then(function () {
       btn.disabled = false;
       msg.innerHTML = '<div class="aviso ok">NF lançada.</div>';
-      ['fc-tipo', 'fc-nf', 'fc-fornecedor', 'fc-qtd', 'fc-preco'].forEach(function (id) {
+      ['fc-nf', 'fc-fornecedor', 'fc-qtd', 'fc-preco', 'fc-tipo-novo'].forEach(function (id) {
         document.getElementById(id).value = '';
       });
+      document.getElementById('fc-tipo-novo').style.display = 'none';
+      sel.value = '';
+      // Recarrega o estoque: o tipo novo (se houver) já entra no seletor.
       carregarEstoqueFioCru();
     })
     .catch(function (err) {
@@ -2172,6 +2216,174 @@ function renderAjustesFioCru(linhas) {
       '<th style="width:24%">Motivo</th><th style="text-align:right;width:14%">Saldo após</th>' +
       '<th style="width:14%">Usuário</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/* ------------------- view: Importar NF (Fio Crú) ------------------- */
+// Lê o XML da NFe, descobre a filial pelo CNPJ (universal — não depende da
+// unidade ativa) e cadastra os lotes no estoque de fio crú da fábrica certa.
+// Cada descrição de produto da NF é associada a um tipo de fio já existente
+// (seletor das duas fábricas — sem digitar, pra não duplicar grafia), com
+// opção de tipo novo; a associação fica memorizada (ver NotaFioCru.gs).
+var estadoImportNf = { info: null };
+
+function viewImportarNfFioCru(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Importar NF de Fio Crú (XML)</h2>' +
+      '<p class="desc">Envie o <b>XML</b> da NFe. O sistema identifica a filial pelo CNPJ (destinatário ou ' +
+      'local de entrega, no caso de nota triangular) e cadastra os lotes no estoque de fio crú da fábrica ' +
+      'certa — não importa qual empresa está selecionada agora. Para cada produto da nota, escolha o tipo ' +
+      'de fio correspondente no estoque (a associação fica salva para as próximas). O PDF (DANFE) entra ' +
+      'numa etapa futura.</p>' +
+      '<div class="linha-form">' +
+        '<div class="campo"><label for="nf-file">Arquivo XML da NFe</label>' +
+          '<input type="file" id="nf-file" accept=".xml,text/xml,application/xml"></div>' +
+        '<button class="btn-principal" id="btn-ler-nf">Ler XML</button>' +
+      '</div>' +
+      '<div id="nf-msg"></div>' +
+    '</section>' +
+    '<section class="painel" id="painel-nf-preview" style="display:none">' +
+      '<h2>Conferência</h2>' +
+      '<div id="nf-cabecalho"></div>' +
+      '<div class="tabela-wrap" id="tabela-nf-itens"></div>' +
+      '<div style="margin-top:16px">' +
+        '<button class="btn-principal" id="btn-gravar-nf">Cadastrar no estoque</button>' +
+      '</div>' +
+      '<div id="nf-msg2"></div>' +
+    '</section>';
+
+  document.getElementById('btn-ler-nf').onclick = lerXmlNfFioCru;
+  document.getElementById('btn-gravar-nf').onclick = confirmarImportNfFioCru;
+}
+
+function lerXmlNfFioCru() {
+  var msg = document.getElementById('nf-msg');
+  var f = document.getElementById('nf-file').files[0];
+  if (!f) { msg.innerHTML = '<div class="aviso erro">Escolha o arquivo XML.</div>'; return; }
+  var btn = document.getElementById('btn-ler-nf');
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Lendo o XML…</span></div>';
+  var reader = new FileReader();
+  reader.onload = function () {
+    var b64 = String(reader.result).split(',')[1];
+    chamar('analisarNfFioCruXml', sessao.token, b64, f.name)
+      .then(function (r) {
+        btn.disabled = false;
+        estadoImportNf.info = r;
+        msg.innerHTML = '<div class="aviso ok">NF ' + r.nf + ' lida — filial ' + r.filialRotulo + '.</div>';
+        renderImportNfFioCru();
+        document.getElementById('painel-nf-preview').style.display = '';
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        var m = tratarErro(err);
+        if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+      });
+  };
+  reader.onerror = function () { btn.disabled = false; msg.innerHTML = '<div class="aviso erro">Falha ao ler o arquivo.</div>'; };
+  reader.readAsDataURL(f);
+}
+
+/** Monta o <select> de tipo de fio de uma linha (tipos das duas fábricas +
+ * opção de novo tipo), já com o valor conhecido pré-selecionado. */
+function _selectTipoNf(idx, selecionado) {
+  var tipos = (estadoImportNf.info && estadoImportNf.info.tiposFio) || [];
+  var achouSel = false;
+  var opts = ['<option value="">— escolha o tipo de fio —</option>'];
+  tipos.forEach(function (t) {
+    var sel = (t === selecionado);
+    if (sel) achouSel = true;
+    opts.push('<option value="' + escAttr(t) + '"' + (sel ? ' selected' : '') + '>' + t + '</option>');
+  });
+  opts.push('<option value="__novo__">+ Novo tipo de fio…</option>');
+  return '<select class="assoc-select nf-tipo-sel" data-idx="' + idx + '">' + opts.join('') + '</select>' +
+    '<input type="text" class="nf-tipo-novo" data-idx="' + idx + '" placeholder="descrição do novo tipo" ' +
+      'style="display:none;margin-top:6px">';
+}
+
+function renderImportNfFioCru() {
+  var info = estadoImportNf.info;
+  if (!info) return;
+  var cab = document.getElementById('nf-cabecalho');
+  var avisos = '';
+  if (info.triangular) {
+    avisos += '<div class="aviso" style="background:#FDEEE0;color:#9A3E00">Nota triangular — filial ' +
+      'definida pelo <b>local de entrega</b>.</div>';
+  }
+  if (info.jaLancada) {
+    avisos += '<div class="aviso erro">Já existe lote(s) desta NF (' + info.nf + ') no estoque de ' +
+      info.filialRotulo + '. Ao gravar, os que já existem são pulados (não duplica).</div>';
+  }
+  cab.innerHTML =
+    '<p style="margin:0 0 12px;font-size:14px">' +
+      'Filial: <b>' + info.filialRotulo + '</b> &nbsp;·&nbsp; NF: <b>' + info.nf + '</b> &nbsp;·&nbsp; ' +
+      'Fornecedor: <b>' + (info.fornecedor || '—') + '</b> &nbsp;·&nbsp; Data: <b>' + (info.dataFmt || '—') + '</b>' +
+    '</p>' + avisos;
+
+  var body = info.itens.map(function (it, i) {
+    var precisa = !it.tipoFio;
+    return '<tr' + (precisa ? ' class="destaque"' : '') + '>' +
+      '<td>' + (it.descricao || '—') + '</td>' +
+      '<td style="text-align:right">' + num(it.quantidade) + (it.unidade ? ' ' + it.unidade : '') + '</td>' +
+      '<td style="text-align:right">' + (it.precoUnitario ? num(it.precoUnitario) : '—') + '</td>' +
+      '<td>' + _selectTipoNf(i, it.tipoFio) + '</td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('tabela-nf-itens').innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:44%">Produto na NF</th><th style="text-align:right;width:14%">Quantidade</th>' +
+      '<th style="text-align:right;width:14%">Preço unit.</th><th style="width:28%">Tipo de fio no estoque</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+
+  Array.prototype.forEach.call(document.querySelectorAll('.nf-tipo-sel'), function (sel) {
+    sel.addEventListener('change', function () {
+      var idx = sel.getAttribute('data-idx');
+      var novo = document.querySelector('.nf-tipo-novo[data-idx="' + idx + '"]');
+      var ehNovo = sel.value === '__novo__';
+      novo.style.display = ehNovo ? '' : 'none';
+      if (ehNovo) novo.focus(); else novo.value = '';
+    });
+  });
+}
+
+function confirmarImportNfFioCru() {
+  var info = estadoImportNf.info;
+  var msg = document.getElementById('nf-msg2');
+  if (!info) return;
+  var itens = [];
+  for (var i = 0; i < info.itens.length; i++) {
+    var sel = document.querySelector('.nf-tipo-sel[data-idx="' + i + '"]');
+    var tipoFio = sel.value === '__novo__'
+      ? document.querySelector('.nf-tipo-novo[data-idx="' + i + '"]').value.trim()
+      : sel.value;
+    if (!tipoFio) {
+      msg.innerHTML = '<div class="aviso erro">Falta escolher o tipo de fio de "' +
+        info.itens[i].descricao + '".</div>';
+      return;
+    }
+    itens.push({
+      descricao: info.itens[i].descricao, tipoFio: tipoFio,
+      quantidade: info.itens[i].quantidade, precoUnitario: info.itens[i].precoUnitario
+    });
+  }
+  var btn = document.getElementById('btn-gravar-nf');
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Cadastrando…</span></div>';
+  chamar('gravarNfFioCruXml', sessao.token, {
+    filialId: info.filialId, nf: info.nf, fornecedor: info.fornecedor, dataIso: info.dataIso, itens: itens
+  }).then(function (r) {
+    btn.disabled = false;
+    var extra = r.jaExistiam ? ' (' + r.jaExistiam + ' já existia(m), pulado(s))' : '';
+    msg.innerHTML = '<div class="aviso ok">' + r.lancados + ' lote(s) cadastrado(s) no estoque de ' +
+      r.filialRotulo + extra + '.</div>';
+    document.getElementById('nf-file').value = '';
+    estadoImportNf.info = null;
+    setTimeout(function () { document.getElementById('painel-nf-preview').style.display = 'none'; }, 1500);
+  }).catch(function (err) {
+    btn.disabled = false;
+    var m = tratarErro(err);
+    if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+  });
 }
 
 /* --------------------- view: Consulta de Estoque ------------------ */

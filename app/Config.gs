@@ -15,8 +15,10 @@ var CONFIG = {
    * de uma implantação separada por empresa.
    */
   UNIDADES: [
-    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA' },
-    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA' }
+    // cnpjPadrao (só dígitos) identifica a filial ao importar NF de fio crú;
+    // pode ser sobrescrito por CNPJ_CEARA/CNPJ_BAHIA nas Propriedades do script.
+    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA', propCnpj: 'CNPJ_CEARA', cnpjPadrao: '19542918000190' },
+    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA', propCnpj: 'CNPJ_BAHIA', cnpjPadrao: '05645301000196' }
   ],
 
   /** Unidade usada quando o login ainda não escolheu nenhuma. */
@@ -60,6 +62,38 @@ var CONFIG = {
     return id;
   },
 
+  /**
+   * CNPJ (só dígitos) da unidade, pra identificar a filial ao importar uma NF
+   * de fio crú (o destinatário/entrega da NFe). Definido em Propriedades do
+   * script (CNPJ_CEARA / CNPJ_BAHIA). Vazio se não configurado.
+   */
+  getCnpjUnidade: function (unidadeId) {
+    var u = this.getUnidadeInfo(unidadeId);
+    var v = u.propCnpj ? PropertiesService.getScriptProperties().getProperty(u.propCnpj) : '';
+    if (!v) v = u.cnpjPadrao || '';
+    return v ? String(v).replace(/\D/g, '') : '';
+  },
+
+  /**
+   * Descobre a unidade a partir de uma lista de CNPJs candidatos (ex.: o
+   * destinatário e o local de entrega de uma NFe, nesta ordem de prioridade —
+   * o local de entrega vem primeiro pra tratar NF triangular, em que a
+   * mercadoria é entregue numa filial diferente da faturada). Devolve o id da
+   * unidade cujo CNPJ configurado bater, ou null se nenhum bater.
+   */
+  detectarUnidadePorCnpj: function (candidatos) {
+    var mapa = {};
+    this.UNIDADES.forEach(function (u) {
+      var c = CONFIG.getCnpjUnidade(u.id);
+      if (c) mapa[c] = u.id;
+    });
+    for (var i = 0; i < (candidatos || []).length; i++) {
+      var c = String(candidatos[i] || '').replace(/\D/g, '');
+      if (c && mapa[c]) return mapa[c];
+    }
+    return null;
+  },
+
   /** Papéis de usuário reconhecidos pelo sistema. */
   PAPEIS: {
     MASTER: 'master',
@@ -94,7 +128,8 @@ var CONFIG = {
     FIO_CRU_ENTRADAS: 'FIO_CRU_ENTRADAS', // lotes de fio crú recebidos (um por NF + tipo de fio)
     FIO_CRU_BAIXAS: 'FIO_CRU_BAIXAS',     // histórico de baixas no fio crú (tingimento consumindo os lotes)
     ASSOCIACAO_FIO_CRU: 'ASSOCIACAO_FIO_CRU', // tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de fio crú
-    FIO_CRU_AJUSTES: 'FIO_CRU_AJUSTES' // ajustes manuais de saldo (ex.: contagem física), nunca altera a QUANTIDADE original da NF
+    FIO_CRU_AJUSTES: 'FIO_CRU_AJUSTES', // ajustes manuais de saldo (ex.: contagem física), nunca altera a QUANTIDADE original da NF
+    MAPA_FIO_CRU: 'MAPA_FIO_CRU' // aprendizado: descrição do produto na NF → tipo de fio do estoque (universal)
   },
 
   /** Duração da sessão (token de login), em horas. */
