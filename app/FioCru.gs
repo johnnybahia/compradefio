@@ -446,7 +446,7 @@ function obterListaFioParaTingir(token) {
   });
   return {
     ok: true,
-    numeroPedido: _numeroPedidoAtual(),
+    numeroPedido: _numeroPedidoRelatorio(),
     dataPedido: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
     linhas: linhas
   };

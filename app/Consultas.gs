@@ -90,7 +90,7 @@ function obterRelatorioCompraAtual(token) {
   });
   return {
     ok: true,
-    numeroPedido: _numeroPedidoAtual(),
+    numeroPedido: _numeroPedidoRelatorio(),
     dataPedido: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
     // Horário de Fortaleza/Brasil sempre — fixo, não depende do fuso horário
     // configurado no projeto do Apps Script (Project Settings). Separado da
@@ -160,6 +160,34 @@ function _numeroPedidoAtual() {
 /** Grava explicitamente o próximo número do pedido desta unidade. */
 function _definirNumeroPedido(n) {
   PropertiesService.getScriptProperties().setProperty(_propUnidade('NUMERO_PEDIDO_FIO'), String(n));
+}
+
+/**
+ * Número do ÚLTIMO pedido REALMENTE enviado por e-mail nesta unidade (ou
+ * null se nenhum envio aconteceu ainda) — diferente de `_numeroPedidoAtual`,
+ * que já é o PRÓXIMO número (reservado, ainda não usado). Usado pelas telas
+ * que só exibem a lista (Relatório, Quantidade Tingida): elas mostram o
+ * pedido que já foi mandado, e só trocam de número quando outro e-mail for
+ * enviado de verdade — ver `_numeroPedidoRelatorio`.
+ */
+function _ultimoNumeroPedidoEnviado() {
+  var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('NUMERO_PEDIDO_FIO_ULTIMO_ENVIADO'));
+  var n = parseInt(v, 10);
+  return (v && !isNaN(n)) ? n : null;
+}
+function _definirUltimoNumeroPedidoEnviado(n) {
+  PropertiesService.getScriptProperties().setProperty(_propUnidade('NUMERO_PEDIDO_FIO_ULTIMO_ENVIADO'), String(n));
+}
+
+/**
+ * Número a exibir nas telas de leitura (Relatório, Quantidade Tingida): o do
+ * último e-mail já enviado. Antes do primeiro envio desta unidade (nenhum
+ * "último" ainda gravado), cai no próximo da sequência — não tem outro
+ * número pra mostrar até o primeiro pedido realmente sair.
+ */
+function _numeroPedidoRelatorio() {
+  var u = _ultimoNumeroPedidoEnviado();
+  return u != null ? u : _numeroPedidoAtual();
 }
 
 /**
@@ -247,6 +275,10 @@ function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
   // automático), não do que estava salvo antes — é assim que um ajuste
   // manual "gruda" na sequência dali pra frente.
   _definirNumeroPedido(numero + 1);
+  // Registra também como "último enviado" — é isso que as telas de leitura
+  // (Relatório, Quantidade Tingida) mostram, pra não exibirem o próximo
+  // número (ainda não usado) antes da hora.
+  _definirUltimoNumeroPedidoEnviado(numero);
   // Guarda a data final da análise que gerou esse envio — a próxima Análise
   // de Compra já abre com "data inicial" nesse valor, pra continuar de onde
   // esta parou (ver `obterUltimaDataFimCompra`).
