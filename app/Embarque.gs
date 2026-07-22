@@ -311,7 +311,7 @@ function _avancarNumeroEmbarqueManual() {
  * @return {Object} { ok, numero, gravados, baixados, resumo }
  */
 function confirmarEmbarqueManual(token, params) {
-  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   params = params || {};
   var itens = (params.itens || [])
     .filter(function (it) { return it.item && Number(it.quantidade) > 0; })
@@ -531,7 +531,7 @@ function listarUltimosEmbarques(token, limite) {
  * @param {number} limite  quantas linhas devolver — padrão 200.
  */
 function listarHistoricoEmbarquesConfirmados(token, limite) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.ALMOX1]);
   limite = parseInt(limite, 10) || 200;
   var regs = lerRegistros(CONFIG.SHEETS.EMBARQUES);
   var linhas = regs.map(function (r) {
