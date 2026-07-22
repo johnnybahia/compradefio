@@ -261,7 +261,7 @@ function _listarTiposFioEstoqueTodasUnidades() {
  * @return {Object} { ok, linhas:[{tipoFioBase,tipoFioEstoque}], opcoesEstoque:[...] }
  */
 function listarAssociacaoFioCru(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var mapa = _lerMapaTipoFio();
   var linhas = _listarTiposFioBase().map(function (t) {
     return { tipoFioBase: t, tipoFioEstoque: mapa[_norm(t)] || '' };
@@ -272,7 +272,7 @@ function listarAssociacaoFioCru(token) {
 /** Salva (cria ou atualiza) a associação de UM tipo de fio da base com a
  * descrição do estoque — universal, vale pra todas as unidades. */
 function salvarAssociacaoFioCru(token, tipoFioBase, tipoFioEstoque) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   tipoFioBase = String(tipoFioBase || '').trim();
   if (!tipoFioBase) throw new Error('Tipo de fio inválido.');
   tipoFioEstoque = String(tipoFioEstoque == null ? '' : tipoFioEstoque).trim();
@@ -453,7 +453,10 @@ function _nfsDoItem(item) {
  * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido}] }
  */
 function obterListaFioParaTingir(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  // Lida por três telas com direitos diferentes: Quantidade Tingida
+  // (tingimento edita, almoxarifado1 só vê) e Confirmar Embarque
+  // (almoxarifado1 edita, tingimento só vê) — a leitura em si vale pros três.
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.ALMOX1]);
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   var tingidoPorItem = _tingidoPorItem();
   var linhas = regs.map(function (r) {
@@ -493,7 +496,7 @@ function _tipoFioDoItemPendente(item) {
  * @param {Object} params { item, quantidade }
  */
 function registrarQuantidadeTingida(token, params) {
-  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   params = params || {};
   var item = String(params.item || '').trim();
   if (!item) throw new Error('Informe o item.');
@@ -518,7 +521,7 @@ function registrarQuantidadeTingida(token, params) {
  * novo total for menor — ver `_ajustarBaixaFioCru`), nunca duplica.
  */
 function corrigirQuantidadeTingida(token, item, novoTotal) {
-  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   item = String(item || '').trim();
   if (!item) throw new Error('Informe o item.');
   novoTotal = Number(novoTotal);
@@ -554,7 +557,7 @@ function _tingidoPorItem() {
  * estoque (ver histórico, conferir saldos). Acessível só ao master por ora.
  */
 function listarEstoqueFioCru(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var linhas = _saldosFioCru().map(function (l) {
     return {
       linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
@@ -581,7 +584,7 @@ function listarEstoqueFioCru(token) {
  * de lotes individuais.
  */
 function listarSaldoPorTipoFio(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var porTipo = {};
   _saldosFioCru().filter(function (l) { return !l.cancelado; }).forEach(function (l) {
     var t = l.tipoFio || '(sem tipo)';
@@ -626,7 +629,7 @@ function _rotuloPeriodoFioCru(chave, agrupamento) {
  * @return {Object} { ok, linhas:[{tipoFio,periodo,quantidade}], totais:[{tipoFio,quantidade}] }
  */
 function listarConsumoFioCru(token, dataInicio, dataFim, agrupamento) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var inicio = _parseDataISO(dataInicio);
   var fim = _parseDataISO(dataFim);
   if (!inicio || !fim) throw new Error('Informe as datas de início e fim.');
@@ -669,7 +672,7 @@ function listarConsumoFioCru(token, dataInicio, dataFim, agrupamento) {
  * marcar um novo desmarca o anterior automaticamente.
  */
 function definirInicioBaixaFioCru(token, linha) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   _prepararFioCruEntradas();
@@ -686,7 +689,7 @@ function definirInicioBaixaFioCru(token, linha) {
 
 /** Remove a marcação de início de baixa (volta ao FIFO normal, desde o começo). */
 function removerInicioBaixaFioCru(token, linha) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   _prepararFioCruEntradas();
@@ -704,7 +707,7 @@ function removerInicioBaixaFioCru(token, linha) {
  * corrigir isso antes de qualquer baixa acontecer no lote.
  */
 function editarLoteFioCru(token, linha, campo, valor) {
-  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   if (FIO_CRU_CAMPOS_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
@@ -738,7 +741,7 @@ function editarLoteFioCru(token, linha, campo, valor) {
  * @param {string} motivo Justificativa do ajuste (obrigatória).
  */
 function ajustarSaldoFioCru(token, linha, delta, motivo) {
-  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   delta = Number(delta);
@@ -759,7 +762,7 @@ function ajustarSaldoFioCru(token, linha, delta, motivo) {
 
 /** Histórico de ajustes manuais de saldo (mais recente primeiro), pra tela de administração. */
 function listarAjustesFioCru(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var regs = lerRegistros(CONFIG.SHEETS.FIO_CRU_AJUSTES);
   var linhas = regs.map(function (r) {
     return {
@@ -776,7 +779,7 @@ function listarAjustesFioCru(token) {
 
 /** Histórico de baixas do fio crú (mais recente primeiro), pra tela de administração. */
 function listarBaixasFioCru(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var regs = lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS);
   var linhas = regs.map(function (r) {
     return {
@@ -812,7 +815,7 @@ function _linhaFioCruEntrada(o) {
  * @param {Object} params { tipoFio, nf, fornecedor, quantidade, precoUnitario, data:'yyyy-MM-dd' }
  */
 function lancarNotaFioCru(token, params) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   params = params || {};
   var tipoFio = String(params.tipoFio || '').trim();
   var nf = String(params.nf || '').trim();
@@ -837,7 +840,7 @@ function lancarNotaFioCru(token, params) {
  * mas o histórico de baixas já feito nela continua registrado).
  */
 function definirSituacaoFioCru(token, linha, cancelado) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   atualizarCelula(CONFIG.SHEETS.FIO_CRU_ENTRADAS, linha, 'SITUACAO', cancelado ? 'CANCELADO' : '');

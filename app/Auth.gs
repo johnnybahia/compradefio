@@ -2,17 +2,43 @@
  * Auth.gs
  * Autenticação própria (usuário/senha), independente de conta Google.
  *
- * - Senhas: nunca são armazenadas em texto. Guardamos um salt aleatório por
- *   usuário e o hash SHA-256 iterado (salt + senha).
+ * - Senhas: NUNCA armazenadas em texto puro. O login sempre valida pelo hash
+ *   (salt aleatório por usuário + SHA-256 iterado) — irreversível, é o que
+ *   protege a conta de verdade. Além disso, SENHA_LEGIVEL guarda a mesma
+ *   senha cifrada de forma REVERSÍVEL (cifrador de fluxo com chave só nas
+ *   Propriedades do Script — nunca na planilha), só pra permitir ao master
+ *   "ver" a senha de um usuário na tela (ver `_cifrarSenha`/`_decifrarSenha`,
+ *   `revelarSenhaUsuario`). Quem abre a planilha direto não lê nada — vê só
+ *   texto cifrado, tanto no hash quanto na coluna legível.
  * - Sessão: token assinado (HMAC-SHA256) e sem estado no servidor. O token
  *   carrega usuário, papel e validade; a assinatura impede adulteração.
  *
  * Estrutura da aba USUARIOS:
- *   USUARIO | NOME | PAPEL | SALT | SENHA_HASH | ATIVO
+ *   USUARIO | NOME | PAPEL | SALT | SENHA_HASH | ATIVO | SENHA_LEGIVEL
  */
 
-var USUARIOS_HEADERS = ['USUARIO', 'NOME', 'PAPEL', 'SALT', 'SENHA_HASH', 'ATIVO'];
+var USUARIOS_HEADERS = ['USUARIO', 'NOME', 'PAPEL', 'SALT', 'SENHA_HASH', 'ATIVO', 'SENHA_LEGIVEL'];
 var HASH_ITERACOES = 1000;
+
+/**
+ * Garante que a aba USUARIOS tem todas as colunas do cabeçalho atual —
+ * acrescenta no fim as que ainda não existirem (ex.: SENHA_LEGIVEL,
+ * adicionada depois da primeira versão), sem apagar nada.
+ */
+function _prepararUsuarios() {
+  var ssAuth = _ssAutenticacao();
+  var sh = _aba(CONFIG.SHEETS.USUARIOS, USUARIOS_HEADERS, ssAuth);
+  var largura = sh.getLastColumn();
+  var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+  USUARIOS_HEADERS.forEach(function (h) {
+    if (atuais.indexOf(h) === -1) {
+      atuais.push(h);
+      sh.getRange(1, atuais.length).setValue(h)
+        .setFontWeight('bold').setBackground('#0F5FA0').setFontColor('#FFFFFF');
+    }
+  });
+  return sh;
+}
 
 /**
  * A aba USUARIOS é global (as mesmas credenciais servem para todas as
@@ -47,6 +73,69 @@ function _hashSenha(senha, salt) {
     atual = _bytesParaHex(bytes);
   }
   return atual;
+}
+
+/* ------------------------- Senha legível (reversível) -------------------- */
+// NÃO substitui o hash acima (que continua sendo o único usado pra validar
+// login). Isto é só pra o master poder "ver" a senha de um usuário na tela —
+// ver o aviso no topo do arquivo.
+
+/** Chave secreta da cifra — só nas Propriedades do Script, nunca na
+ * planilha. Gerada automaticamente na primeira vez que for necessária. */
+function _chaveSenhaLegivel() {
+  var props = PropertiesService.getScriptProperties();
+  var k = props.getProperty('CHAVE_SENHA_LEGIVEL');
+  if (!k) {
+    k = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('CHAVE_SENHA_LEGIVEL', k);
+  }
+  return k;
+}
+
+/** `tamanho` bytes de keystream determinístico (chave + nonce), gerados em
+ * blocos de HMAC-SHA256 num contador crescente — mesma ideia de um cifrador
+ * de fluxo (tipo AES-CTR), usando HMAC como função pseudo-aleatória por não
+ * haver uma cifra de bloco nativa disponível no Apps Script. */
+function _keystreamSenha(nonce, tamanho) {
+  var chave = _chaveSenhaLegivel();
+  var bytes = [];
+  var contador = 0;
+  while (bytes.length < tamanho) {
+    bytes = bytes.concat(Utilities.computeHmacSha256Signature(nonce + '|' + contador, chave));
+    contador++;
+  }
+  return bytes.slice(0, tamanho);
+}
+
+/** Converte um valor 0-255 pro intervalo de byte assinado (-128..127) que o
+ * Apps Script espera ao montar um Blob a partir de um array de números. */
+function _paraByteAssinado(v) {
+  v = v & 0xFF;
+  return v >= 128 ? v - 256 : v;
+}
+
+/** Cifra um texto de forma REVERSÍVEL — devolve "nonce.cifradoBase64". Nonce
+ * novo a cada chamada (nunca reaproveita o mesmo trecho de keystream). */
+function _cifrarSenha(texto) {
+  var nonce = Utilities.getUuid();
+  var claros = Utilities.newBlob(String(texto == null ? '' : texto)).getBytes();
+  var ks = _keystreamSenha(nonce, claros.length);
+  var cifrados = claros.map(function (b, i) { return _paraByteAssinado((b & 0xFF) ^ (ks[i] & 0xFF)); });
+  return nonce + '.' + Utilities.base64EncodeWebSafe(cifrados);
+}
+
+/** Decifra um texto gravado por `_cifrarSenha`. Devolve '' se o valor não
+ * tiver o formato esperado (ex.: usuário criado antes deste recurso existir —
+ * sem senha legível gravada, só o hash de login). */
+function _decifrarSenha(valor) {
+  valor = String(valor || '');
+  var i = valor.indexOf('.');
+  if (i === -1) return '';
+  var nonce = valor.substring(0, i);
+  var cifrados = Utilities.base64DecodeWebSafe(valor.substring(i + 1));
+  var ks = _keystreamSenha(nonce, cifrados.length);
+  var claros = cifrados.map(function (b, idx) { return _paraByteAssinado((b & 0xFF) ^ (ks[idx] & 0xFF)); });
+  return Utilities.newBlob(claros).getDataAsString('UTF-8');
 }
 
 /* ------------------------------- Token --------------------------------- */
@@ -199,21 +288,30 @@ function trocarUnidade(token, unidadeId) {
 
 /* ----------------------- Administração de usuários --------------------- */
 
+/** true se o valor da coluna ATIVO representa "ativo" (mesma regra do login). */
+function _usuarioAtivo(valorAtivo) {
+  var v = String(valorAtivo).trim().toUpperCase();
+  return v !== 'NÃO' && v !== 'NAO' && valorAtivo !== false;
+}
+
 /**
- * Cria ou atualiza um usuário (uso administrativo, chamado pelo master).
- * `dados` = { usuario, nome, papel, senha, ativo }.
+ * Núcleo de criar/atualizar usuário — sem checar sessão, porque também é
+ * chamado por `inicializarSistema` (rodado direto pelo editor do Apps
+ * Script, sem token). Uso pela tela: sempre pela função pública
+ * `salvarUsuario`, que exige sessão de master.
+ * `dados` = { usuario, nome, papel, senha, ativo }. Se `senha` vier vazia
+ * numa edição, mantém a senha (hash e legível) que já existia.
  */
-function salvarUsuario(dados) {
+function _salvarUsuarioInterno(dados) {
+  dados = dados || {};
   var usuario = (dados.usuario || '').toString().trim().toLowerCase();
   if (!usuario) throw new Error('Usuário é obrigatório.');
   if (CONFIG.PAPEIS_VALIDOS.indexOf(dados.papel) === -1) {
     throw new Error('Papel inválido: ' + dados.papel);
   }
 
-  var salt = _gerarSalt();
-  var hash = _hashSenha(String(dados.senha || ''), salt);
   var ssAuth = _ssAutenticacao();
-  var sh = _aba(CONFIG.SHEETS.USUARIOS, USUARIOS_HEADERS, ssAuth);
+  _prepararUsuarios();
   var registros = lerRegistros(CONFIG.SHEETS.USUARIOS, ssAuth);
   var existente = registros.filter(function (r) {
     return String(r.USUARIO).trim().toLowerCase() === usuario;
@@ -223,23 +321,85 @@ function salvarUsuario(dados) {
     USUARIO: usuario,
     NOME: dados.nome || usuario,
     PAPEL: dados.papel,
-    SALT: salt,
-    SENHA_HASH: hash,
     ATIVO: dados.ativo === false ? 'NÃO' : 'SIM'
   };
 
+  if (dados.senha) {
+    linha.SALT = _gerarSalt();
+    linha.SENHA_HASH = _hashSenha(String(dados.senha), linha.SALT);
+    linha.SENHA_LEGIVEL = _cifrarSenha(String(dados.senha));
+  } else if (existente) {
+    linha.SALT = existente.SALT;
+    linha.SENHA_HASH = existente.SENHA_HASH;
+    linha.SENHA_LEGIVEL = existente.SENHA_LEGIVEL;
+  } else {
+    throw new Error('Informe uma senha para o novo usuário.');
+  }
+
   if (existente) {
-    // Se a senha vier vazia numa edição, mantém a senha atual.
-    if (!dados.senha) {
-      linha.SALT = existente.SALT;
-      linha.SENHA_HASH = existente.SENHA_HASH;
-    }
     USUARIOS_HEADERS.forEach(function (col) {
       atualizarCelula(CONFIG.SHEETS.USUARIOS, existente.__row, col, linha[col], ssAuth);
     });
   } else {
     acrescentarRegistro(CONFIG.SHEETS.USUARIOS, linha, USUARIOS_HEADERS, ssAuth);
   }
+  return { ok: true };
+}
+
+/**
+ * Cria ou atualiza um usuário — só o master, pela tela de Usuários.
+ * `dados` = { usuario, nome, papel, senha, ativo }.
+ */
+function salvarUsuario(token, dados) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  return _salvarUsuarioInterno(dados);
+}
+
+/** Lista os usuários (sem hash/senha) — só o master, pra tela de gestão. */
+function listarUsuarios(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  _prepararUsuarios();
+  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS, _ssAutenticacao());
+  return {
+    ok: true,
+    usuarios: registros.map(function (r) {
+      return {
+        usuario: r.USUARIO, nome: r.NOME, papel: r.PAPEL,
+        ativo: _usuarioAtivo(r.ATIVO)
+      };
+    })
+  };
+}
+
+/**
+ * Decifra e devolve a senha de UM usuário — só quando o master pede
+ * explicitamente (botão "ver senha"), nunca junto da listagem geral, pra não
+ * expor todas as senhas de uma vez numa única chamada.
+ */
+function revelarSenhaUsuario(token, usuario) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  usuario = String(usuario || '').trim().toLowerCase();
+  _prepararUsuarios();
+  var r = lerRegistros(CONFIG.SHEETS.USUARIOS, _ssAutenticacao())
+    .filter(function (x) { return String(x.USUARIO).trim().toLowerCase() === usuario; })[0];
+  if (!r) throw new Error('Usuário não encontrado.');
+  var senha = _decifrarSenha(r.SENHA_LEGIVEL);
+  if (!senha) {
+    throw new Error('Este usuário não tem senha legível gravada (foi criado antes deste recurso) — defina uma senha nova pra ele.');
+  }
+  return { ok: true, senha: senha };
+}
+
+/** Ativa/desativa um usuário sem precisar reenviar nome/papel/senha. */
+function definirAtivoUsuario(token, usuario, ativo) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  usuario = String(usuario || '').trim().toLowerCase();
+  var ssAuth = _ssAutenticacao();
+  _prepararUsuarios();
+  var r = lerRegistros(CONFIG.SHEETS.USUARIOS, ssAuth)
+    .filter(function (x) { return String(x.USUARIO).trim().toLowerCase() === usuario; })[0];
+  if (!r) throw new Error('Usuário não encontrado.');
+  atualizarCelula(CONFIG.SHEETS.USUARIOS, r.__row, 'ATIVO', ativo ? 'SIM' : 'NÃO', ssAuth);
   return { ok: true };
 }
 
@@ -251,7 +411,7 @@ function salvarUsuario(dados) {
  */
 function inicializarSistema() {
   var ssAuth = _ssAutenticacao();
-  _aba(CONFIG.SHEETS.USUARIOS, USUARIOS_HEADERS, ssAuth);
+  _prepararUsuarios();
   var jaExiste = lerRegistros(CONFIG.SHEETS.USUARIOS, ssAuth).some(function (r) {
     return String(r.PAPEL).trim() === CONFIG.PAPEIS.MASTER;
   });
@@ -261,7 +421,7 @@ function inicializarSistema() {
   }
   var senha = PropertiesService.getScriptProperties()
     .getProperty('SENHA_MASTER_INICIAL') || 'marfim@123';
-  salvarUsuario({
+  _salvarUsuarioInterno({
     usuario: 'master',
     nome: 'Administrador',
     papel: CONFIG.PAPEIS.MASTER,

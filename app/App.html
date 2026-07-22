@@ -87,6 +87,15 @@ var ROTULO_PAPEL = {
   almoxarifado1: 'Almoxarifado 1', almoxarifado2: 'Almoxarifado 2'
 };
 
+/** true se o papel da sessão atual está na lista de papéis que podem EDITAR
+ * uma tela (não só ver) — usado em telas que várias papéis acessam, mas só
+ * alguns podem alterar (ex.: Quantidade Tingida e Confirmar Embarque). O
+ * servidor sempre confere de novo (ver `exigirSessao`); isto é só pra não
+ * mostrar controles de edição a quem não pode usá-los. */
+function podeEditar(papeisComEdicao) {
+  return papeisComEdicao.indexOf(sessao.papel) !== -1;
+}
+
 /* Menu por papel. O master enxerga tudo; cada operador só o que é dele. */
 var MENUS = {
   master: [
@@ -100,19 +109,33 @@ var MENUS = {
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
     { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') },
-    { id: 'usuarios',   rotulo: 'Usuários',            render: emConstrucao('Cadastro de usuários') }
+    { id: 'usuarios',   rotulo: 'Usuários',            render: viewUsuarios }
   ],
+  // Tingimento: edita Quantidade Tingida (é a tela feita pra quem tinge
+  // lançar quanto foi feito); em Confirmar Embarque só pode VER (a confirmação
+  // final é decisão de logística/almoxarifado, não do chão de tingimento).
   tingimento: [
     { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
-    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
+    { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
+    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
+    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
+    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') }
   ],
+  // Almoxarifado 1: só VÊ Quantidade Tingida (não lança tingimento); edita
+  // Confirmar Embarque, Associação Fio Crú, Estoque Fio Crú e Importar NF —
+  // é quem toca o fio crú e a saída de mercadoria no dia a dia.
   almoxarifado1: [
+    { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
+    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
+    { id: 'assocfiocru',rotulo: 'Associação Fio Crú',  render: viewAssociacaoFioCru },
+    { id: 'fiocru',     rotulo: 'Estoque Fio Crú',     render: viewFioCru },
+    { id: 'importarnf', rotulo: 'Importar NF (Fio Crú)', render: viewImportarNfFioCru },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
-    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: emConstrucao('Confirmação de Embarque') },
-    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
+    { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
+    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') }
   ],
   almoxarifado2: [
-    { id: 'recebimento',rotulo: 'Confirmar Recebimento', render: emConstrucao('Confirmação de Recebimento') },
+    { id: 'recebimento',rotulo: 'Recebimento',         render: emConstrucao('Recebimento (Almoxarifado 2)') },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
   ]
 };
@@ -1095,17 +1118,23 @@ function aplicarRegua(wrap) {
 var estadoConfirmarEmbarque = { linhas: [] };
 
 function viewConfirmarEmbarque(alvo) {
-  alvo.innerHTML =
-    '<section class="painel">' +
-      '<h2>Confirmar Embarque</h2>' +
-      '<p class="desc">Marque os itens que vão embarcar agora. A quantidade já vem preenchida com o ' +
+  var editavel = podeEditar(['master', 'almoxarifado1']);
+  var desc = editavel
+    ? 'Marque os itens que vão embarcar agora. A quantidade já vem preenchida com o ' +
       'total tingido lançado até aqui — edite se precisar corrigir (a linha fica marcada como ' +
       '<b>editada</b>). Linhas em <span class="badge-tingido-completo">verde</span> já bateram o alvo de ' +
       'tingimento; em <span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele. O valor ' +
       'CONFIRMADO aqui é o que sai do estoque de fio crú e vai para o e-mail, mesmo que seja diferente do ' +
       'que foi lançado antes: este é o procedimento final. O e-mail de confirmação usa a mesma lista de ' +
       'destinatários configurada na tela de Tingimento. Use as setas ↑/↓ (ou clique numa linha) para ' +
-      'navegar item por item.</p>' +
+      'navegar item por item.'
+    : 'Somente consulta — quem confirma o embarque é o almoxarifado 1. Linhas em ' +
+      '<span class="badge-tingido-completo">verde</span> já bateram o alvo de tingimento; em ' +
+      '<span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele.';
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Confirmar Embarque</h2>' +
+      '<p class="desc">' + desc + '</p>' +
       '<div id="embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       '<div style="margin-top:16px">' +
@@ -1202,6 +1231,9 @@ function renderConfirmarEmbarque() {
   var wrap = document.getElementById('tabela-embarque-confirmar');
   var btn = document.getElementById('btn-confirmar-embarque');
   var linhas = estadoConfirmarEmbarque.linhas;
+  // Tingimento só VÊ esta tela (a confirmação final é do almoxarifado 1) —
+  // master e almoxarifado1 editam. Ver `podeEditar`.
+  var editavel = podeEditar(['master', 'almoxarifado1']);
   if (!linhas.length) {
     wrap.innerHTML = '<div class="vazio">Nenhum item pendente para embarque.</div>';
     btn.style.display = 'none';
@@ -1217,8 +1249,10 @@ function renderConfirmarEmbarque() {
     else if (status === 'parcial') badges.push('<span class="badge-tingido-parcial">tingido parcial</span>');
     if (editado) badges.push('<span class="badge-editado">editado</span>');
     return '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>' +
-      '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-embarcar" data-idx="' + i +
-        '"' + (l.selecionado ? ' checked' : '') + '></td>' +
+      (editavel
+        ? '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-embarcar" data-idx="' + i +
+          '"' + (l.selecionado ? ' checked' : '') + '></td>'
+        : '') +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td class="col-item">' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
@@ -1226,14 +1260,16 @@ function renderConfirmarEmbarque() {
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total ? num(l.total) : '—') + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg</td>' +
-      '<td><input type="number" class="qtd-embarcar-input" data-idx="' + i + '" min="0" step="any" value="' +
-        escAttr(l.quantidade) + '"></td>' +
+      '<td>' + (editavel
+        ? '<input type="number" class="qtd-embarcar-input" data-idx="' + i + '" min="0" step="any" value="' +
+          escAttr(l.quantidade) + '">'
+        : num(l.quantidade) + ' kg') + '</td>' +
       '<td>' + (badges.length ? badges.join(' ') : '—') + '</td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:5%">Embarcar</th><th style="width:7%">Solicitado em</th>' +
+      (editavel ? '<th style="width:5%">Embarcar</th>' : '') + '<th style="width:7%">Solicitado em</th>' +
       '<th style="width:9%">Item</th><th style="width:13%">Descrição</th>' +
       '<th style="width:9%">Cliente</th><th style="width:9%">Tipo de fio</th>' +
       '<th style="text-align:right;width:6%">Alvo</th>' +
@@ -1241,18 +1277,20 @@ function renderConfirmarEmbarque() {
       '<th style="width:22%">Situação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
-  Array.prototype.forEach.call(wrap.querySelectorAll('.chk-embarcar'), function (chk) {
-    chk.addEventListener('change', function () {
-      estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].selecionado = chk.checked;
+  if (editavel) {
+    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-embarcar'), function (chk) {
+      chk.addEventListener('change', function () {
+        estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].selecionado = chk.checked;
+      });
     });
-  });
-  Array.prototype.forEach.call(wrap.querySelectorAll('.qtd-embarcar-input'), function (inp) {
-    inp.addEventListener('change', function () {
-      estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))].quantidade = inp.value;
-      renderConfirmarEmbarque(); // recria a tabela pra reaplicar o destaque "editado"
+    Array.prototype.forEach.call(wrap.querySelectorAll('.qtd-embarcar-input'), function (inp) {
+      inp.addEventListener('change', function () {
+        estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))].quantidade = inp.value;
+        renderConfirmarEmbarque(); // recria a tabela pra reaplicar o destaque "editado"
+      });
     });
-  });
-  btn.style.display = '';
+  }
+  btn.style.display = editavel ? '' : 'none';
   aplicarRegua(wrap);
 }
 
@@ -1356,14 +1394,17 @@ function salvarCampoTing(inp, campo, valor, aoSalvar) {
 var estadoQuantidadeTingida = { linhas: [] };
 
 function viewQuantidadeTingida(alvo) {
+  var desc = podeEditar(['master', 'tingimento'])
+    ? 'Marque a caixa grande pra confirmar quanto foi tingido AGORA de cada item — soma ao total já ' +
+      'lançado e dá baixa no fio crú daquele tipo de fio. Errou um lançamento (ou foi só um teste)? Use o ' +
+      'botão <b>✎</b> ao lado do "Já tingido" pra corrigir o total pro valor certo. Use as setas ↑/↓ (ou ' +
+      'clique numa linha) para navegar item por item.'
+    : 'Somente consulta — quem lança a quantidade tingida é o papel Tingimento.';
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Quantidade Tingida</h2>' +
       '<p class="desc">Lista do Pedido de Fio nº <b id="qt-numero-pedido">—</b> (<b id="qt-data-pedido">—</b>). ' +
-      'Marque a caixa grande pra confirmar quanto foi tingido AGORA de cada item — soma ao total já ' +
-      'lançado e dá baixa no fio crú daquele tipo de fio. Errou um lançamento (ou foi só um teste)? Use o ' +
-      'botão <b>✎</b> ao lado do "Já tingido" pra corrigir o total pro valor certo. Use as setas ↑/↓ (ou ' +
-      'clique numa linha) para navegar item por item.</p>' +
+      desc + '</p>' +
       '<div id="qt-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-qtd-tingida"></div>' +
     '</section>';
@@ -1395,6 +1436,9 @@ function renderQuantidadeTingida() {
     wrap.innerHTML = '<div class="vazio">Nenhum item pendente para tingir.</div>';
     return;
   }
+  // Almoxarifado 1 só VÊ esta tela (não lança tingimento) — master e
+  // tingimento editam. Ver `podeEditar`.
+  var editavel = podeEditar(['master', 'tingimento']);
   var body = linhas.map(function (l, i) {
     return '<tr>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
@@ -1405,15 +1449,20 @@ function renderQuantidadeTingida() {
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg ' +
-        '<button type="button" class="btn-atualizar-data btn-corrigir-tingido" data-idx="' + i +
-          '" title="Corrigir o total tingido lançado (ex.: desfazer um lançamento errado)">✎</button></td>' +
-      '<td style="text-align:center">' +
-        '<input type="number" class="qtd-input-grande" data-idx="' + i + '" min="0" step="any" placeholder="+ kg">' +
+        (editavel
+          ? '<button type="button" class="btn-atualizar-data btn-corrigir-tingido" data-idx="' + i +
+            '" title="Corrigir o total tingido lançado (ex.: desfazer um lançamento errado)">✎</button>'
+          : '') +
       '</td>' +
-      '<td style="text-align:center">' +
-        '<input type="checkbox" class="chk-grande chk-confirmar-tingido" data-idx="' + i +
-          '" title="Marcar para confirmar e dar baixa no fio crú">' +
-      '</td>' +
+      (editavel
+        ? '<td style="text-align:center">' +
+            '<input type="number" class="qtd-input-grande" data-idx="' + i + '" min="0" step="any" placeholder="+ kg">' +
+          '</td>' +
+          '<td style="text-align:center">' +
+            '<input type="checkbox" class="chk-grande chk-confirmar-tingido" data-idx="' + i +
+              '" title="Marcar para confirmar e dar baixa no fio crú">' +
+          '</td>'
+        : '') +
     '</tr>';
   }).join('');
   wrap.innerHTML =
@@ -1423,41 +1472,43 @@ function renderQuantidadeTingida() {
       '<th style="width:10%">Cliente</th><th style="width:10%">Tipo de fio</th>' +
       '<th style="width:8%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
       '<th style="text-align:right;width:9%">Já tingido</th>' +
-      '<th style="width:11%">+ kg agora</th><th style="width:6%">Confirmar</th>' +
+      (editavel ? '<th style="width:11%">+ kg agora</th><th style="width:6%">Confirmar</th>' : '') +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
-  Array.prototype.forEach.call(wrap.querySelectorAll('.chk-confirmar-tingido'), function (chk) {
-    chk.addEventListener('change', function () {
-      if (!chk.checked) return; // a caixa só dispara a ação ao marcar
-      var idx = Number(chk.getAttribute('data-idx'));
-      var inp = wrap.querySelector('.qtd-input-grande[data-idx="' + idx + '"]');
-      lancarQuantidadeTingidaFio(idx, inp, chk);
-    });
-  });
-  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-corrigir-tingido'), function (btn) {
-    btn.addEventListener('click', function () {
-      var idx = Number(btn.getAttribute('data-idx'));
-      var alvo = estadoQuantidadeTingida.linhas[idx];
-      if (!alvo) return;
-      abrirModalCorrigirTingido(alvo.item, alvo.tingido || 0, function (novoTotal) {
-        var msg = document.getElementById('qt-msg');
-        btn.disabled = true;
-        chamar('corrigirQuantidadeTingida', sessao.token, alvo.item, novoTotal)
-          .then(function () {
-            btn.disabled = false;
-            alvo.tingido = novoTotal;
-            renderQuantidadeTingida();
-            msg.innerHTML = '<div class="aviso ok">Total tingido de "' + alvo.item + '" corrigido para ' +
-              num(novoTotal) + ' kg.</div>';
-          })
-          .catch(function (err) {
-            btn.disabled = false;
-            var m = tratarErro(err);
-            if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
-          });
+  if (editavel) {
+    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-confirmar-tingido'), function (chk) {
+      chk.addEventListener('change', function () {
+        if (!chk.checked) return; // a caixa só dispara a ação ao marcar
+        var idx = Number(chk.getAttribute('data-idx'));
+        var inp = wrap.querySelector('.qtd-input-grande[data-idx="' + idx + '"]');
+        lancarQuantidadeTingidaFio(idx, inp, chk);
       });
     });
-  });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.btn-corrigir-tingido'), function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = Number(btn.getAttribute('data-idx'));
+        var alvo = estadoQuantidadeTingida.linhas[idx];
+        if (!alvo) return;
+        abrirModalCorrigirTingido(alvo.item, alvo.tingido || 0, function (novoTotal) {
+          var msg = document.getElementById('qt-msg');
+          btn.disabled = true;
+          chamar('corrigirQuantidadeTingida', sessao.token, alvo.item, novoTotal)
+            .then(function () {
+              btn.disabled = false;
+              alvo.tingido = novoTotal;
+              renderQuantidadeTingida();
+              msg.innerHTML = '<div class="aviso ok">Total tingido de "' + alvo.item + '" corrigido para ' +
+                num(novoTotal) + ' kg.</div>';
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              var m = tratarErro(err);
+              if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+            });
+        });
+      });
+    });
+  }
   aplicarRegua(wrap);
 }
 
@@ -2384,6 +2435,238 @@ function confirmarImportNfFioCru() {
     var m = tratarErro(err);
     if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
   });
+}
+
+/* ------------------------- view: Usuários -------------------------- */
+// Só o master acessa (ver MENUS) — o servidor confere de novo em cada
+// função. A senha nunca aparece na lista geral; só quando o master clica
+// em "ver senha" numa linha específica (ver `revelarSenhaUsuario`).
+var estadoUsuarios = { lista: [], senhasVisiveis: {} };
+
+function viewUsuarios(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Novo usuário</h2>' +
+      '<p class="desc">A senha é guardada de forma segura (hash) pra validar o login, e também cifrada ' +
+      'de um jeito que só esta tela consegue mostrar de volta — quem abre a planilha direto não lê a ' +
+      'senha de ninguém.</p>' +
+      '<div class="linha-form">' +
+        '<div class="campo"><label for="us-usuario">Usuário (login)</label><input type="text" id="us-usuario"></div>' +
+        '<div class="campo"><label for="us-nome">Nome</label><input type="text" id="us-nome"></div>' +
+        '<div class="campo" style="max-width:180px"><label for="us-papel">Papel</label>' +
+          '<select id="us-papel">' +
+            '<option value="master">Master</option>' +
+            '<option value="tingimento">Tingimento</option>' +
+            '<option value="almoxarifado1">Almoxarifado 1</option>' +
+            '<option value="almoxarifado2">Almoxarifado 2</option>' +
+          '</select></div>' +
+        '<div class="campo" style="max-width:180px"><label for="us-senha">Senha</label><input type="text" id="us-senha"></div>' +
+        '<button class="btn-principal" id="btn-criar-usuario">Cadastrar</button>' +
+      '</div>' +
+      '<div id="us-msg"></div>' +
+    '</section>' +
+    '<section class="painel">' +
+      '<h2>Usuários cadastrados</h2>' +
+      '<div class="tabela-wrap" id="tabela-usuarios"></div>' +
+    '</section>';
+
+  document.getElementById('btn-criar-usuario').onclick = criarUsuario;
+  carregarUsuarios();
+}
+
+function criarUsuario() {
+  var msg = document.getElementById('us-msg');
+  var dados = {
+    usuario: document.getElementById('us-usuario').value.trim(),
+    nome: document.getElementById('us-nome').value.trim(),
+    papel: document.getElementById('us-papel').value,
+    senha: document.getElementById('us-senha').value,
+    ativo: true
+  };
+  if (!dados.usuario) { msg.innerHTML = '<div class="aviso erro">Informe o usuário (login).</div>'; return; }
+  if (!dados.senha) { msg.innerHTML = '<div class="aviso erro">Informe uma senha.</div>'; return; }
+  var btn = document.getElementById('btn-criar-usuario');
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Cadastrando…</span></div>';
+  chamar('salvarUsuario', sessao.token, dados)
+    .then(function () {
+      btn.disabled = false;
+      msg.innerHTML = '<div class="aviso ok">Usuário "' + dados.usuario + '" cadastrado.</div>';
+      ['us-usuario', 'us-nome', 'us-senha'].forEach(function (id) { document.getElementById(id).value = ''; });
+      document.getElementById('us-papel').value = 'master';
+      carregarUsuarios();
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function carregarUsuarios() {
+  var wrap = document.getElementById('tabela-usuarios');
+  wrap.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('listarUsuarios', sessao.token)
+    .then(function (r) {
+      estadoUsuarios.lista = r.usuarios || [];
+      estadoUsuarios.senhasVisiveis = {};
+      renderUsuarios();
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) wrap.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+/** Salva um campo de um usuário já existente (reenvia o registro atual com o
+ * campo trocado — `salvarUsuario` exige papel válido sempre). Recarrega a
+ * lista pra refletir o estado real da planilha. */
+function salvarCampoUsuario(usuario, patch, elemento) {
+  var u = estadoUsuarios.lista.filter(function (x) { return x.usuario === usuario; })[0];
+  if (!u) return;
+  var dados = { usuario: usuario, nome: u.nome, papel: u.papel, ativo: u.ativo };
+  Object.keys(patch).forEach(function (k) { dados[k] = patch[k]; });
+  if (elemento) elemento.disabled = true;
+  var msg = document.getElementById('us-msg');
+  chamar('salvarUsuario', sessao.token, dados)
+    .then(function () {
+      if (msg) msg.innerHTML = '<div class="aviso ok">Usuário "' + usuario + '" atualizado.</div>';
+      delete estadoUsuarios.senhasVisiveis[usuario]; // senha pode ter mudado — não deixa a antiga visível
+      carregarUsuarios();
+    })
+    .catch(function (err) {
+      if (elemento) elemento.disabled = false;
+      if (msg) { var m = tratarErro(err); if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>'; }
+    });
+}
+
+function renderUsuarios() {
+  var wrap = document.getElementById('tabela-usuarios');
+  var lista = estadoUsuarios.lista;
+  if (!lista.length) { wrap.innerHTML = '<div class="vazio">Nenhum usuário cadastrado.</div>'; return; }
+  var body = lista.map(function (u) {
+    var senhaVisivel = estadoUsuarios.senhasVisiveis[u.usuario];
+    return '<tr' + (u.ativo ? '' : ' style="opacity:.55"') + '>' +
+      '<td class="col-item">' + u.usuario + '</td>' +
+      '<td><input class="obs-input us-nome-input" data-usuario="' + escAttr(u.usuario) + '" value="' +
+        escAttr(u.nome) + '"></td>' +
+      '<td><select class="assoc-select us-papel-select" data-usuario="' + escAttr(u.usuario) + '">' +
+        ['master', 'tingimento', 'almoxarifado1', 'almoxarifado2'].map(function (p) {
+          return '<option value="' + p + '"' + (p === u.papel ? ' selected' : '') + '>' +
+            (ROTULO_PAPEL[p] || p) + '</option>';
+        }).join('') +
+      '</select></td>' +
+      '<td style="text-align:center"><input type="checkbox" class="chk-grande us-ativo-chk" data-usuario="' +
+        escAttr(u.usuario) + '"' + (u.ativo ? ' checked' : '') + '></td>' +
+      '<td style="white-space:nowrap">' +
+        (senhaVisivel
+          ? '<code>' + escAttr(senhaVisivel) + '</code> <button type="button" ' +
+            'class="btn-atualizar-data btn-ocultar-senha" data-usuario="' + escAttr(u.usuario) +
+            '" title="Ocultar">🙈</button>'
+          : '<button type="button" class="btn-atualizar-data btn-ver-senha" data-usuario="' +
+            escAttr(u.usuario) + '" title="Ver senha">👁</button>') +
+        ' <button type="button" class="btn-atualizar-data btn-nova-senha" data-usuario="' +
+          escAttr(u.usuario) + '" title="Definir nova senha">🔑</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:14%">Usuário</th><th style="width:22%">Nome</th><th style="width:18%">Papel</th>' +
+      '<th style="text-align:center;width:8%">Ativo</th><th style="width:38%">Senha</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+
+  Array.prototype.forEach.call(wrap.querySelectorAll('.us-nome-input'), function (inp) {
+    inp.addEventListener('change', function () {
+      salvarCampoUsuario(inp.getAttribute('data-usuario'), { nome: inp.value }, inp);
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.us-papel-select'), function (sel) {
+    sel.addEventListener('change', function () {
+      salvarCampoUsuario(sel.getAttribute('data-usuario'), { papel: sel.value }, sel);
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.us-ativo-chk'), function (chk) {
+    chk.addEventListener('change', function () {
+      var usuario = chk.getAttribute('data-usuario');
+      chk.disabled = true;
+      chamar('definirAtivoUsuario', sessao.token, usuario, chk.checked)
+        .then(function () {
+          chk.disabled = false;
+          var u = estadoUsuarios.lista.filter(function (x) { return x.usuario === usuario; })[0];
+          if (u) u.ativo = chk.checked;
+          renderUsuarios();
+        })
+        .catch(function (err) { chk.disabled = false; chk.checked = !chk.checked; tratarErro(err); });
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-ver-senha'), function (btn) {
+    btn.addEventListener('click', function () {
+      var usuario = btn.getAttribute('data-usuario');
+      btn.disabled = true;
+      chamar('revelarSenhaUsuario', sessao.token, usuario)
+        .then(function (r) {
+          btn.disabled = false;
+          estadoUsuarios.senhasVisiveis[usuario] = r.senha;
+          renderUsuarios();
+        })
+        .catch(function (err) { btn.disabled = false; tratarErro(err); });
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-ocultar-senha'), function (btn) {
+    btn.addEventListener('click', function () {
+      delete estadoUsuarios.senhasVisiveis[btn.getAttribute('data-usuario')];
+      renderUsuarios();
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-nova-senha'), function (btn) {
+    btn.addEventListener('click', function () {
+      var usuario = btn.getAttribute('data-usuario');
+      abrirModalNovaSenha(usuario, function (novaSenha) {
+        salvarCampoUsuario(usuario, { senha: novaSenha }, btn);
+      });
+    });
+  });
+}
+
+/** Modal pra definir uma senha nova pra um usuário (evita prompt() nativo —
+ * o sandbox do HtmlService pode bloqueá-lo). Texto visível (não mascarado)
+ * de propósito, pra o master conferir o que está digitando antes de salvar. */
+function abrirModalNovaSenha(usuario, callback) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:400px;width:100%;' +
+      'padding:26px 26px 22px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
+      '<h3 style="margin:0 0 8px;color:#0B4576;font-size:17px">Nova senha</h3>' +
+      '<p style="margin:0 0 16px;color:#475569;font-size:14px;line-height:1.5">Usuário: <b>' +
+        escAttr(usuario) + '</b></p>' +
+      '<div style="margin-bottom:8px">' +
+        '<label style="display:block;font-size:13px;color:#334155;margin-bottom:4px">Senha nova</label>' +
+        '<input type="text" id="modal-nova-senha" ' +
+          'style="width:100%;padding:8px 10px;border:1px solid #D8E0E8;border-radius:8px;font-size:14px;box-sizing:border-box">' +
+      '</div>' +
+      '<div id="modal-nova-senha-erro" style="color:#D0342C;font-size:13px;min-height:18px;margin-bottom:6px"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+        '<button id="modal-btn-secundario" style="padding:10px 16px;border:1px solid #D8E0E8;' +
+          'border-radius:8px;background:#fff;cursor:pointer;font-size:14px">Cancelar</button>' +
+        '<button id="modal-btn-destaque" style="padding:10px 18px;border:none;border-radius:8px;' +
+          'background:#0F5FA0;color:#fff;cursor:pointer;font-size:14px;font-weight:600">Salvar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  var inp = overlay.querySelector('#modal-nova-senha');
+  var erroEl = overlay.querySelector('#modal-nova-senha-erro');
+  function fechar() { document.body.removeChild(overlay); }
+  overlay.querySelector('#modal-btn-secundario').onclick = fechar;
+  overlay.querySelector('#modal-btn-destaque').onclick = function () {
+    var senha = inp.value;
+    if (!senha) { erroEl.textContent = 'Informe a senha nova.'; return; }
+    fechar();
+    callback(senha);
+  };
+  inp.focus();
 }
 
 /* --------------------- view: Consulta de Estoque ------------------ */

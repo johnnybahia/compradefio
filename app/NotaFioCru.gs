@@ -168,7 +168,7 @@ function _extrairCnpjs(texto) {
  * @param {string} base64  conteúdo do XML em base64 (sem o prefixo data:)
  */
 function analisarNfFioCruXml(token, base64, nome) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   if (!base64) throw new Error('Nenhum arquivo recebido.');
 
   var dados = _parseNfeXml(_base64ParaTexto(base64));
@@ -235,7 +235,7 @@ function analisarNfFioCruXml(token, base64, nome) {
  * @return {Object} { ok, filialRotulo, lancados, jaExistiam }
  */
 function gravarNfFioCruXml(token, params) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   params = params || {};
   var filialId = String(params.filialId || '').trim();
   CONFIG.getUnidadeInfo(filialId); // valida (lança erro se inválida)
