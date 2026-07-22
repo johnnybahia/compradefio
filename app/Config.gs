@@ -9,6 +9,16 @@ var CONFIG = {
   APP_NOME: 'Marfim · Gestão de Compras',
 
   /**
+   * Logo usado na tela (splash, login, topo) e nos e-mails (Pedido de Fio,
+   * Confirmação de Embarque) — URL externa direta, mesma ideia (e mesmo
+   * arquivo) do outro projeto Marfim: sem precisar manter um arquivo "Logo"
+   * em base64 no projeto (fonte antiga de problema — ver histórico do
+   * arquivo). Se o link parar de responder, a tag <img> tem onerror pra só
+   * ocultar a imagem, nunca quebrar a página.
+   */
+  LOGO_URL: 'https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg',
+
+  /**
    * Unidades (fábricas/empresas) que este mesmo Web App atende. Cada uma tem
    * sua própria planilha (banco de dados), configurada numa Propriedade do
    * script própria — assim dá pra trocar de unidade num clique, sem precisar
