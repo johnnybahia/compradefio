@@ -51,8 +51,10 @@ function _codEmbarque(codigo) {
  * numa mesma linha de texto (separados só por espaço), e um item pode
  * ficar dividido em várias linhas. Por isso o texto inteiro é normalizado
  * (todo espaço em branco vira um espaço só) e os itens são extraídos com
- * uma busca global pelo padrão "cor CÓDIGO - caixas cx - peso", em vez de
- * depender de onde estão as quebras de linha.
+ * uma busca global pelo padrão "TIPO [cor] CÓDIGO - caixas cx - peso", em vez
+ * de depender de onde estão as quebras de linha. A palavra "cor" é OPCIONAL:
+ * a maioria das linhas é "Fio X cor 6001 ...", mas algumas (ex.: "Fio
+ * Reciclado Reflexx 4662 ...") põem o código logo após o tipo, sem "cor".
  *
  * @return {Object} { doc, data, linhas: [{descricao, tipo, codigo, quantidade, caixas, peso}] }
  */
@@ -86,7 +88,11 @@ function _parseEmbarque(texto) {
     corpo = corpo.slice(mHeader.index + mHeader[0].length);
   }
 
-  var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,24}?)\s*\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
+  // "cor" é OPCIONAL (ver docstring): algumas linhas trazem o código logo
+  // depois do tipo, sem "cor". O código é sempre numérico ((\d+)) — isso
+  // separa direito onde o tipo (com letras/dígitos) termina e o código começa
+  // mesmo sem a palavra "cor" no meio.
+  var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,28}?)\s*(?:\bcor\s+)?(\d+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
   var out = [], m;
   while ((m = RE.exec(corpo)) !== null) {
     var peso = parseFloat(String(m[4]).replace(',', '.'));
