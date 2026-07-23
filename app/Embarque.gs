@@ -134,6 +134,7 @@ function _itensEstoqueSet() {
   vals.forEach(function (r) {
     var it = r[i];
     if (it === '' || it == null) return;
+    if (it instanceof Date) return; // código lido como data (Sheets converteu ex.: "5711/1") — inválido, ignora
     var s = String(it).trim();
     if (s) set[_norm(s)] = s;
   });
@@ -148,7 +149,12 @@ function _lerMapaEmbarque() {
   var vals = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
   vals.forEach(function (r) {
     var d = _norm(r[0]);
-    if (d && r[1] !== '' && r[1] != null) mapa[d] = String(r[1]).trim();
+    if (!d) return;
+    // Entrada corrompida: o Sheets converteu um código tipo "5711/1" em data
+    // ao gravar. Ignora (não usa como aprendida) pra o item ser reconhecido de
+    // novo pelas regras/estoque e reaprendido já como texto (ver `_salvarMapaEmbarque`).
+    if (r[1] instanceof Date) return;
+    if (r[1] !== '' && r[1] != null) mapa[d] = String(r[1]).trim();
   });
   return mapa;
 }
@@ -166,7 +172,11 @@ function _salvarMapaEmbarque(pares) {
   });
   if (!novos.length) return;
   var sh = _aba(CONFIG.SHEETS.MAPA_EMBARQUE, ['DESCRICAO', 'ITEM']);
-  sh.getRange(sh.getLastRow() + 1, 1, novos.length, 2).setValues(novos);
+  var rng = sh.getRange(sh.getLastRow() + 1, 1, novos.length, 2);
+  // TEXTO PURO: senão o Sheets converte códigos como "5711/1" (sufixo do
+  // Reflexx) em data — foi a causa de item sair como "Thu Jan 01 5711...".
+  rng.setNumberFormat('@');
+  rng.setValues(novos);
 }
 
 /**
@@ -242,7 +252,12 @@ function _registrarEmbarqueEDarBaixa(itens, doc, data) {
   var linhas = itens.map(function (it) {
     return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, ''];
   });
-  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, EMBARQUES_HEADERS.length).setValues(linhas);
+  var inicio = sh.getLastRow() + 1;
+  // Coluna CORES (item) como TEXTO PURO: senão o Sheets converte códigos como
+  // "5711/1" em data, e a conciliação de chegada/"em viagem" (que casa item
+  // por texto) deixa de bater. Só a coluna 1 — as outras seguem número/data.
+  sh.getRange(inicio, 1, linhas.length, 1).setNumberFormat('@');
+  sh.getRange(inicio, 1, linhas.length, EMBARQUES_HEADERS.length).setValues(linhas);
   var baixa = _baixarPendenciaCompraPorEmbarque(itens);
   return { gravados: linhas.length, baixados: baixa.baixados };
 }
