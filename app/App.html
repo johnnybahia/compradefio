@@ -2921,9 +2921,13 @@ function renderEstoqueUnidades() {
     var saldoCel = l.semPar ? '—' : (l.saldoOutra != null ? num(l.saldoOutra) : '—');
     var vincCel = '<button class="btn-atualizar-data eu-vinc-btn" data-idx="' + i + '" ' +
       'style="white-space:nowrap">' + (l.semPar ? 'vincular' : 'trocar') + '</button>';
+    var saldoAquiCel = (l.saldoAqui != null && l.saldoAqui !== '')
+      ? '<span style="' + (l.saldoCriticoAqui ? 'color:#C0392B;font-weight:600' : '') + '">' + num(l.saldoAqui) + '</span>'
+      : '—';
     return '<tr' + rowClass + '>' +
       '<td class="col-item">' + (escAttr(l.item) || '—') + '</td>' +
       '<td>' + (l.descricao ? escAttr(l.descricao) : '—') + '</td>' +
+      '<td style="text-align:right">' + saldoAquiCel + '</td>' +
       '<td style="text-align:right">' + (l.aComprar != null && l.aComprar !== '' ? num(l.aComprar) : '—') + '</td>' +
       '<td>' + (l.dataLimite || '—') + '</td>' +
       '<td>' + ladoOutra + '</td>' +
@@ -2937,11 +2941,12 @@ function renderEstoqueUnidades() {
     '<p class="desc" style="margin-top:0">' + linhas.length + ' item(ns) pendente(s) · ' +
       comEstoque + ' com saldo na ' + escAttr(outra) + ' · ' + semPar + ' sem par.</p>' +
     '<table class="dados"><thead><tr>' +
-      '<th style="width:12%">Item (aqui)</th><th style="width:19%">Descrição</th>' +
-      '<th style="text-align:right;width:8%">A comprar</th><th style="width:9%">Data limite</th>' +
-      '<th style="width:17%">Item na ' + escAttr(outra) + '</th>' +
-      '<th style="text-align:right;width:8%">Saldo lá</th><th style="width:9%">Data do saldo</th>' +
-      '<th style="width:8%">Vincular</th>' +
+      '<th style="width:11%">Item (aqui)</th><th style="width:17%">Descrição</th>' +
+      '<th style="text-align:right;width:7%">Saldo (aqui)</th>' +
+      '<th style="text-align:right;width:7%">A comprar</th><th style="width:8%">Data limite</th>' +
+      '<th style="width:16%">Item na ' + escAttr(outra) + '</th>' +
+      '<th style="text-align:right;width:7%">Saldo lá</th><th style="width:9%">Data do saldo</th>' +
+      '<th style="width:7%">Vincular</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.eu-vinc-btn'), function (btn) {
