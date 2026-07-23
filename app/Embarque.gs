@@ -93,20 +93,56 @@ function _parseEmbarque(texto) {
   // separa direito onde o tipo (com letras/dígitos) termina e o código começa
   // mesmo sem a palavra "cor" no meio.
   var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,28}?)\s*(?:\bcor\s+)?(\d+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
-  var out = [], m;
+  var out = [], m, faixas = [];
   while ((m = RE.exec(corpo)) !== null) {
+    faixas.push([m.index, RE.lastIndex]);
     var peso = parseFloat(String(m[4]).replace(',', '.'));
     if (isNaN(peso)) peso = null;
     var tipo = m[1].trim();
     out.push({
+      pos: m.index,
       descricao: (tipo + ' cor ' + m[2]).replace(/\s+/g, ' '),
       tipo: tipo,
       codigo: m[2],
       caixas: parseInt(m[3], 10),
       peso: peso,
-      quantidade: peso != null ? Math.floor(peso) : null
+      quantidade: peso != null ? Math.floor(peso) : null,
+      naoInterpretado: false
     });
   }
+
+  // REDE DE SEGURANÇA: nenhuma linha some. Todo trecho "<n>cx ... <peso>" que o
+  // parser estrito NÃO capturou (um tipo/código fora do padrão conhecido) ainda
+  // vira uma linha, marcada como "não interpretado". A quantidade já sai
+  // preenchida (do peso); falta só o item, que o usuário informa na conferência
+  // e o sistema aprende (vira regra pra próxima vez). Em relatório bem formado
+  // isto não gera nada — tudo já foi pego acima.
+  var CX = /(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi, c, ultimoFim = 0;
+  while ((c = CX.exec(corpo)) !== null) {
+    var ini = c.index, fim = CX.lastIndex;
+    var coberto = faixas.some(function (f) { return ini < f[1] && fim > f[0]; });
+    if (!coberto) {
+      var antes = ultimoFim;
+      faixas.forEach(function (f) { if (f[1] <= ini && f[1] > antes) antes = f[1]; });
+      var trecho = corpo.slice(antes, fim)
+        .replace(/.*R\$\s*[\d.,]+\s*/i, '')   // remove resíduo de linha "Total ... R$ x"
+        .replace(/^[\s>._\-–—]+/, '').trim();
+      var peso2 = parseFloat(String(c[2]).replace(',', '.'));
+      if (isNaN(peso2)) peso2 = null;
+      if (trecho && !/^total\b/i.test(trecho)) {
+        out.push({
+          pos: ini, descricao: trecho, tipo: '', codigo: '',
+          caixas: parseInt(c[1], 10), peso: peso2,
+          quantidade: peso2 != null ? Math.floor(peso2) : null,
+          naoInterpretado: true
+        });
+      }
+    }
+    ultimoFim = fim;
+  }
+
+  out.sort(function (a, b) { return a.pos - b.pos; });   // mantém a ordem do relatório
+  out.forEach(function (o) { delete o.pos; });
   return { doc: doc, data: data, linhas: out };
 }
 
@@ -209,6 +245,11 @@ function analisarEmbarquePdf(token, base64, nome) {
 
     if (aprendido[chave]) {
       item = aprendido[chave]; ok = true; motivo = 'aprendido';
+    } else if (l.naoInterpretado) {
+      // Linha da rede de segurança (ver `_parseEmbarque`): não bateu com o
+      // padrão nem com nada aprendido. Fica listada pro usuário informar o
+      // item — ao gravar, vira regra aprendida pra próxima vez.
+      motivo = 'não interpretei — informe o item';
     } else {
       var suf = null, t = _norm(l.tipo);
       for (var i = 0; i < regras.length; i++) {
