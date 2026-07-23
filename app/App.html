@@ -111,6 +111,7 @@ var MENUS = {
     { id: 'importarnf', rotulo: 'Importar NF (Fio Crú)', render: viewImportarNfFioCru },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
+    { id: 'estoqueunidades', rotulo: 'Estoque entre unidades', render: viewEstoqueUnidades },
     { id: 'relatorio',   rotulo: 'Relatório',           render: viewRelatorio },
     { id: 'usuarios',   rotulo: 'Usuários',            render: viewUsuarios }
   ],
@@ -2781,6 +2782,136 @@ function renderRelatorio() {
       '<th style="width:10%">Data limite</th><th style="width:16%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   aplicarRegua(wrap);
+}
+
+/* ------------------ view: Estoque entre unidades (master) ------------- */
+// Para cada item pendente de compra da unidade ativa, mostra o estoque da
+// OUTRA unidade (item, saldo, data do último saldo) — pra decidir se transfere
+// em vez de comprar. Casa por vínculo aprendido ou por código+tipo (servidor:
+// compararEstoqueEntreUnidades). Só master.
+var estadoEstoqueUnidades = { linhas: [], itensOutra: [], unidadeOutra: '' };
+
+function viewEstoqueUnidades(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Estoque entre unidades</h2>' +
+      '<p class="desc">Para cada item que a unidade <b id="eu-ativa">—</b> precisa comprar (lista pendente do ' +
+      'Pedido de Fio), mostra o estoque da <b id="eu-outra">—</b>: item equivalente, saldo e data do último ' +
+      'saldo — pra decidir se dá pra <b>transferir em vez de comprar</b>. Data em ' +
+      '<span style="color:#C0392B;font-weight:600">vermelho</span> = saldo antigo (desconfie). Atualizado em ' +
+      '<b id="eu-atualizado">—</b>. Use as setas ↑/↓ para navegar.</p>' +
+      '<div id="eu-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-estoque-unidades"></div>' +
+      '<datalist id="itens-outra-unidade"></datalist>' +
+    '</section>';
+  ativarRegua('tabela-estoque-unidades');
+  carregarEstoqueUnidades();
+}
+
+function carregarEstoqueUnidades() {
+  var msg = document.getElementById('eu-msg');
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('compararEstoqueEntreUnidades', sessao.token)
+    .then(function (r) {
+      msg.innerHTML = '';
+      if (r.semOutraUnidade) {
+        document.getElementById('tabela-estoque-unidades').innerHTML =
+          '<div class="vazio">Só há uma unidade configurada — não há outra para comparar.</div>';
+        return;
+      }
+      document.getElementById('eu-ativa').textContent = r.unidadeAtiva || '—';
+      document.getElementById('eu-outra').textContent = r.unidadeOutra || '—';
+      document.getElementById('eu-atualizado').textContent = r.atualizadoEm || '—';
+      estadoEstoqueUnidades.linhas = r.linhas || [];
+      estadoEstoqueUnidades.itensOutra = r.itensOutra || [];
+      estadoEstoqueUnidades.unidadeOutra = r.unidadeOutra || '';
+      document.getElementById('itens-outra-unidade').innerHTML =
+        estadoEstoqueUnidades.itensOutra.map(function (it) {
+          return '<option value="' + escAttr(it.item) + '">saldo ' + (it.saldo != null ? it.saldo : '—') +
+            (it.data ? ' (' + it.data + ')' : '') + '</option>';
+        }).join('');
+      renderEstoqueUnidades();
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function renderEstoqueUnidades() {
+  var wrap = document.getElementById('tabela-estoque-unidades');
+  var linhas = estadoEstoqueUnidades.linhas;
+  var outra = estadoEstoqueUnidades.unidadeOutra || 'outra unidade';
+  if (!linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum item pendente de compra no momento.</div>';
+    return;
+  }
+  var comEstoque = linhas.filter(function (l) { return !l.semPar && Number(l.saldoOutra) > 0; }).length;
+  var semPar = linhas.filter(function (l) { return l.semPar; }).length;
+
+  var body = linhas.map(function (l, i) {
+    var temSaldo = !l.semPar && Number(l.saldoOutra) > 0;
+    var rowClass = temSaldo ? ' class="destaque-tingido-completo"' : (l.semPar ? ' class="destaque-abastecido"' : '');
+    var dataCel = '—';
+    if (!l.semPar && l.dataOutra) {
+      var velho = l.diasOutra != null && l.diasOutra > 60;
+      dataCel = '<span style="' + (velho ? 'color:#C0392B;font-weight:600' : '') + '">' + l.dataOutra + '</span>';
+    }
+    var ladoOutra = l.semPar
+      ? '<span class="sem-desc">sem par</span>'
+      : (escAttr(l.itemOutra) + (l.origem === 'automático' ? ' <span class="badge-tingido-parcial">auto</span>' : ''));
+    var saldoCel = l.semPar ? '—' : (l.saldoOutra != null ? num(l.saldoOutra) : '—');
+    var vincCel =
+      '<input class="eu-vinc" list="itens-outra-unidade" data-idx="' + i + '" ' +
+        'placeholder="item da ' + escAttr(outra) + '" value="' + escAttr(l.semPar ? '' : l.itemOutra) + '" ' +
+        'style="min-width:150px;padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px">' +
+      ' <button class="btn-atualizar-data eu-vinc-btn" data-idx="' + i + '">vincular</button>';
+    return '<tr' + rowClass + '>' +
+      '<td class="col-item">' + (escAttr(l.item) || '—') + '</td>' +
+      '<td>' + (l.descricao ? escAttr(l.descricao) : '—') + '</td>' +
+      '<td style="text-align:right">' + (l.aComprar != null && l.aComprar !== '' ? num(l.aComprar) : '—') + '</td>' +
+      '<td>' + (l.dataLimite || '—') + '</td>' +
+      '<td>' + ladoOutra + '</td>' +
+      '<td style="text-align:right">' + saldoCel + '</td>' +
+      '<td>' + dataCel + '</td>' +
+      '<td>' + vincCel + '</td>' +
+    '</tr>';
+  }).join('');
+
+  wrap.innerHTML =
+    '<p class="desc" style="margin-top:0">' + linhas.length + ' item(ns) pendente(s) · ' +
+      comEstoque + ' com saldo na ' + escAttr(outra) + ' · ' + semPar + ' sem par.</p>' +
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:12%">Item (aqui)</th><th style="width:19%">Descrição</th>' +
+      '<th style="text-align:right;width:8%">A comprar</th><th style="width:9%">Data limite</th>' +
+      '<th style="width:15%">Item na ' + escAttr(outra) + '</th>' +
+      '<th style="text-align:right;width:8%">Saldo lá</th><th style="width:9%">Data do saldo</th>' +
+      '<th style="width:20%">Vincular</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+
+  Array.prototype.forEach.call(wrap.querySelectorAll('.eu-vinc-btn'), function (btn) {
+    btn.addEventListener('click', function () {
+      var idx = Number(btn.getAttribute('data-idx'));
+      var inp = wrap.querySelector('.eu-vinc[data-idx="' + idx + '"]');
+      vincularEstoqueUnidade(linhas[idx].item, inp ? inp.value : '');
+    });
+  });
+  aplicarRegua(wrap);
+}
+
+function vincularEstoqueUnidade(itemAqui, itemOutra) {
+  var msg = document.getElementById('eu-msg');
+  if (!itemOutra || !itemOutra.trim()) {
+    msg.innerHTML = '<div class="aviso erro">Escolha o item da outra unidade para vincular.</div>';
+    return;
+  }
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Vinculando…</span></div>';
+  chamar('vincularItemEntreUnidades', sessao.token, itemAqui, itemOutra.trim())
+    .then(function () { carregarEstoqueUnidades(); })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
 }
 
 /* --------------------- view: Consulta de Estoque ------------------ */
