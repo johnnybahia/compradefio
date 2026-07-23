@@ -443,17 +443,22 @@ function _moedaBR(v) {
  * @param {number} custoMaoObra  taxa única em R$ por kg tingido.
  */
 function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade) {
-  function th(t) {
-    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
-      'color:#fff;text-align:left;font-size:13px">' + t + '</th>';
-  }
-  function td(v) {
-    return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
-  }
+  // Densidade conforme o tamanho total do relatório (itens + NFs + chrome de
+  // cada bloco), pra tentar caber numa página A4 retrato (ver `_densidadeRelatorio`).
+  var linhasEstimadas = resumo.reduce(function (a, g) {
+    return a + g.itens.length + Math.max(g.lotes.length, 1) + 3;
+  }, 0);
+  var d = _densidadeRelatorio(linhasEstimadas);
+  var thStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';background:#0F5FA0;' +
+    'color:#fff;text-align:left;font-size:' + d.fonte + 'px';
+  var tdStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';font-size:' + d.fonte + 'px';
+  function th(t) { return '<th style="' + thStyle + '">' + t + '</th>'; }
+  function td(v) { return '<td style="' + tdStyle + '">' + v + '</td>'; }
 
   var thItens = ['Item', 'Quantidade (kg)', 'Mão de obra (R$)'].map(th).join('');
   var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)']
     .map(th).join('');
+  var rotuloFonte = Math.max(d.fonte - 1, 8);
 
   var totalGeral = 0;
   var blocos = resumo.map(function (g) {
@@ -468,25 +473,25 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
           return '<tr>' + td(l.item) + td(l.nf || '—') + td(l.fornecedor || '—') +
             td(l.dataNf || '—') + td(l.peso) + td(l.saldoApos) + '</tr>';
         }).join('')
-      : '<tr><td colspan="6" style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px;color:#94a3b8">' +
+      : '<tr><td colspan="6" style="' + tdStyle + ';color:#94a3b8">' +
           'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)</td></tr>';
 
-    var titulo = '<table style="border-collapse:collapse;width:100%;margin-bottom:10px"><tr>' +
+    var titulo = '<table style="border-collapse:collapse;width:100%;margin-bottom:6px"><tr>' +
       '<td style="vertical-align:middle">' +
-        '<span style="color:#0B4576;font-size:16px;font-weight:bold">' + g.tipoFio + '</span>' +
-        '<span style="color:#64748b;font-size:13px">&nbsp;— ' + g.totalTingido + ' kg tingido</span></td>' +
+        '<span style="color:#0B4576;font-size:' + (d.fonte + 2) + 'px;font-weight:bold">' + g.tipoFio + '</span>' +
+        '<span style="color:#64748b;font-size:' + d.fonte + 'px">&nbsp;— ' + g.totalTingido + ' kg tingido</span></td>' +
       '<td style="text-align:right;vertical-align:middle">' +
-        '<span style="background:#dcfce7;color:#166534;font-size:13px;font-weight:bold;' +
-        'padding:4px 10px;border-radius:6px">Mão de obra: ' + _moedaBR(g.maoObra) + '</span></td>' +
+        '<span style="background:#dcfce7;color:#166534;font-size:' + d.fonte + 'px;font-weight:bold;' +
+        'padding:2px 8px;border-radius:5px">Mão de obra: ' + _moedaBR(g.maoObra) + '</span></td>' +
     '</tr></table>';
 
-    var rotulo = 'margin:6px 0 4px;font-size:12px;color:#475569;font-weight:bold;' +
+    var rotulo = 'margin:4px 0 2px;font-size:' + rotuloFonte + 'px;color:#475569;font-weight:bold;' +
       'text-transform:uppercase;letter-spacing:.04em';
 
-    return '<div style="border:1px solid #cbd5e1;border-radius:8px;padding:14px 16px;margin-bottom:16px">' +
+    return '<div style="border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px;margin-bottom:8px">' +
       titulo +
       '<p style="' + rotulo + '">Itens tingidos</p>' +
-      '<table style="border-collapse:collapse;width:100%;margin-bottom:12px">' +
+      '<table style="border-collapse:collapse;width:100%;margin-bottom:6px">' +
         '<thead><tr>' + thItens + '</tr></thead><tbody>' + rowsItens + '</tbody></table>' +
       '<p style="' + rotulo + '">Consumo no estoque de fio crú</p>' +
       '<table style="border-collapse:collapse;width:100%">' +
@@ -494,28 +499,29 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     '</div>';
   }).join('');
 
-  var totalGeralHtml = '<table style="border-collapse:collapse;width:100%;margin-top:4px"><tr>' +
-    '<td style="text-align:right;padding:8px 12px;background:#0B4576;color:#fff;font-size:14px;' +
-    'font-weight:bold;border-radius:6px">Total geral de mão de obra: ' + _moedaBR(totalGeral) + '</td>' +
+  var totalGeralHtml = '<table style="border-collapse:collapse;width:100%;margin-top:2px"><tr>' +
+    '<td style="text-align:right;padding:6px 10px;background:#0B4576;color:#fff;font-size:' + d.titulo + 'px;' +
+    'font-weight:bold;border-radius:5px">Total geral de mão de obra: ' + _moedaBR(totalGeral) + '</td>' +
   '</tr></table>';
 
   // CONFIG.LOGO_URL: URL externa fixa (ver Config.gs) — sem arquivo/base64
   // embutido; se o link não carregar, o PDF só fica sem a imagem (alt).
-  var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">' +
+  var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 3px;font-size:' + d.titulo + 'px;letter-spacing:.02em">' +
     ('CONFIRMAÇÃO DE EMBARQUE ' + (unidade || '')).trim() + '</h1>' +
-    '<p style="margin:0;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
-    ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
-  var cabecalho = '<table style="border-collapse:collapse;margin-bottom:16px"><tr>' +
-    '<td style="padding:0 14px 0 0;vertical-align:middle">' +
-      '<img src="' + CONFIG.LOGO_URL + '" alt="Marfim" style="height:56px;width:auto;display:block"></td>' +
+    '<p style="margin:0;font-size:11px;color:#334155">Data: <b>' + dataFmt + '</b>' +
+    ' &nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
+  var cabecalho = '<table style="border-collapse:collapse;margin-bottom:8px"><tr>' +
+    '<td style="padding:0 10px 0 0;vertical-align:middle">' +
+      '<img src="' + CONFIG.LOGO_URL + '" alt="Marfim" style="height:' + d.logo + 'px;width:auto;display:block"></td>' +
     '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
   '</tr></table>';
 
-  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
+  return _cssPaginaRetrato() +
+    '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
     cabecalho +
     blocos +
     totalGeralHtml +
-    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+    '<p style="color:#64748b;font-size:9px;margin-top:8px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
 /**
