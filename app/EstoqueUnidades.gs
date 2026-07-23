@@ -185,7 +185,7 @@ function _equivDe(unidadeAtiva, unidadeOutra) {
  * @return {Object} { ok, unidadeAtiva, unidadeOutra, atualizadoEm, itensOutra, linhas }
  */
 function compararEstoqueEntreUnidades(token) {
-  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var ativa = s.unidade || CONFIG.UNIDADE_PADRAO;
   var outraId = _outraUnidade(ativa);
   if (!outraId) {
@@ -245,7 +245,7 @@ function compararEstoqueEntreUnidades(token) {
  * Se já existir linha com esse item da unidade ativa, atualiza; senão cria.
  */
 function vincularItemEntreUnidades(token, itemAtivo, itemOutra) {
-  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   itemAtivo = String(itemAtivo == null ? '' : itemAtivo).trim();
   itemOutra = String(itemOutra == null ? '' : itemOutra).trim();
   if (!itemAtivo || !itemOutra) throw new Error('Informe os dois itens para vincular.');
