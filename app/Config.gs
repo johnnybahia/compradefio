@@ -139,7 +139,8 @@ var CONFIG = {
     FIO_CRU_BAIXAS: 'FIO_CRU_BAIXAS',     // histórico de baixas no fio crú (tingimento consumindo os lotes)
     ASSOCIACAO_FIO_CRU: 'ASSOCIACAO_FIO_CRU', // tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de fio crú
     FIO_CRU_AJUSTES: 'FIO_CRU_AJUSTES', // ajustes manuais de saldo (ex.: contagem física), nunca altera a QUANTIDADE original da NF
-    MAPA_FIO_CRU: 'MAPA_FIO_CRU' // aprendizado: descrição do produto na NF → tipo de fio do estoque (universal)
+    MAPA_FIO_CRU: 'MAPA_FIO_CRU', // aprendizado: descrição do produto na NF → tipo de fio do estoque (universal)
+    EQUIVALENCIA_UNIDADES: 'EQUIVALENCIA_UNIDADES' // aprendizado: item de uma unidade ↔ item equivalente na outra (comparar estoque entre unidades)
   },
 
   /** Duração da sessão (token de login), em horas. */
