@@ -29,10 +29,17 @@ function _outraUnidade(id) {
 
 /* --------------------- normalização p/ casar itens --------------------- */
 
-/** Código-base do item (primeiro número, sem zeros à esquerda). '' se não houver. */
+/**
+ * Código-base do item: o número NO COMEÇO do texto (sem zeros à esquerda),
+ * ou '' se o item não começar com número. É de propósito só no começo — os
+ * itens de fio são codificados pelo número no início ("39", "041",
+ * "4662/1 RECICLADO", "5573 BRILHANTE"...), enquanto acessórios trazem o
+ * número no meio ("TRAMADO ALXILIAR 39-GFX4X96", "CORREIA A41"). Pegar o
+ * número em qualquer posição fazia acessório casar errado com fio.
+ */
 function _codigoBaseItem(item) {
-  var m = String(item == null ? '' : item).match(/\d+/);
-  return m ? String(parseInt(m[0], 10)) : '';
+  var m = String(item == null ? '' : item).match(/^\s*(\d+)/);
+  return m ? String(parseInt(m[1], 10)) : '';
 }
 
 /**

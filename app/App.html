@@ -2802,7 +2802,6 @@ function viewEstoqueUnidades(alvo) {
       '<b id="eu-atualizado">—</b>. Use as setas ↑/↓ para navegar.</p>' +
       '<div id="eu-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-estoque-unidades"></div>' +
-      '<datalist id="itens-outra-unidade"></datalist>' +
     '</section>';
   ativarRegua('tabela-estoque-unidades');
   carregarEstoqueUnidades();
@@ -2825,11 +2824,6 @@ function carregarEstoqueUnidades() {
       estadoEstoqueUnidades.linhas = r.linhas || [];
       estadoEstoqueUnidades.itensOutra = r.itensOutra || [];
       estadoEstoqueUnidades.unidadeOutra = r.unidadeOutra || '';
-      document.getElementById('itens-outra-unidade').innerHTML =
-        estadoEstoqueUnidades.itensOutra.map(function (it) {
-          return '<option value="' + escAttr(it.item) + '">saldo ' + (it.saldo != null ? it.saldo : '—') +
-            (it.data ? ' (' + it.data + ')' : '') + '</option>';
-        }).join('');
       renderEstoqueUnidades();
     })
     .catch(function (err) {
@@ -2861,11 +2855,8 @@ function renderEstoqueUnidades() {
       ? '<span class="sem-desc">sem par</span>'
       : (escAttr(l.itemOutra) + (l.origem === 'automático' ? ' <span class="badge-tingido-parcial">auto</span>' : ''));
     var saldoCel = l.semPar ? '—' : (l.saldoOutra != null ? num(l.saldoOutra) : '—');
-    var vincCel =
-      '<input class="eu-vinc" list="itens-outra-unidade" data-idx="' + i + '" ' +
-        'placeholder="item da ' + escAttr(outra) + '" value="' + escAttr(l.semPar ? '' : l.itemOutra) + '" ' +
-        'style="min-width:150px;padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px">' +
-      ' <button class="btn-atualizar-data eu-vinc-btn" data-idx="' + i + '">vincular</button>';
+    var vincCel = '<button class="btn-atualizar-data eu-vinc-btn" data-idx="' + i + '" ' +
+      'style="white-space:nowrap">' + (l.semPar ? 'vincular' : 'trocar') + '</button>';
     return '<tr' + rowClass + '>' +
       '<td class="col-item">' + (escAttr(l.item) || '—') + '</td>' +
       '<td>' + (l.descricao ? escAttr(l.descricao) : '—') + '</td>' +
@@ -2884,19 +2875,79 @@ function renderEstoqueUnidades() {
     '<table class="dados"><thead><tr>' +
       '<th style="width:12%">Item (aqui)</th><th style="width:19%">Descrição</th>' +
       '<th style="text-align:right;width:8%">A comprar</th><th style="width:9%">Data limite</th>' +
-      '<th style="width:15%">Item na ' + escAttr(outra) + '</th>' +
+      '<th style="width:17%">Item na ' + escAttr(outra) + '</th>' +
       '<th style="text-align:right;width:8%">Saldo lá</th><th style="width:9%">Data do saldo</th>' +
-      '<th style="width:20%">Vincular</th>' +
+      '<th style="width:8%">Vincular</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.eu-vinc-btn'), function (btn) {
     btn.addEventListener('click', function () {
-      var idx = Number(btn.getAttribute('data-idx'));
-      var inp = wrap.querySelector('.eu-vinc[data-idx="' + idx + '"]');
-      vincularEstoqueUnidade(linhas[idx].item, inp ? inp.value : '');
+      var l = linhas[Number(btn.getAttribute('data-idx'))];
+      abrirModalVincularUnidade(l.item, l.semPar ? '' : l.itemOutra, function (itemLa) {
+        vincularEstoqueUnidade(l.item, itemLa);
+      });
     });
   });
   aplicarRegua(wrap);
+}
+
+/**
+ * Seletor de item da outra unidade (evita o datalist, que não reabre pra
+ * trocar e filtra por qualquer trecho). Busca por PREFIXO (esquerda→direita):
+ * digitar "4662" mostra os itens que começam com 4662. Mostra saldo e data.
+ */
+function abrirModalVincularUnidade(itemAqui, itemAtual, callback) {
+  var itens = estadoEstoqueUnidades.itensOutra || [];
+  var outra = estadoEstoqueUnidades.unidadeOutra || 'outra unidade';
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;' +
+      'padding:22px 24px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
+      '<h3 style="margin:0 0 4px;color:#0B4576;font-size:17px">Vincular no estoque da ' + escAttr(outra) + '</h3>' +
+      '<p style="margin:0 0 12px;color:#475569;font-size:13px">Item daqui: <b>' + escAttr(itemAqui) + '</b>' +
+        (itemAtual ? ' · vínculo atual: <b>' + escAttr(itemAtual) + '</b>' : '') +
+        '. Digite o começo do código/nome pra filtrar.</p>' +
+      '<input id="mv-busca" type="text" placeholder="ex.: 4662" autocomplete="off" ' +
+        'style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box">' +
+      '<div id="mv-lista" style="margin-top:10px;max-height:300px;overflow-y:auto;border:1px solid #eef2f6;border-radius:8px"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">' +
+        '<button id="mv-cancelar" style="padding:10px 16px;border:1px solid #D8E0E8;border-radius:8px;' +
+          'background:#fff;cursor:pointer;font-size:14px">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  var busca = overlay.querySelector('#mv-busca');
+  var lista = overlay.querySelector('#mv-lista');
+  function fechar() { if (overlay.parentNode) document.body.removeChild(overlay); }
+  function render() {
+    var termo = busca.value.trim().toLowerCase();
+    var achou = itens.filter(function (it) {
+      return !termo || String(it.item).toLowerCase().indexOf(termo) === 0; // PREFIXO
+    });
+    var mostra = achou.slice(0, 200);
+    if (!mostra.length) {
+      lista.innerHTML = '<div style="padding:12px;color:#94a3b8;font-size:13px">Nenhum item começa com isso.</div>';
+      return;
+    }
+    lista.innerHTML = mostra.map(function (it) {
+      return '<div class="mv-opt" data-item="' + escAttr(it.item) + '" ' +
+        'style="padding:8px 11px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px">' +
+        '<b>' + escAttr(it.item) + '</b> <span style="color:#64748b">— saldo ' +
+        (it.saldo != null ? it.saldo : '—') + (it.data ? ' (' + it.data + ')' : '') + '</span></div>';
+    }).join('') + (achou.length > mostra.length
+      ? '<div style="padding:8px 11px;color:#94a3b8;font-size:12px">…refine a busca (' + achou.length + ' itens)</div>'
+      : '');
+    Array.prototype.forEach.call(lista.querySelectorAll('.mv-opt'), function (o) {
+      o.onclick = function () { fechar(); callback(o.getAttribute('data-item')); };
+    });
+  }
+  busca.addEventListener('input', render);
+  overlay.querySelector('#mv-cancelar').onclick = fechar;
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) fechar(); });
+  render();
+  busca.focus();
 }
 
 function vincularEstoqueUnidade(itemAqui, itemOutra) {
