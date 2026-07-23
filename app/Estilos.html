@@ -271,10 +271,16 @@
      usado na aba "Relatório", que espelha o e-mail direto no sistema. */
   .cabecalho-relatorio.em-tela { display: flex; }
   @media print {
-    @page { margin: 16mm 14mm; }
-    .topo, .usuario-box, #menu, .no-print, #ting-msg, #legenda-critico { display: none !important; }
-    .so-print { display: block; color: #0B4576; margin: 0 0 10px; }
+    /* Margem pequena e layout denso pra mirar UMA página vertical, na mesma
+       pegada do PDF que sai por e-mail. */
+    @page { margin: 8mm; }
+    .topo, .usuario-box, #menu, .no-print, #ting-msg, #rel-msg, #legenda-critico, .desc { display: none !important; }
+    .so-print { display: block; color: #0B4576; margin: 0 0 8px; }
     .cabecalho-relatorio.so-print { display: flex; }
+    /* Cabeçalho compacto na folha: logo e título menores, menos espaço. */
+    .cabecalho-relatorio .logo-relatorio { height: 38px; }
+    .cabecalho-relatorio h1 { font-size: 15px; margin: 0 0 2px; }
+    .cabecalho-relatorio p { font-size: 11px; margin: 0 0 6px; }
     body { background: #fff; }
     main.conteudo { max-width: 100%; padding: 0; }
     .painel { box-shadow: none; border: none; padding: 0; margin: 0; }
@@ -290,14 +296,18 @@
        do navegador — o cabeçalho pode sair fixado numa posição errada,
        bagunçando a ordem do conteúdo na folha. Desliga os dois só na impressão. */
     .tabela-wrap { overflow: visible !important; }
-    table.dados { font-size: 11px; }
+    /* Tabela densa pra caber numa página vertical. */
+    table.dados { font-size: 9px; }
+    table.dados th, table.dados td { padding: 2px 4px !important; }
     table.dados thead th {
       background: #eef2f6 !important; color: #0B4576 !important;
       position: static !important; top: auto !important;
     }
-    /* O destaque de saldo crítico é só para conferência na tela antes de
-       imprimir/enviar — não deve sair na folha impressa. */
-    #tabela-ting tr.destaque { background: none !important; }
+    /* O destaque de saldo crítico (vermelho) e o cursor da régua são só pra
+       conferência na tela — não saem na folha impressa. */
+    #tabela-ting tr.destaque, #tabela-relatorio tr.destaque { background: none !important; }
     #tabela-ting tr.destaque td:nth-child(5) { color: inherit !important; font-weight: normal !important; }
+    #tabela-relatorio tr.destaque td { color: inherit !important; font-weight: normal !important; }
+    table.dados tbody tr.regua-atual { background: none !important; box-shadow: none !important; }
   }
 </style>

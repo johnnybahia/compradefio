@@ -2723,9 +2723,13 @@ function viewRelatorio(alvo) {
       '<p class="desc">O mesmo pedido que sai por e-mail — pra consultar direto no sistema, sem esperar. ' +
       'Linha destacada em <span style="color:#C0392B;font-weight:600">vermelho</span> tem saldo de estoque ' +
       'crítico. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
+      '<div class="no-print" style="margin:0 0 12px">' +
+        '<button class="btn-principal" id="btn-imprimir-relatorio">Imprimir relatório</button>' +
+      '</div>' +
       '<div id="rel-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-relatorio"></div>' +
     '</section>';
+  document.getElementById('btn-imprimir-relatorio').onclick = function () { window.print(); };
   ativarRegua('tabela-relatorio');
   carregarRelatorio();
 }
