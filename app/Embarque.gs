@@ -51,8 +51,10 @@ function _codEmbarque(codigo) {
  * numa mesma linha de texto (separados só por espaço), e um item pode
  * ficar dividido em várias linhas. Por isso o texto inteiro é normalizado
  * (todo espaço em branco vira um espaço só) e os itens são extraídos com
- * uma busca global pelo padrão "cor CÓDIGO - caixas cx - peso", em vez de
- * depender de onde estão as quebras de linha.
+ * uma busca global pelo padrão "TIPO [cor] CÓDIGO - caixas cx - peso", em vez
+ * de depender de onde estão as quebras de linha. A palavra "cor" é OPCIONAL:
+ * a maioria das linhas é "Fio X cor 6001 ...", mas algumas (ex.: "Fio
+ * Reciclado Reflexx 4662 ...") põem o código logo após o tipo, sem "cor".
  *
  * @return {Object} { doc, data, linhas: [{descricao, tipo, codigo, quantidade, caixas, peso}] }
  */
@@ -86,21 +88,61 @@ function _parseEmbarque(texto) {
     corpo = corpo.slice(mHeader.index + mHeader[0].length);
   }
 
-  var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,24}?)\s*\bcor\s+([^\s\-–—_.]+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
-  var out = [], m;
+  // "cor" é OPCIONAL (ver docstring): algumas linhas trazem o código logo
+  // depois do tipo, sem "cor". O código é sempre numérico ((\d+)) — isso
+  // separa direito onde o tipo (com letras/dígitos) termina e o código começa
+  // mesmo sem a palavra "cor" no meio.
+  var RE = /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\/ ]{0,28}?)\s*(?:\bcor\s+)?(\d+)\s*[-–—_.]*\s*(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi;
+  var out = [], m, faixas = [];
   while ((m = RE.exec(corpo)) !== null) {
+    faixas.push([m.index, RE.lastIndex]);
     var peso = parseFloat(String(m[4]).replace(',', '.'));
     if (isNaN(peso)) peso = null;
     var tipo = m[1].trim();
     out.push({
+      pos: m.index,
       descricao: (tipo + ' cor ' + m[2]).replace(/\s+/g, ' '),
       tipo: tipo,
       codigo: m[2],
       caixas: parseInt(m[3], 10),
       peso: peso,
-      quantidade: peso != null ? Math.floor(peso) : null
+      quantidade: peso != null ? Math.floor(peso) : null,
+      naoInterpretado: false
     });
   }
+
+  // REDE DE SEGURANÇA: nenhuma linha some. Todo trecho "<n>cx ... <peso>" que o
+  // parser estrito NÃO capturou (um tipo/código fora do padrão conhecido) ainda
+  // vira uma linha, marcada como "não interpretado". A quantidade já sai
+  // preenchida (do peso); falta só o item, que o usuário informa na conferência
+  // e o sistema aprende (vira regra pra próxima vez). Em relatório bem formado
+  // isto não gera nada — tudo já foi pego acima.
+  var CX = /(\d+)\s*cx\s*[-–—_.]*\s*([\d.,]+)/gi, c, ultimoFim = 0;
+  while ((c = CX.exec(corpo)) !== null) {
+    var ini = c.index, fim = CX.lastIndex;
+    var coberto = faixas.some(function (f) { return ini < f[1] && fim > f[0]; });
+    if (!coberto) {
+      var antes = ultimoFim;
+      faixas.forEach(function (f) { if (f[1] <= ini && f[1] > antes) antes = f[1]; });
+      var trecho = corpo.slice(antes, fim)
+        .replace(/.*R\$\s*[\d.,]+\s*/i, '')   // remove resíduo de linha "Total ... R$ x"
+        .replace(/^[\s>._\-–—]+/, '').trim();
+      var peso2 = parseFloat(String(c[2]).replace(',', '.'));
+      if (isNaN(peso2)) peso2 = null;
+      if (trecho && !/^total\b/i.test(trecho)) {
+        out.push({
+          pos: ini, descricao: trecho, tipo: '', codigo: '',
+          caixas: parseInt(c[1], 10), peso: peso2,
+          quantidade: peso2 != null ? Math.floor(peso2) : null,
+          naoInterpretado: true
+        });
+      }
+    }
+    ultimoFim = fim;
+  }
+
+  out.sort(function (a, b) { return a.pos - b.pos; });   // mantém a ordem do relatório
+  out.forEach(function (o) { delete o.pos; });
   return { doc: doc, data: data, linhas: out };
 }
 
@@ -134,6 +176,7 @@ function _itensEstoqueSet() {
   vals.forEach(function (r) {
     var it = r[i];
     if (it === '' || it == null) return;
+    if (it instanceof Date) return; // código lido como data (Sheets converteu ex.: "5711/1") — inválido, ignora
     var s = String(it).trim();
     if (s) set[_norm(s)] = s;
   });
@@ -148,7 +191,12 @@ function _lerMapaEmbarque() {
   var vals = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
   vals.forEach(function (r) {
     var d = _norm(r[0]);
-    if (d && r[1] !== '' && r[1] != null) mapa[d] = String(r[1]).trim();
+    if (!d) return;
+    // Entrada corrompida: o Sheets converteu um código tipo "5711/1" em data
+    // ao gravar. Ignora (não usa como aprendida) pra o item ser reconhecido de
+    // novo pelas regras/estoque e reaprendido já como texto (ver `_salvarMapaEmbarque`).
+    if (r[1] instanceof Date) return;
+    if (r[1] !== '' && r[1] != null) mapa[d] = String(r[1]).trim();
   });
   return mapa;
 }
@@ -166,7 +214,11 @@ function _salvarMapaEmbarque(pares) {
   });
   if (!novos.length) return;
   var sh = _aba(CONFIG.SHEETS.MAPA_EMBARQUE, ['DESCRICAO', 'ITEM']);
-  sh.getRange(sh.getLastRow() + 1, 1, novos.length, 2).setValues(novos);
+  var rng = sh.getRange(sh.getLastRow() + 1, 1, novos.length, 2);
+  // TEXTO PURO: senão o Sheets converte códigos como "5711/1" (sufixo do
+  // Reflexx) em data — foi a causa de item sair como "Thu Jan 01 5711...".
+  rng.setNumberFormat('@');
+  rng.setValues(novos);
 }
 
 /**
@@ -193,6 +245,11 @@ function analisarEmbarquePdf(token, base64, nome) {
 
     if (aprendido[chave]) {
       item = aprendido[chave]; ok = true; motivo = 'aprendido';
+    } else if (l.naoInterpretado) {
+      // Linha da rede de segurança (ver `_parseEmbarque`): não bateu com o
+      // padrão nem com nada aprendido. Fica listada pro usuário informar o
+      // item — ao gravar, vira regra aprendida pra próxima vez.
+      motivo = 'não interpretei — informe o item';
     } else {
       var suf = null, t = _norm(l.tipo);
       for (var i = 0; i < regras.length; i++) {
@@ -242,7 +299,12 @@ function _registrarEmbarqueEDarBaixa(itens, doc, data) {
   var linhas = itens.map(function (it) {
     return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, ''];
   });
-  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, EMBARQUES_HEADERS.length).setValues(linhas);
+  var inicio = sh.getLastRow() + 1;
+  // Coluna CORES (item) como TEXTO PURO: senão o Sheets converte códigos como
+  // "5711/1" em data, e a conciliação de chegada/"em viagem" (que casa item
+  // por texto) deixa de bater. Só a coluna 1 — as outras seguem número/data.
+  sh.getRange(inicio, 1, linhas.length, 1).setNumberFormat('@');
+  sh.getRange(inicio, 1, linhas.length, EMBARQUES_HEADERS.length).setValues(linhas);
   var baixa = _baixarPendenciaCompraPorEmbarque(itens);
   return { gravados: linhas.length, baixados: baixa.baixados };
 }
