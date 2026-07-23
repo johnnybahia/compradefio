@@ -398,8 +398,18 @@ function obterCustoMaoObra(token) {
  * custoMaoObra), aplicada a todos os itens: o valor de cada item é
  * quantidade confirmada × taxa.
  *
+ * "DO ESTOQUE" (it.doEstoque): quando marcado na tela, a parte da quantidade
+ * confirmada que PASSAR do que já foi tingido sai do estoque de produto
+ * PRONTO do usuário — NÃO consome fio crú. Ex.: tingiu 50, confirma 100 com
+ * a caixa marcada → 50 continuam vindos do crú (o que já estava baixado) e
+ * 50 são do estoque, sem baixa extra. Tingiu 0 + marcado → nada sai do crú.
+ * A mão de obra também só conta os kg que passaram pelo tingimento (a parte
+ * do estoque já estava pronta — não teve tingimento agora). Se o valor
+ * confirmado for MENOR ou igual ao já tingido, a marcação não muda nada
+ * (segue o ajuste normal, inclusive crédito de volta).
+ *
  * Por ora, só o master e o almoxarifado 1 usam esta tela — ver `exigirSessao`.
- * @param {Object} params { itens: [{item, quantidade}], custoMaoObra }
+ * @param {Object} params { itens: [{item, quantidade, doEstoque}], custoMaoObra }
  * @return {Object} { ok, numero, gravados, baixados, resumo, custoMaoObra }
  */
 function confirmarEmbarqueManual(token, params) {
@@ -407,7 +417,9 @@ function confirmarEmbarqueManual(token, params) {
   params = params || {};
   var itens = (params.itens || [])
     .filter(function (it) { return it.item && Number(it.quantidade) > 0; })
-    .map(function (it) { return { item: String(it.item).trim(), quantidade: Number(it.quantidade) }; });
+    .map(function (it) {
+      return { item: String(it.item).trim(), quantidade: Number(it.quantidade), doEstoque: !!it.doEstoque };
+    });
   if (!itens.length) throw new Error('Marque ao menos um item, com quantidade, para confirmar o embarque.');
 
   // Taxa de mão de obra (R$ por kg tingido), única para todo o embarque.
@@ -432,15 +444,31 @@ function confirmarEmbarqueManual(token, params) {
   // sendo confirmado agora, ANTES de gravar o embarque. `ajuste.lotes` traz o
   // PESO real tirado (ou creditado de volta, se negativo) de cada NF NESTA
   // confirmação — é isso que vai no relatório, não um resumo histórico do item.
-  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, itens:[{item,quantidade}], lotes:[{item,nf,fornecedor,dataNf,peso,saldoApos}] }
+  // Itens marcados "do estoque" com quantidade acima do já tingido NÃO passam
+  // pelo ajuste: a sobra sai do estoque de produto pronto (ver docstring).
+  var tingidoAtualPorItem = _tingidoPorItem();
+  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, totalEstoque, itens:[{item,quantidade,qtdEstoque}], lotes:[{item,nf,fornecedor,dataNf,peso,saldoApos}] }
   itens.forEach(function (it) {
     var tipoFio = tipoFioPorItem[_norm(it.item)] || '';
-    var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
-    if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, itens: [], lotes: [] };
-    porTipo[chaveTipo].totalTingido += it.quantidade;
-    porTipo[chaveTipo].itens.push({ item: it.item, quantidade: it.quantidade });
-    (ajuste.lotes || []).forEach(function (l) {
+    var jaTingido = tingidoAtualPorItem[_norm(it.item)] || 0;
+    // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
+    // senão não há sobra nenhuma pra tirar do estoque pronto.
+    var qtdEstoque = (it.doEstoque && it.quantidade > jaTingido) ? (it.quantidade - jaTingido) : 0;
+    var lotes = [];
+    if (qtdEstoque > 0) {
+      // Não mexe no fio crú: o que já estava baixado (jaTingido) permanece
+      // como o consumo do crú; a sobra é estoque pronto. Nenhuma linha nova
+      // no razão de baixas.
+    } else {
+      var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
+      lotes = ajuste.lotes || [];
+    }
+    if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, totalEstoque: 0, itens: [], lotes: [] };
+    porTipo[chaveTipo].totalTingido += it.quantidade - qtdEstoque;
+    porTipo[chaveTipo].totalEstoque += qtdEstoque;
+    porTipo[chaveTipo].itens.push({ item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque });
+    lotes.forEach(function (l) {
       porTipo[chaveTipo].lotes.push({
         item: it.item, nf: l.nf, fornecedor: l.fornecedor || '',
         dataNf: l.dataNf, peso: l.quantidadeBaixada, saldoApos: l.saldoApos
@@ -450,7 +478,9 @@ function confirmarEmbarqueManual(token, params) {
   var resumo = Object.keys(porTipo).map(function (t) {
     var g = porTipo[t];
     return {
-      tipoFio: g.tipoFio, totalTingido: g.totalTingido,
+      tipoFio: g.tipoFio, totalTingido: g.totalTingido, totalEstoque: g.totalEstoque,
+      // Mão de obra só sobre o que passou pelo tingimento — a parte "do
+      // estoque" já estava pronta, não teve tingimento nesta confirmação.
       maoObra: g.totalTingido * custoMaoObra, itens: g.itens, lotes: g.lotes
     };
   });
@@ -527,21 +557,32 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     totalGeral += g.maoObra || 0;
 
     var rowsItens = g.itens.map(function (it) {
-      return '<tr>' + td(it.item) + td(it.quantidade) + td(_moedaBR(it.quantidade * custoMaoObra)) + '</tr>';
+      var qtdEstoque = Number(it.qtdEstoque) || 0;
+      var qtdCel = qtdEstoque > 0
+        ? it.quantidade + ' <span style="color:#64748b">(' + qtdEstoque + ' do estoque, sem consumo de crú)</span>'
+        : String(it.quantidade);
+      // Mão de obra só sobre o que passou pelo tingimento.
+      return '<tr>' + td(it.item) + td(qtdCel) + td(_moedaBR((it.quantidade - qtdEstoque) * custoMaoObra)) + '</tr>';
     }).join('');
 
+    var msgSemLotes = (Number(g.totalEstoque) > 0 && !g.totalTingido)
+      ? 'saída do estoque de produto pronto — sem consumo de fio crú nesta confirmação'
+      : 'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)';
     var rowsLotes = g.lotes.length
       ? g.lotes.map(function (l) {
           return '<tr>' + td(l.item) + td(l.nf || '—') + td(l.fornecedor || '—') +
             td(l.dataNf || '—') + td(l.peso) + td(l.saldoApos) + '</tr>';
         }).join('')
-      : '<tr><td colspan="6" style="' + tdStyle + ';color:#94a3b8">' +
-          'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)</td></tr>';
+      : '<tr><td colspan="6" style="' + tdStyle + ';color:#94a3b8">' + msgSemLotes + '</td></tr>';
 
+    var totalEstoque = Number(g.totalEstoque) || 0;
+    var rotuloTotais = totalEstoque > 0
+      ? g.totalTingido + ' kg tingido · ' + totalEstoque + ' kg do estoque'
+      : g.totalTingido + ' kg tingido';
     var titulo = '<table style="border-collapse:collapse;width:100%;margin-bottom:6px"><tr>' +
       '<td style="vertical-align:middle">' +
         '<span style="color:#0B4576;font-size:' + (d.fonte + 2) + 'px;font-weight:bold">' + g.tipoFio + '</span>' +
-        '<span style="color:#64748b;font-size:' + d.fonte + 'px">&nbsp;— ' + g.totalTingido + ' kg tingido</span></td>' +
+        '<span style="color:#64748b;font-size:' + d.fonte + 'px">&nbsp;— ' + rotuloTotais + '</span></td>' +
       '<td style="text-align:right;vertical-align:middle">' +
         '<span style="background:#dcfce7;color:#166534;font-size:' + d.fonte + 'px;font-weight:bold;' +
         'padding:2px 8px;border-radius:5px">Mão de obra: ' + _moedaBR(g.maoObra) + '</span></td>' +

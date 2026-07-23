@@ -1130,7 +1130,10 @@ function viewConfirmarEmbarque(alvo) {
       '<b>editada</b>). Linhas em <span class="badge-tingido-completo">verde</span> já bateram o alvo de ' +
       'tingimento; em <span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele. O valor ' +
       'CONFIRMADO aqui é o que sai do estoque de fio crú e vai para o e-mail, mesmo que seja diferente do ' +
-      'que foi lançado antes: este é o procedimento final. O e-mail de confirmação usa a mesma lista de ' +
+      'que foi lançado antes: este é o procedimento final. A caixa <b>Do estoque</b> (à direita) indica que a ' +
+      'parte confirmada ACIMA do já tingido sai do estoque de produto pronto — sem consumir fio crú e sem ' +
+      'mão de obra nessa parte (ex.: tingiu 50, confirma 100 marcado → 50 do crú + 50 do estoque). ' +
+      'O e-mail de confirmação usa a mesma lista de ' +
       'destinatários configurada na tela de Tingimento. Use as setas ↑/↓ (ou clique numa linha) para ' +
       'navegar item por item.'
     : 'Somente consulta — quem confirma o embarque é o almoxarifado 1. Linhas em ' +
@@ -1233,7 +1236,8 @@ function carregarListaConfirmarEmbarque() {
           linha: l.linha, item: l.item, descricao: l.descricao, cliente: l.cliente,
           tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
           dataSolicitado: l.dataSolicitado || '',
-          quantidade: l.tingido ? String(l.tingido) : '', selecionado: false
+          quantidade: l.tingido ? String(l.tingido) : '', selecionado: false,
+          doEstoque: false
         };
       });
       renderConfirmarEmbarque();
@@ -1292,6 +1296,11 @@ function renderConfirmarEmbarque() {
           escAttr(l.quantidade) + '">'
         : num(l.quantidade) + ' kg') + '</td>' +
       '<td>' + (badges.length ? badges.join(' ') : '—') + '</td>' +
+      (editavel
+        ? '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-do-estoque" data-idx="' + i +
+          '" title="A parte confirmada acima do já tingido sai do estoque pronto, sem consumir fio crú"' +
+          (l.doEstoque ? ' checked' : '') + '></td>'
+        : '') +
     '</tr>';
   }).join('');
   wrap.innerHTML =
@@ -1301,13 +1310,18 @@ function renderConfirmarEmbarque() {
       '<th style="width:9%">Cliente</th><th style="width:9%">Tipo de fio</th>' +
       '<th style="text-align:right;width:6%">Alvo</th>' +
       '<th style="text-align:right;width:8%">Já tingido</th><th style="width:11%">Quantidade a confirmar</th>' +
-      '<th style="width:22%">Situação</th>' +
+      '<th style="width:' + (editavel ? '16%">Situação</th><th style="width:6%">Do estoque' : '22%">Situação') + '</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   if (editavel) {
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-embarcar'), function (chk) {
       chk.addEventListener('change', function () {
         estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].selecionado = chk.checked;
+      });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-do-estoque'), function (chk) {
+      chk.addEventListener('change', function () {
+        estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].doEstoque = chk.checked;
       });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.qtd-embarcar-input'), function (inp) {
@@ -1337,23 +1351,32 @@ function confirmarEmbarqueSelecionado() {
   var linhaMaoObra = taxa > 0
     ? ' Mão de obra: ' + moeda(taxa) + '/kg (total ' + moeda(totalKg * taxa) + ').'
     : ' Sem custo de mão de obra informado (R$ 0,00).';
+  var comDoEstoque = selecionados.filter(function (l) { return l.doEstoque; }).length;
+  var linhaEstoque = comDoEstoque
+    ? ' ' + comDoEstoque + ' item(ns) marcado(s) como "do estoque": a parte acima do já tingido sai do ' +
+      'estoque pronto, sem consumir fio crú (e sem mão de obra nessa parte).'
+    : '';
   confirmarModal(
     'Confirmar embarque?',
     'Isso vai gravar ' + selecionados.length + ' item(ns) (total ' + num(totalKg) + ' kg) como embarcados, ' +
     'dar baixa na lista pendente de compra e no estoque de fio crú, e enviar o e-mail de confirmação ' +
-    '(relatório em PDF anexo).' + linhaMaoObra + ' Não pode ser desfeito por aqui.',
+    '(relatório em PDF anexo).' + linhaEstoque + linhaMaoObra + ' Não pode ser desfeito por aqui.',
     'Confirmar', 'Cancelar',
     function (ok) {
       if (!ok) return;
       var btn = document.getElementById('btn-confirmar-embarque');
       btn.disabled = true;
       msg.innerHTML = '<div class="aviso"><span class="carregando">Confirmando e enviando e-mail…</span></div>';
-      var itens = selecionados.map(function (l) { return { item: l.item, quantidade: Number(l.quantidade) }; });
+      var itens = selecionados.map(function (l) {
+        return { item: l.item, quantidade: Number(l.quantidade), doEstoque: !!l.doEstoque };
+      });
       chamar('confirmarEmbarqueManual', sessao.token, { itens: itens, custoMaoObra: custoMaoObra })
         .then(function (r) {
           btn.disabled = false;
           var resumoTxt = r.resumo.map(function (g) {
-            return g.tipoFio + ': ' + num(g.totalTingido) + ' kg' + (g.maoObra ? ' (' + moeda(g.maoObra) + ')' : '');
+            return g.tipoFio + ': ' + num(g.totalTingido) + ' kg' +
+              (g.totalEstoque ? ' + ' + num(g.totalEstoque) + ' kg do estoque' : '') +
+              (g.maoObra ? ' (' + moeda(g.maoObra) + ')' : '');
           }).join(' · ');
           msg.innerHTML = '<div class="aviso ok">Embarque nº ' + r.numero + ' confirmado (' + r.gravados +
             ' item(ns)) — e-mail com PDF enviado para ' + r.destinatarios + ' destinatário(s). ' + resumoTxt + '</div>';
