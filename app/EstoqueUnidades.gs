@@ -217,6 +217,8 @@ function compararEstoqueEntreUnidades(token) {
       item: item,
       descricao: r.DESCRICAO == null ? '' : String(r.DESCRICAO),
       tipoFio: r.TIPO_FIO == null ? '' : String(r.TIPO_FIO),
+      saldoAqui: r.SALDO,
+      saldoCriticoAqui: _saldoCritico(r),
       aComprar: r.SUGERIDO,
       dataLimite: _soData(r.DATA_LIMITE),
       itemOutra: alvo ? alvo.item : '',
