@@ -1151,6 +1151,13 @@ function viewConfirmarEmbarque(alvo) {
             '<input type="text" inputmode="decimal" id="custo-mao-obra" placeholder="ex.: 2,00" ' +
               'style="width:120px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px">' +
             '<span class="desc" style="margin:0">Taxa única, aplicada a todos os itens (kg confirmado × esta taxa).</span>' +
+          '</div>' +
+          '<div style="margin-top:12px">' +
+            '<label for="obs-embarque" style="font-weight:600;display:block;margin-bottom:4px">' +
+              'Observação geral (sai no fim do relatório do e-mail):</label>' +
+            '<textarea id="obs-embarque" rows="2" placeholder="opcional — ex.: embarque sai amanhã pela transportadora X" ' +
+              'style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;' +
+              'font-family:inherit;font-size:13px;resize:vertical"></textarea>' +
           '</div>'
         : '') +
       '<div style="margin-top:16px">' +
@@ -1232,13 +1239,17 @@ function carregarListaConfirmarEmbarque() {
     .then(function (r) {
       msg.innerHTML = '';
       estadoConfirmarEmbarque.linhas = (r.linhas || []).map(function (l) {
-        return {
+        var o = {
           linha: l.linha, item: l.item, descricao: l.descricao, cliente: l.cliente,
           tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
           dataSolicitado: l.dataSolicitado || '',
           quantidade: l.tingido ? String(l.tingido) : '', selecionado: false,
-          doEstoque: false
+          doEstoque: false, obs: ''
         };
+        // "Completo" já vem marcado quando o tingido bateu o alvo — o usuário
+        // só digita observação nos casos parciais (pode desmarcar se quiser).
+        o.completo = statusTingidoEmbarque(o) === 'completo';
+        return o;
       });
       renderConfirmarEmbarque();
     })
@@ -1297,7 +1308,18 @@ function renderConfirmarEmbarque() {
         : num(l.quantidade) + ' kg') + '</td>' +
       '<td>' + (badges.length ? badges.join(' ') : '—') + '</td>' +
       (editavel
-        ? '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-do-estoque" data-idx="' + i +
+        ? '<td>' +
+            '<label style="white-space:nowrap;font-size:11.5px;cursor:pointer">' +
+              '<input type="checkbox" class="chk-obs-completo" data-idx="' + i + '"' +
+              (l.completo ? ' checked' : '') + '> completo</label>' +
+            (l.completo
+              ? ''
+              : '<input type="text" class="obs-embarcar-input" data-idx="' + i + '" ' +
+                'placeholder="ex.: parcial — restante depois" value="' + escAttr(l.obs) + '" ' +
+                'style="width:100%;box-sizing:border-box;margin-top:3px;padding:4px 6px;' +
+                'border:1px solid #cbd5e1;border-radius:5px;font-size:12px">') +
+          '</td>' +
+          '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-do-estoque" data-idx="' + i +
           '" title="A parte confirmada acima do já tingido sai do estoque pronto, sem consumir fio crú"' +
           (l.doEstoque ? ' checked' : '') + '></td>'
         : '') +
@@ -1305,12 +1327,14 @@ function renderConfirmarEmbarque() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      (editavel ? '<th style="width:5%">Embarcar</th>' : '') + '<th style="width:7%">Solicitado em</th>' +
-      '<th style="width:9%">Item</th><th style="width:13%">Descrição</th>' +
-      '<th style="width:9%">Cliente</th><th style="width:9%">Tipo de fio</th>' +
-      '<th style="text-align:right;width:6%">Alvo</th>' +
-      '<th style="text-align:right;width:8%">Já tingido</th><th style="width:11%">Quantidade a confirmar</th>' +
-      '<th style="width:' + (editavel ? '16%">Situação</th><th style="width:6%">Do estoque' : '22%">Situação') + '</th>' +
+      (editavel ? '<th style="width:4%">Embarcar</th>' : '') + '<th style="width:6%">Solicitado em</th>' +
+      '<th style="width:8%">Item</th><th style="width:' + (editavel ? '11' : '13') + '%">Descrição</th>' +
+      '<th style="width:8%">Cliente</th><th style="width:8%">Tipo de fio</th>' +
+      '<th style="text-align:right;width:5%">Alvo</th>' +
+      '<th style="text-align:right;width:7%">Já tingido</th><th style="width:10%">Quantidade a confirmar</th>' +
+      '<th style="width:' + (editavel
+        ? '11%">Situação</th><th style="width:16%">Observação (e-mail)</th><th style="width:5%">Do estoque'
+        : '24%">Situação') + '</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   if (editavel) {
@@ -1322,6 +1346,17 @@ function renderConfirmarEmbarque() {
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-do-estoque'), function (chk) {
       chk.addEventListener('change', function () {
         estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].doEstoque = chk.checked;
+      });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-obs-completo'), function (chk) {
+      chk.addEventListener('change', function () {
+        estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].completo = chk.checked;
+        renderConfirmarEmbarque(); // mostra/esconde o campo de texto da observação
+      });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.obs-embarcar-input'), function (inp) {
+      inp.addEventListener('input', function () {
+        estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))].obs = inp.value;
       });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.qtd-embarcar-input'), function (inp) {
@@ -1368,9 +1403,15 @@ function confirmarEmbarqueSelecionado() {
       btn.disabled = true;
       msg.innerHTML = '<div class="aviso"><span class="carregando">Confirmando e enviando e-mail…</span></div>';
       var itens = selecionados.map(function (l) {
-        return { item: l.item, quantidade: Number(l.quantidade), doEstoque: !!l.doEstoque };
+        return {
+          item: l.item, quantidade: Number(l.quantidade), doEstoque: !!l.doEstoque,
+          // "Completo" marcado dispensa digitação; senão vai o texto digitado.
+          obs: l.completo ? 'COMPLETO' : String(l.obs || '').trim()
+        };
       });
-      chamar('confirmarEmbarqueManual', sessao.token, { itens: itens, custoMaoObra: custoMaoObra })
+      var campoObs = document.getElementById('obs-embarque');
+      var observacao = campoObs ? campoObs.value : '';
+      chamar('confirmarEmbarqueManual', sessao.token, { itens: itens, custoMaoObra: custoMaoObra, observacao: observacao })
         .then(function (r) {
           btn.disabled = false;
           var resumoTxt = r.resumo.map(function (g) {

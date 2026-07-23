@@ -418,9 +418,14 @@ function confirmarEmbarqueManual(token, params) {
   var itens = (params.itens || [])
     .filter(function (it) { return it.item && Number(it.quantidade) > 0; })
     .map(function (it) {
-      return { item: String(it.item).trim(), quantidade: Number(it.quantidade), doEstoque: !!it.doEstoque };
+      return {
+        item: String(it.item).trim(), quantidade: Number(it.quantidade),
+        doEstoque: !!it.doEstoque, obs: String(it.obs == null ? '' : it.obs).trim()
+      };
     });
   if (!itens.length) throw new Error('Marque ao menos um item, com quantidade, para confirmar o embarque.');
+  // Observação geral, digitada na tela — sai no FIM do relatório (PDF).
+  var observacao = String(params.observacao == null ? '' : params.observacao).trim();
 
   // Taxa de mão de obra (R$ por kg tingido), única para todo o embarque.
   // Aceita vírgula ou ponto como separador decimal; nunca negativa; vazio = 0.
@@ -467,7 +472,7 @@ function confirmarEmbarqueManual(token, params) {
     if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, totalEstoque: 0, itens: [], lotes: [] };
     porTipo[chaveTipo].totalTingido += it.quantidade - qtdEstoque;
     porTipo[chaveTipo].totalEstoque += qtdEstoque;
-    porTipo[chaveTipo].itens.push({ item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque });
+    porTipo[chaveTipo].itens.push({ item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque, obs: it.obs });
     lotes.forEach(function (l) {
       porTipo[chaveTipo].lotes.push({
         item: it.item, nf: l.nf, fornecedor: l.fornecedor || '',
@@ -492,7 +497,7 @@ function confirmarEmbarqueManual(token, params) {
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
-  var html = _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade);
+  var html = _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao);
   var pdf = Utilities.newBlob(html, MimeType.HTML, 'confirmacao.html').getAs(MimeType.PDF)
     .setName('Confirmacao de Embarque Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
   MailApp.sendEmail({
@@ -514,6 +519,13 @@ function confirmarEmbarqueManual(token, params) {
   };
 }
 
+/** Escapa texto digitado pelo usuário pra entrar com segurança no HTML do e-mail. */
+function _escHtmlEmail(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 /** Formata um número como moeda em Reais (ex.: 1234.5 → "R$ 1.234,50"). */
 function _moedaBR(v) {
   var n = Number(v) || 0;
@@ -532,9 +544,12 @@ function _moedaBR(v) {
  * de fio crú (item, NF, fornecedor, data da NF, peso consumido e saldo
  * restante — listando TODAS as NFs usadas). No fim, o total geral de mão de
  * obra do embarque.
+ * Cada item tem uma coluna "Observação" (ex.: "COMPLETO", ou o texto digitado
+ * nos casos parciais), e `observacao` (geral, digitada na tela) sai no fim.
  * @param {number} custoMaoObra  taxa única em R$ por kg tingido.
+ * @param {string} observacao    observação geral, opcional.
  */
-function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade) {
+function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao) {
   // Densidade conforme o tamanho total do relatório (itens + NFs + chrome de
   // cada bloco), pra tentar caber numa página A4 retrato (ver `_densidadeRelatorio`).
   var linhasEstimadas = resumo.reduce(function (a, g) {
@@ -547,7 +562,7 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
   function th(t) { return '<th style="' + thStyle + '">' + t + '</th>'; }
   function td(v) { return '<td style="' + tdStyle + '">' + v + '</td>'; }
 
-  var thItens = ['Item', 'Quantidade (kg)', 'Mão de obra (R$)'].map(th).join('');
+  var thItens = ['Item', 'Quantidade (kg)', 'Mão de obra (R$)', 'Observação'].map(th).join('');
   var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)']
     .map(th).join('');
   var rotuloFonte = Math.max(d.fonte - 1, 8);
@@ -561,8 +576,10 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
       var qtdCel = qtdEstoque > 0
         ? it.quantidade + ' <span style="color:#64748b">(' + qtdEstoque + ' do estoque, sem consumo de crú)</span>'
         : String(it.quantidade);
+      var obsCel = it.obs ? _escHtmlEmail(it.obs) : '—';
       // Mão de obra só sobre o que passou pelo tingimento.
-      return '<tr>' + td(it.item) + td(qtdCel) + td(_moedaBR((it.quantidade - qtdEstoque) * custoMaoObra)) + '</tr>';
+      return '<tr>' + td(it.item) + td(qtdCel) +
+        td(_moedaBR((it.quantidade - qtdEstoque) * custoMaoObra)) + td(obsCel) + '</tr>';
     }).join('');
 
     var msgSemLotes = (Number(g.totalEstoque) > 0 && !g.totalTingido)
@@ -619,11 +636,21 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
   '</tr></table>';
 
+  // Observação geral (digitada na tela) — fecha o relatório, antes do rodapé.
+  var observacaoHtml = observacao
+    ? '<div style="margin-top:10px;border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px">' +
+        '<p style="margin:0 0 3px;font-size:' + rotuloFonte + 'px;color:#475569;font-weight:bold;' +
+          'text-transform:uppercase;letter-spacing:.04em">Observações</p>' +
+        '<p style="margin:0;font-size:' + d.fonte + 'px;white-space:pre-wrap">' + _escHtmlEmail(observacao) + '</p>' +
+      '</div>'
+    : '';
+
   return _cssPaginaRetrato() +
     '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
     cabecalho +
     blocos +
     totalGeralHtml +
+    observacaoHtml +
     '<p style="color:#64748b;font-size:9px;margin-top:8px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
