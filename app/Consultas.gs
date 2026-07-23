@@ -301,9 +301,31 @@ function obterUltimaDataFimCompra(token) {
   return { ok: true, data: v || '' };
 }
 
+/**
+ * Escolhe fonte, padding das células, tamanho do logo e do título conforme a
+ * quantidade de linhas do relatório — quanto mais itens, mais compacto —, pra
+ * tentar caber tudo numa única página A4 retrato. É um ajuste aproximado:
+ * listas muito longas ainda podem passar para uma segunda página. Usado pelo
+ * Pedido de Fio (`_relatorioCompraHTML`) e pela Confirmação de Embarque
+ * (`_confirmacaoEmbarqueHTML`, em Embarque.gs).
+ */
+function _densidadeRelatorio(qtdLinhas) {
+  if (qtdLinhas <= 28) return { fonte: 11, pad: '4px 6px', logo: 44, titulo: 16 };
+  if (qtdLinhas <= 42) return { fonte: 9.5, pad: '3px 5px', logo: 36, titulo: 15 };
+  if (qtdLinhas <= 60) return { fonte: 8, pad: '2px 4px', logo: 30, titulo: 14 };
+  return { fonte: 7, pad: '1px 3px', logo: 26, titulo: 13 };
+}
+
+/** Estilo de página A4 retrato com margens pequenas (pro PDF caber melhor). */
+function _cssPaginaRetrato() {
+  return '<style>@page{size:A4 portrait;margin:8mm}body{margin:0}' +
+    'table{border-collapse:collapse}</style>';
+}
+
 /** Monta o HTML do relatório de compra (usado no e-mail e no PDF anexado).
  * `unidade` é o rótulo da unidade (ex.: 'BAHIA') pro título — sem ele, o
- * título sai sem nome de unidade (nunca fixo no Ceará). */
+ * título sai sem nome de unidade (nunca fixo no Ceará). Compacto e em retrato
+ * (ver `_densidadeRelatorio`) pra caber numa página. */
 function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
   var cols = [
     ['GERADO_EM', 'Solicitado em'],
@@ -311,33 +333,35 @@ function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
     ['MAQUINAS', 'Máquinas'], ['SUGERIDO', 'Total (kg)'],
     ['DATA_LIMITE', 'Data limite'], ['OBS', 'Observação']
   ];
-  var th = cols.map(function (c) {
-    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#0F5FA0;' +
-      'color:#fff;text-align:left;font-size:13px">' + c[1] + '</th>';
-  }).join('');
+  var d = _densidadeRelatorio(regs.length);
+  var thStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';background:#0F5FA0;' +
+    'color:#fff;text-align:left;font-size:' + d.fonte + 'px';
+  var tdStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';font-size:' + d.fonte + 'px';
+  var th = cols.map(function (c) { return '<th style="' + thStyle + '">' + c[1] + '</th>'; }).join('');
   var rows = regs.map(function (r) {
     return '<tr>' + cols.map(function (c) {
       var v = (c[0] === 'DATA_LIMITE' || c[0] === 'GERADO_EM') ? _soData(r[c[0]]) : r[c[0]];
       if (v === '' || v == null) v = '';
-      return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
+      return '<td style="' + tdStyle + '">' + v + '</td>';
     }).join('') + '</tr>';
   }).join('');
   // CONFIG.LOGO_URL: URL externa fixa (ver Config.gs) — sem arquivo/base64
   // embutido; se o link não carregar, o e-mail só fica sem a imagem (alt).
-  var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 6px;font-size:20px;letter-spacing:.02em">' +
+  var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 3px;font-size:' + d.titulo + 'px;letter-spacing:.02em">' +
     ('PEDIDO DE FIO MARFIM ' + (unidade || '')).trim() + '</h1>' +
-    '<p style="margin:0;font-size:13px;color:#334155">Data: <b>' + dataFmt + '</b>' +
-    ' &nbsp;&nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
-  var cabecalho = '<table style="border-collapse:collapse;margin-bottom:16px"><tr>' +
-    '<td style="padding:0 14px 0 0;vertical-align:middle">' +
-      '<img src="' + CONFIG.LOGO_URL + '" alt="Marfim" style="height:56px;width:auto;display:block"></td>' +
+    '<p style="margin:0;font-size:11px;color:#334155">Data: <b>' + dataFmt + '</b>' +
+    ' &nbsp;&nbsp; Nº: <b>' + numero + '</b></p>';
+  var cabecalho = '<table style="border-collapse:collapse;margin-bottom:8px"><tr>' +
+    '<td style="padding:0 10px 0 0;vertical-align:middle">' +
+      '<img src="' + CONFIG.LOGO_URL + '" alt="Marfim" style="height:' + d.logo + 'px;width:auto;display:block"></td>' +
     '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
   '</tr></table>';
-  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
+  return _cssPaginaRetrato() +
+    '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
     cabecalho +
-    '<table style="border-collapse:collapse">' +
+    '<table style="border-collapse:collapse;width:100%;table-layout:auto">' +
     '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+    '<p style="color:#64748b;font-size:9px;margin-top:8px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
 /** Campos editáveis no painel de tingimento. */
