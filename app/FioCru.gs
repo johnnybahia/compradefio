@@ -425,10 +425,10 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
  * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido}] }
  */
 function obterListaFioParaTingir(token) {
-  // Lida por três telas com direitos diferentes: Quantidade Tingida
-  // (tingimento edita, almoxarifado1 só vê) e Confirmar Embarque
-  // (almoxarifado1 edita, tingimento só vê) — a leitura em si vale pros três.
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.ALMOX1]);
+  // Lida por várias telas com direitos diferentes: Quantidade Tingida e
+  // Confirmar Embarque — quem edita muda por papel, mas a LEITURA vale pra
+  // todos que enxergam essas telas (inclui Programação, que só vê).
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.ALMOX1, CONFIG.PAPEIS.PROGRAMACAO]);
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   var tingidoPorItem = _tingidoPorItem();
   var linhas = regs.map(function (r) {

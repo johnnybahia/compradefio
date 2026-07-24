@@ -149,6 +149,7 @@ var MENUS = {
   programacao: [
     { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
     { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
+    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'relatorio',  rotulo: 'Relatório',           render: viewRelatorio }
   ]
 };
@@ -880,11 +881,11 @@ function viewTingimento(alvo) {
               '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
               '<input type="text" id="emails-compra" placeholder="fulano@empresa.com; ciclano@empresa.com">' +
             '</div>' +
-            '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>'
+            '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>' +
+            '<button class="btn-principal" id="btn-reordenar">Reordenar por data limite</button>' +
+            '<button class="btn-principal" id="btn-imprimir">Imprimir</button>' +
+            '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>'
           : '') +
-        '<button class="btn-principal" id="btn-reordenar">Reordenar por data limite</button>' +
-        '<button class="btn-principal" id="btn-imprimir">Imprimir</button>' +
-        (editavelTing ? '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>' : '') +
         (priorizar ? '<button class="btn-principal" id="btn-enviar-urgencia" style="background:#B91C1C">Enviar urgência</button>' : '') +
       '</div>' +
       '<div id="ting-msg"></div>' +
@@ -901,12 +902,12 @@ function viewTingimento(alvo) {
       '<div class="tabela-wrap" id="tabela-ting"></div>' +
     '</section>';
 
-  document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
-  document.getElementById('btn-reordenar').onclick = function () {
-    estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
-    renderTingimento(estadoTingimento.linhas);
-  };
   if (editavelTing) {
+    document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
+    document.getElementById('btn-reordenar').onclick = function () {
+      estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
+      renderTingimento(estadoTingimento.linhas);
+    };
     document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
     document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
     document.getElementById('btn-atualizar-numero').onclick = carregarNumeroPedido;
@@ -1280,6 +1281,9 @@ var estadoConfirmarEmbarque = { linhas: [] };
 
 function viewConfirmarEmbarque(alvo) {
   var editavel = podeEditar(['master', 'almoxarifado1']);
+  // Programação só VÊ (sem botões nenhum). Tingimento também só vê, mas mantém
+  // o botão de histórico (comportamento que já existia).
+  var soVer = sessao.papel === 'programacao';
   var desc = editavel
     ? 'Marque os itens que vão embarcar agora. A quantidade já vem preenchida com o ' +
       'total tingido lançado até aqui — edite se precisar corrigir (a linha fica marcada como ' +
@@ -1318,7 +1322,7 @@ function viewConfirmarEmbarque(alvo) {
         : '') +
       '<div style="margin-top:16px">' +
         '<button class="btn-principal" id="btn-confirmar-embarque" style="display:none">Confirmar Embarque</button>' +
-        '<button class="btn-principal" id="btn-historico-embarque">Ver histórico de embarques confirmados</button>' +
+        (soVer ? '' : '<button class="btn-principal" id="btn-historico-embarque">Ver histórico de embarques confirmados</button>') +
       '</div>' +
     '</section>' +
 
@@ -1342,7 +1346,8 @@ function viewConfirmarEmbarque(alvo) {
     '</section>';
 
   document.getElementById('btn-confirmar-embarque').onclick = confirmarEmbarqueSelecionado;
-  document.getElementById('btn-historico-embarque').onclick = togglePainelHistoricoEmbarque;
+  var btnHist = document.getElementById('btn-historico-embarque');
+  if (btnHist) btnHist.onclick = togglePainelHistoricoEmbarque;
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
   if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
   ativarRegua('tabela-embarque-confirmar');
