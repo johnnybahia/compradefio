@@ -149,6 +149,7 @@ var MENUS = {
   programacao: [
     { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
     { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
+    { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'relatorio',  rotulo: 'Relatório',           render: viewRelatorio }
   ]
 };
@@ -880,11 +881,11 @@ function viewTingimento(alvo) {
               '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
               '<input type="text" id="emails-compra" placeholder="fulano@empresa.com; ciclano@empresa.com">' +
             '</div>' +
-            '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>'
+            '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>' +
+            '<button class="btn-principal" id="btn-reordenar">Reordenar por data limite</button>' +
+            '<button class="btn-principal" id="btn-imprimir">Imprimir</button>' +
+            '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>'
           : '') +
-        '<button class="btn-principal" id="btn-reordenar">Reordenar por data limite</button>' +
-        '<button class="btn-principal" id="btn-imprimir">Imprimir</button>' +
-        (editavelTing ? '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>' : '') +
         (priorizar ? '<button class="btn-principal" id="btn-enviar-urgencia" style="background:#B91C1C">Enviar urgência</button>' : '') +
       '</div>' +
       '<div id="ting-msg"></div>' +
@@ -901,12 +902,12 @@ function viewTingimento(alvo) {
       '<div class="tabela-wrap" id="tabela-ting"></div>' +
     '</section>';
 
-  document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
-  document.getElementById('btn-reordenar').onclick = function () {
-    estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
-    renderTingimento(estadoTingimento.linhas);
-  };
   if (editavelTing) {
+    document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
+    document.getElementById('btn-reordenar').onclick = function () {
+      estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
+      renderTingimento(estadoTingimento.linhas);
+    };
     document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
     document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
     document.getElementById('btn-atualizar-numero').onclick = carregarNumeroPedido;
@@ -1029,8 +1030,12 @@ function renderTingimento(linhas) {
       var temUrg = String(l.obs || '').toUpperCase().indexOf('URGENTE') !== -1;
       prioridadeCel = '<td class="no-print" style="text-align:center;white-space:nowrap">' +
         '<input type="checkbox" class="chk-prioridade" data-linha="' + l.linha + '"' + (l.prioridade ? ' checked' : '') + '>' +
-        (l.prioridade && l.dataUrgencia
-          ? '<div style="font-size:11px;color:#B91C1C">p/ ' + escAttr(l.dataUrgencia) + '</div>'
+        (l.prioridade && (l.dataUrgencia || l.qtdUrgencia)
+          ? '<div style="font-size:11px;color:#B91C1C">' +
+              (l.qtdUrgencia ? l.qtdUrgencia + ' kg' : '') +
+              (l.qtdUrgencia && l.dataUrgencia ? ' · ' : '') +
+              (l.dataUrgencia ? 'p/ ' + escAttr(l.dataUrgencia) : '') +
+            '</div>'
           : '') +
         (temUrg
           ? '<div><button type="button" class="btn-atualizar-data btn-limpar-urg" data-linha="' + l.linha +
@@ -1096,13 +1101,13 @@ function renderTingimento(linhas) {
         estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
         if (!alvo) return;
         if (chk.checked) {
-          abrirModalDataUrgencia(alvo.item, function (confirmado, dataBR) {
-            if (!confirmado) { alvo.prioridade = false; alvo.dataUrgencia = ''; }
-            else { alvo.prioridade = true; alvo.dataUrgencia = dataBR || ''; }
+          abrirModalDataUrgencia(alvo.item, function (confirmado, dataBR, qtdKg) {
+            if (!confirmado) { alvo.prioridade = false; alvo.dataUrgencia = ''; alvo.qtdUrgencia = ''; }
+            else { alvo.prioridade = true; alvo.dataUrgencia = dataBR || ''; alvo.qtdUrgencia = qtdKg || ''; }
             renderTingimento(estadoTingimento.linhas);
           });
         } else {
-          alvo.prioridade = false; alvo.dataUrgencia = '';
+          alvo.prioridade = false; alvo.dataUrgencia = ''; alvo.qtdUrgencia = '';
           renderTingimento(estadoTingimento.linhas);
         }
       });
@@ -1139,10 +1144,18 @@ function abrirModalDataUrgencia(item, callback) {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
     'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
   overlay.innerHTML =
-    '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:24px 26px 20px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
+    '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:24px 26px 20px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
       '<h3 style="margin:0 0 8px;color:#B91C1C;font-size:17px">Marcar como urgente</h3>' +
       '<p style="margin:0 0 14px;color:#475569;font-size:14px;line-height:1.5">Item <b>' + escAttr(item) + '</b>. ' +
-        'Quer indicar uma <b>data</b> para essa urgência? (opcional — não muda a data limite original)</p>' +
+        'Informe (opcional) a <b>quantidade prioritária</b> e a <b>data</b> — nada disso muda o pedido nem a ' +
+        'data limite originais; é só pra sinalizar e registrar.</p>' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Quantidade prioritária (kg)</label>' +
+      '<select id="modal-urg-qtd" style="width:100%;box-sizing:border-box;padding:9px 11px;' +
+        'border:1px solid #cbd5e1;border-radius:8px;font-size:14px">' +
+        '<option value="">— selecione um lote —</option>' +
+      '</select>' +
+      '<div id="modal-urg-hint" style="font-size:12px;color:#64748b;margin:5px 0 14px">Carregando lotes de tingimento…</div>' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Data da urgência</label>' +
       '<input type="date" id="modal-urg-data" style="width:100%;box-sizing:border-box;padding:9px 11px;' +
         'border:1px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:16px">' +
       '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
@@ -1152,11 +1165,31 @@ function abrirModalDataUrgencia(item, callback) {
     '</div>';
   document.body.appendChild(overlay);
   function fechar() { if (overlay.parentNode) document.body.removeChild(overlay); }
+  // Busca os lotes de tingimento do tipo de fio do item pra sugerir no campo.
+  chamar('obterLotesTingimentoItem', sessao.token, item)
+    .then(function (r) {
+      var sel = overlay.querySelector('#modal-urg-qtd');
+      var hint = overlay.querySelector('#modal-urg-hint');
+      if (r && r.lotes && r.lotes.length) {
+        sel.innerHTML = '<option value="">— selecione um lote —</option>' +
+          r.lotes.map(function (q) { return '<option value="' + q + '">' + q + ' kg</option>'; }).join('');
+        hint.innerHTML = (r.tipoFio ? '<b>' + escAttr(r.tipoFio) + '</b> — ' : '') +
+          'escolha um dos lotes de tingimento (ou deixe em branco).';
+      } else {
+        sel.innerHTML = '<option value="">(sem lote cadastrado)</option>';
+        hint.textContent = 'Sem lotes de tingimento cadastrados pra este tipo — a urgência vai sem quantidade.';
+      }
+    })
+    .catch(function () {
+      var hint = overlay.querySelector('#modal-urg-hint');
+      if (hint) hint.textContent = 'Não consegui carregar os lotes.';
+    });
   overlay.querySelector('#modal-btn-destaque').onclick = function () {
     var dataBR = isoParaBR(overlay.querySelector('#modal-urg-data').value);
-    fechar(); callback(true, dataBR);
+    var qtd = Number(overlay.querySelector('#modal-urg-qtd').value) || 0;
+    fechar(); callback(true, dataBR, qtd > 0 ? qtd : '');
   };
-  overlay.querySelector('#modal-btn-secundario').onclick = function () { fechar(); callback(false, ''); };
+  overlay.querySelector('#modal-btn-secundario').onclick = function () { fechar(); callback(false, '', ''); };
   overlay.querySelector('#modal-urg-data').focus();
 }
 
@@ -1178,7 +1211,9 @@ function enviarUrgenciaSelecionada() {
       var btn = document.getElementById('btn-enviar-urgencia');
       if (btn) btn.disabled = true;
       msg.innerHTML = '<div class="aviso"><span class="carregando">Enviando urgência…</span></div>';
-      var itens = marcados.map(function (l) { return { linha: l.linha, dataUrgencia: l.dataUrgencia || '' }; });
+      var itens = marcados.map(function (l) {
+        return { linha: l.linha, dataUrgencia: l.dataUrgencia || '', qtdUrgencia: l.qtdUrgencia || '' };
+      });
       chamar('enviarUrgenciaTingimento', sessao.token, { itens: itens })
         .then(function (r) {
           if (btn) btn.disabled = false;
@@ -1280,6 +1315,9 @@ var estadoConfirmarEmbarque = { linhas: [] };
 
 function viewConfirmarEmbarque(alvo) {
   var editavel = podeEditar(['master', 'almoxarifado1']);
+  // Programação só VÊ (sem botões nenhum). Tingimento também só vê, mas mantém
+  // o botão de histórico (comportamento que já existia).
+  var soVer = sessao.papel === 'programacao';
   var desc = editavel
     ? 'Marque os itens que vão embarcar agora. A quantidade já vem preenchida com o ' +
       'total tingido lançado até aqui — edite se precisar corrigir (a linha fica marcada como ' +
@@ -1318,7 +1356,7 @@ function viewConfirmarEmbarque(alvo) {
         : '') +
       '<div style="margin-top:16px">' +
         '<button class="btn-principal" id="btn-confirmar-embarque" style="display:none">Confirmar Embarque</button>' +
-        '<button class="btn-principal" id="btn-historico-embarque">Ver histórico de embarques confirmados</button>' +
+        (soVer ? '' : '<button class="btn-principal" id="btn-historico-embarque">Ver histórico de embarques confirmados</button>') +
       '</div>' +
     '</section>' +
 
@@ -1342,7 +1380,8 @@ function viewConfirmarEmbarque(alvo) {
     '</section>';
 
   document.getElementById('btn-confirmar-embarque').onclick = confirmarEmbarqueSelecionado;
-  document.getElementById('btn-historico-embarque').onclick = togglePainelHistoricoEmbarque;
+  var btnHist = document.getElementById('btn-historico-embarque');
+  if (btnHist) btnHist.onclick = togglePainelHistoricoEmbarque;
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
   if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
   ativarRegua('tabela-embarque-confirmar');
