@@ -1150,9 +1150,10 @@ function abrirModalDataUrgencia(item, callback) {
         'Informe (opcional) a <b>quantidade prioritária</b> e a <b>data</b> — nada disso muda o pedido nem a ' +
         'data limite originais; é só pra sinalizar e registrar.</p>' +
       '<label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Quantidade prioritária (kg)</label>' +
-      '<input type="number" id="modal-urg-qtd" list="modal-urg-lotes" min="0" step="any" placeholder="ex.: 100" ' +
-        'style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px">' +
-      '<datalist id="modal-urg-lotes"></datalist>' +
+      '<select id="modal-urg-qtd" style="width:100%;box-sizing:border-box;padding:9px 11px;' +
+        'border:1px solid #cbd5e1;border-radius:8px;font-size:14px">' +
+        '<option value="">— selecione um lote —</option>' +
+      '</select>' +
       '<div id="modal-urg-hint" style="font-size:12px;color:#64748b;margin:5px 0 14px">Carregando lotes de tingimento…</div>' +
       '<label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">Data da urgência</label>' +
       '<input type="date" id="modal-urg-data" style="width:100%;box-sizing:border-box;padding:9px 11px;' +
@@ -1167,27 +1168,29 @@ function abrirModalDataUrgencia(item, callback) {
   // Busca os lotes de tingimento do tipo de fio do item pra sugerir no campo.
   chamar('obterLotesTingimentoItem', sessao.token, item)
     .then(function (r) {
-      var dl = overlay.querySelector('#modal-urg-lotes');
+      var sel = overlay.querySelector('#modal-urg-qtd');
       var hint = overlay.querySelector('#modal-urg-hint');
       if (r && r.lotes && r.lotes.length) {
-        dl.innerHTML = r.lotes.map(function (q) { return '<option value="' + q + '">' + q + ' kg</option>'; }).join('');
+        sel.innerHTML = '<option value="">— selecione um lote —</option>' +
+          r.lotes.map(function (q) { return '<option value="' + q + '">' + q + ' kg</option>'; }).join('');
         hint.innerHTML = (r.tipoFio ? '<b>' + escAttr(r.tipoFio) + '</b> — ' : '') +
-          'lotes disponíveis: ' + r.lotes.join(', ') + ' kg (escolha um ou digite outro valor).';
+          'escolha um dos lotes de tingimento (ou deixe em branco).';
       } else {
-        hint.textContent = 'Sem lotes de tingimento cadastrados pra este tipo — pode digitar a quantidade.';
+        sel.innerHTML = '<option value="">(sem lote cadastrado)</option>';
+        hint.textContent = 'Sem lotes de tingimento cadastrados pra este tipo — a urgência vai sem quantidade.';
       }
     })
     .catch(function () {
       var hint = overlay.querySelector('#modal-urg-hint');
-      if (hint) hint.textContent = 'Não consegui carregar os lotes — pode digitar a quantidade.';
+      if (hint) hint.textContent = 'Não consegui carregar os lotes.';
     });
   overlay.querySelector('#modal-btn-destaque').onclick = function () {
     var dataBR = isoParaBR(overlay.querySelector('#modal-urg-data').value);
-    var qtd = parseNumeroBR(overlay.querySelector('#modal-urg-qtd').value);
+    var qtd = Number(overlay.querySelector('#modal-urg-qtd').value) || 0;
     fechar(); callback(true, dataBR, qtd > 0 ? qtd : '');
   };
   overlay.querySelector('#modal-btn-secundario').onclick = function () { fechar(); callback(false, '', ''); };
-  overlay.querySelector('#modal-urg-qtd').focus();
+  overlay.querySelector('#modal-urg-data').focus();
 }
 
 /** Coleta os itens marcados como prioridade e dispara a urgência (e-mail + obs). */
