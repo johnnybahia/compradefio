@@ -14,10 +14,14 @@
  *   carrega usuário, papel e validade; a assinatura impede adulteração.
  *
  * Estrutura da aba USUARIOS:
- *   USUARIO | NOME | PAPEL | SALT | SENHA_HASH | ATIVO | SENHA_LEGIVEL
+ *   USUARIO | NOME | PAPEL | SALT | SENHA_HASH | ATIVO | SENHA_LEGIVEL | UNIDADES
+ *
+ * UNIDADES: quais empresas o usuário pode ver (ids separados por vírgula, ex.:
+ * "CEARA,BAHIA"). VAZIO = todas (inclui unidades futuras) — também é o padrão
+ * dos usuários antigos, que continuam vendo tudo até o master restringir.
  */
 
-var USUARIOS_HEADERS = ['USUARIO', 'NOME', 'PAPEL', 'SALT', 'SENHA_HASH', 'ATIVO', 'SENHA_LEGIVEL'];
+var USUARIOS_HEADERS = ['USUARIO', 'NOME', 'PAPEL', 'SALT', 'SENHA_HASH', 'ATIVO', 'SENHA_LEGIVEL', 'UNIDADES'];
 var HASH_ITERACOES = 1000;
 
 /**
@@ -50,6 +54,45 @@ function _prepararUsuarios() {
 function _ssAutenticacao() {
   var idFixo = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID_AUTH');
   return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
+}
+
+/** Acha um registro de usuário pelo login (case-insensitive), ou undefined. */
+function _acharUsuario(usuario) {
+  usuario = String(usuario || '').trim().toLowerCase();
+  return lerRegistros(CONFIG.SHEETS.USUARIOS, _ssAutenticacao()).filter(function (r) {
+    return String(r.USUARIO).trim().toLowerCase() === usuario;
+  })[0];
+}
+
+/**
+ * Ids das unidades que o usuário pode ver. A coluna UNIDADES vazia (ou
+ * "TODAS") = todas as unidades configuradas — inclusive as que vierem a
+ * existir depois. Uma lista inválida/vazia também cai em "todas", pra nunca
+ * travar o acesso de alguém sem querer.
+ */
+function _unidadesDoUsuario(u) {
+  var todas = CONFIG.UNIDADES.map(function (x) { return x.id; });
+  var raw = (u && u.UNIDADES != null) ? String(u.UNIDADES).trim() : '';
+  if (!raw || raw.toUpperCase() === 'TODAS') return todas;
+  var ids = raw.split(/[;,]/).map(function (s) { return s.trim().toUpperCase(); });
+  var permitidas = todas.filter(function (id) { return ids.indexOf(id) !== -1; });
+  return permitidas.length ? permitidas : todas;
+}
+
+/**
+ * Normaliza a escolha de unidades vinda da tela (array de ids ou string) para
+ * gravar na coluna UNIDADES: se marcou TODAS (ou nenhuma) guarda vazio (=
+ * todas, inclui futuras); senão guarda a lista dos ids válidos.
+ */
+function _normalizarUnidadesUsuario(v) {
+  var arr = Array.isArray(v) ? v : String(v == null ? '' : v).split(/[;,]/);
+  var validos = CONFIG.UNIDADES.map(function (x) { return x.id; });
+  var norm = [];
+  arr.forEach(function (s) {
+    var id = String(s).trim().toUpperCase();
+    if (validos.indexOf(id) !== -1 && norm.indexOf(id) === -1) norm.push(id);
+  });
+  return (norm.length === 0 || norm.length === validos.length) ? '' : norm.join(',');
 }
 
 /* ---------------------------- Hash de senha ---------------------------- */
@@ -212,14 +255,15 @@ function login(usuario, senha) {
     return { ok: false, erro: 'Usuário ou senha inválidos.' };
   }
 
-  var unidade = CONFIG.UNIDADE_PADRAO;
+  var permitidas = _unidadesDoUsuario(u);
+  var unidade = permitidas.indexOf(CONFIG.UNIDADE_PADRAO) !== -1 ? CONFIG.UNIDADE_PADRAO : permitidas[0];
   return {
     ok: true,
     token: _criarToken(usuario, String(u.PAPEL).trim(), unidade),
     nome: String(u.NOME || u.USUARIO),
     papel: String(u.PAPEL).trim(),
     unidade: CONFIG.getUnidadeInfo(unidade),
-    unidades: CONFIG.UNIDADES
+    unidades: CONFIG.UNIDADES.filter(function (x) { return permitidas.indexOf(x.id) !== -1; })
   };
 }
 
@@ -230,17 +274,17 @@ function login(usuario, senha) {
 function validarSessao(token) {
   var s = _validarToken(token);
   if (!s) return { ok: false };
-  var registros = lerRegistros(CONFIG.SHEETS.USUARIOS, _ssAutenticacao());
-  var u = registros.filter(function (r) {
-    return String(r.USUARIO).trim().toLowerCase() === s.usuario;
-  })[0];
+  var u = _acharUsuario(s.usuario);
   if (!u || u.ATIVO === false) return { ok: false };
+  var permitidas = _unidadesDoUsuario(u);
+  // Se a unidade do token não é mais permitida (acesso mudou), cai na 1ª permitida.
+  var uni = permitidas.indexOf(s.unidade) !== -1 ? s.unidade : permitidas[0];
   return {
     ok: true,
     nome: String(u.NOME || u.USUARIO),
     papel: String(u.PAPEL).trim(),
-    unidade: CONFIG.getUnidadeInfo(s.unidade),
-    unidades: CONFIG.UNIDADES
+    unidade: CONFIG.getUnidadeInfo(uni),
+    unidades: CONFIG.UNIDADES.filter(function (x) { return permitidas.indexOf(x.id) !== -1; })
   };
 }
 
@@ -278,11 +322,15 @@ function listarUnidades(token) {
  */
 function trocarUnidade(token, unidadeId) {
   var s = exigirSessao(token);
-  var u = CONFIG.getUnidadeInfo(unidadeId); // lança erro se a unidade não existir
+  var info = CONFIG.getUnidadeInfo(unidadeId); // lança erro se a unidade não existir
+  var reg = _acharUsuario(s.usuario);
+  if (_unidadesDoUsuario(reg).indexOf(info.id) === -1) {
+    throw new Error('Você não tem acesso à unidade "' + info.rotulo + '".');
+  }
   return {
     ok: true,
-    token: _criarToken(s.usuario, s.papel, u.id),
-    unidade: u
+    token: _criarToken(s.usuario, s.papel, info.id),
+    unidade: info
   };
 }
 
@@ -324,6 +372,14 @@ function _salvarUsuarioInterno(dados) {
     ATIVO: dados.ativo === false ? 'NÃO' : 'SIM'
   };
 
+  // Empresas que o usuário pode ver (ver `_normalizarUnidadesUsuario`). Se não
+  // veio no `dados`, mantém o que já estava (edição) ou vazio = todas (novo).
+  if (dados.unidades !== undefined) {
+    linha.UNIDADES = _normalizarUnidadesUsuario(dados.unidades);
+  } else {
+    linha.UNIDADES = existente ? existente.UNIDADES : '';
+  }
+
   if (dados.senha) {
     linha.SALT = _gerarSalt();
     linha.SENHA_HASH = _hashSenha(String(dados.senha), linha.SALT);
@@ -362,10 +418,14 @@ function listarUsuarios(token) {
   var registros = lerRegistros(CONFIG.SHEETS.USUARIOS, _ssAutenticacao());
   return {
     ok: true,
+    unidadesDisponiveis: CONFIG.UNIDADES.map(function (u) { return { id: u.id, rotulo: u.rotulo }; }),
     usuarios: registros.map(function (r) {
       return {
         usuario: r.USUARIO, nome: r.NOME, papel: r.PAPEL,
-        ativo: _usuarioAtivo(r.ATIVO)
+        ativo: _usuarioAtivo(r.ATIVO),
+        unidades: _unidadesDoUsuario(r),
+        // true quando vale pra todas as empresas (coluna vazia) — inclui futuras.
+        todasUnidades: !String(r.UNIDADES == null ? '' : r.UNIDADES).trim()
       };
     })
   };

@@ -294,7 +294,7 @@ var EMBARQUES_HEADERS = ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO'];
  * @param {Date} data
  * @return {Object} { gravados, baixados }
  */
-function _registrarEmbarqueEDarBaixa(itens, doc, data) {
+function _registrarEmbarqueEDarBaixa(itens, doc, data, usuario, lotesCru) {
   var sh = _aba(CONFIG.SHEETS.EMBARQUES, EMBARQUES_HEADERS);
   var linhas = itens.map(function (it) {
     return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, ''];
@@ -306,7 +306,24 @@ function _registrarEmbarqueEDarBaixa(itens, doc, data) {
   sh.getRange(inicio, 1, linhas.length, 1).setNumberFormat('@');
   sh.getRange(inicio, 1, linhas.length, EMBARQUES_HEADERS.length).setValues(linhas);
   var baixa = _baixarPendenciaCompraPorEmbarque(itens);
+  // Instantâneo de estorno: guarda o consumo de crú (lotesCru) e as
+  // quantidades tiradas da pendência, pra poder CANCELAR depois com precisão
+  // (ver `cancelarEmbarque`). PDF não consome crú → lotesCru vazio.
+  _registrarEstornoEmbarque(doc, usuario || '',
+    itens.map(function (it) { return { item: String(it.item).trim(), quantidade: Number(it.quantidade) || 0 }; }),
+    lotesCru || []);
   return { gravados: linhas.length, baixados: baixa.baixados };
+}
+
+var EMBARQUE_ESTORNO_HEADERS = ['EMBARQUE', 'DATA_HORA', 'USUARIO', 'SITUACAO', 'DADOS_JSON'];
+
+/** Guarda o instantâneo de estorno de um embarque (ver `cancelarEmbarque`). */
+function _registrarEstornoEmbarque(numero, usuario, itens, lotes) {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUE_ESTORNO, EMBARQUE_ESTORNO_HEADERS);
+  var inicio = sh.getLastRow() + 1;
+  sh.getRange(inicio, 1, 1, 1).setNumberFormat('@'); // nº como texto
+  sh.getRange(inicio, 1, 1, EMBARQUE_ESTORNO_HEADERS.length)
+    .setValues([[String(numero), new Date(), usuario || '', '', JSON.stringify({ itens: itens || [], lotes: lotes || [] })]]);
 }
 
 /**
@@ -316,7 +333,7 @@ function _registrarEmbarqueEDarBaixa(itens, doc, data) {
  * @param {Object} dados { doc, data:'dd/MM/aaaa', itens:[{descricao,item,quantidade}] }
  */
 function gravarEmbarque(token, dados) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   dados = dados || {};
   var doc = parseInt(dados.doc, 10);
   if (!doc) throw new Error('Informe o número do embarque.');
@@ -331,7 +348,7 @@ function gravarEmbarque(token, dados) {
     return { descricao: it.descricao, item: it.item };
   }));
 
-  var r = _registrarEmbarqueEDarBaixa(itens, doc, data);
+  var r = _registrarEmbarqueEDarBaixa(itens, doc, data, s.usuario);
   return { ok: true, gravados: r.gravados, baixados: r.baixados };
 }
 
@@ -476,7 +493,10 @@ function confirmarEmbarqueManual(token, params) {
     lotes.forEach(function (l) {
       porTipo[chaveTipo].lotes.push({
         item: it.item, nf: l.nf, fornecedor: l.fornecedor || '',
-        dataNf: l.dataNf, peso: l.quantidadeBaixada, saldoApos: l.saldoApos
+        dataNf: l.dataNf, peso: l.quantidadeBaixada, saldoApos: l.saldoApos,
+        // tipo de fio REAL da linha de baixa (pode diferir do tipo do item por
+        // caso especial/resolução) — é o que o estorno precisa pra creditar na NF certa.
+        tipoFioLote: l.tipoFio || tipoFio
       });
     });
   });
@@ -490,9 +510,17 @@ function confirmarEmbarqueManual(token, params) {
     };
   });
 
+  // Consumo de crú desta confirmação (achatado) pro instantâneo de estorno.
+  var lotesCru = [];
+  resumo.forEach(function (g) {
+    g.lotes.forEach(function (l) {
+      lotesCru.push({ tipoFio: l.tipoFioLote, item: l.item, nf: l.nf, dataNf: l.dataNf, peso: l.peso });
+    });
+  });
+
   var numero = _numeroEmbarqueManualAtual();
   var agora = new Date();
-  var r = _registrarEmbarqueEDarBaixa(itens, numero, agora);
+  var r = _registrarEmbarqueEDarBaixa(itens, numero, agora, s.usuario, lotesCru);
   _avancarNumeroEmbarqueManual(); // só agora — o registro já foi gravado
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
@@ -785,10 +813,190 @@ function listarHistoricoEmbarquesConfirmados(token, limite) {
       item: r.CORES,
       quantidade: Number(r.PESO) || 0,
       numero: r.EMBARQUE,
-      data: _soData(r.DATA)
+      data: _soData(r.DATA),
+      situacao: r['SITUAÇÃO'] == null ? '' : String(r['SITUAÇÃO']).trim()
     };
   }).reverse().slice(0, limite);
   return { ok: true, linhas: linhas };
+}
+
+/**
+ * Cancela um embarque confirmado (por número), desfazendo o que dá:
+ *   1. Estorna o consumo de fio crú — lança no razão as baixas COMPENSATÓRIAS
+ *      (negativas) exatamente das mesmas NFs, a partir do instantâneo de
+ *      estorno gravado na confirmação (`_registrarEstornoEmbarque`).
+ *   2. Devolve as quantidades à lista pendente de compra (soma de volta numa
+ *      linha aberta do item, ou recria a linha — ver `_restaurarPendenciaCompra`).
+ *   3. Marca as linhas do embarque como CANCELADO (não some do histórico).
+ *   4. Opcional: dispara um e-mail de cancelamento aos contatos da compra (o
+ *      e-mail original não tem como ser "desenviado").
+ *
+ * Recusa se o embarque já chegou (mercadoria recebida no estoque) ou já foi
+ * cancelado. Embarques antigos sem instantâneo: reabre a pendência a partir
+ * das linhas de EMBARQUES e avisa que o crú precisa ser conferido na mão.
+ */
+function cancelarEmbarque(token, numero, avisarEmail) {
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  numero = String(numero == null ? '' : numero).trim();
+  if (!numero) throw new Error('Informe o número do embarque a cancelar.');
+  var alvo = _normNumero(numero);
+
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES);
+  if (!sh || sh.getLastRow() < 2) throw new Error('Não há embarques lançados.');
+  var vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+  var header = vals.shift().map(_norm);
+  var iItem = header.indexOf('cores'); if (iItem < 0) iItem = 0;
+  var iPeso = header.indexOf('peso'); if (iPeso < 0) iPeso = 1;
+  var iEmb = header.indexOf('embarque'); if (iEmb < 0) iEmb = 2;
+  var iSit = header.indexOf('situacao'); if (iSit < 0) iSit = 4;
+
+  var linhasDoEmb = [];
+  vals.forEach(function (row, i) {
+    if (_normNumero(row[iEmb]) !== alvo) return;
+    linhasDoEmb.push({ row: i + 2, item: String(row[iItem]).trim(), peso: Number(row[iPeso]) || 0, situacao: _norm(row[iSit]) });
+  });
+  if (!linhasDoEmb.length) throw new Error('Embarque nº ' + numero + ' não encontrado no histórico.');
+  if (linhasDoEmb.every(function (l) { return l.situacao.indexOf('cancelado') !== -1; })) {
+    throw new Error('Embarque nº ' + numero + ' já está cancelado.');
+  }
+  if (linhasDoEmb.some(function (l) { return l.situacao.indexOf('chegou') !== -1; })) {
+    throw new Error('Embarque nº ' + numero + ' já chegou/foi recebido no estoque — não dá pra cancelar por aqui.');
+  }
+
+  var snap = _lerEstornoEmbarque(alvo);
+  var creditosCru = (snap && snap.lotes && snap.lotes.length) ? _estornarCruEmbarque(snap.lotes, s.usuario, numero) : 0;
+  var itensRestaurar = (snap && snap.itens && snap.itens.length)
+    ? snap.itens
+    : linhasDoEmb.map(function (l) { return { item: l.item, quantidade: l.peso }; });
+  var restaurados = _restaurarPendenciaCompra(itensRestaurar, numero);
+
+  linhasDoEmb.forEach(function (l) { sh.getRange(l.row, iSit + 1).setValue('CANCELADO'); });
+  _marcarEstornoUsado(alvo);
+
+  var destinatarios = 0;
+  if (avisarEmail) {
+    var lista = _destinatariosCompra().split(/[;,]/)
+      .map(function (e) { return e.trim(); })
+      .filter(function (e) { return e && e.indexOf('@') !== -1; });
+    if (lista.length) {
+      var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
+      MailApp.sendEmail({
+        to: lista.join(','),
+        subject: 'CANCELAMENTO de Embarque ' + unidade + ' nº ' + numero,
+        htmlBody: _cancelamentoEmbarqueHTML(numero, itensRestaurar, unidade, s.usuario)
+      });
+      destinatarios = lista.length;
+    }
+  }
+  return {
+    ok: true, numero: numero, itens: linhasDoEmb.length, restaurados: restaurados,
+    creditosCru: creditosCru, semInstantaneo: !snap, destinatarios: destinatarios
+  };
+}
+
+/** Lê o instantâneo de estorno (mais recente, não cancelado) de um embarque. */
+function _lerEstornoEmbarque(alvoNorm) {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUE_ESTORNO);
+  if (!sh || sh.getLastRow() < 2) return null;
+  var achado = null;
+  lerRegistros(CONFIG.SHEETS.EMBARQUE_ESTORNO).forEach(function (r) {
+    if (_normNumero(r.EMBARQUE) === alvoNorm && _norm(r.SITUACAO).indexOf('cancelado') === -1) achado = r;
+  });
+  if (!achado) return null;
+  try { return JSON.parse(achado.DADOS_JSON); } catch (e) { return null; }
+}
+
+/** Marca o(s) instantâneo(s) daquele embarque como já usados (cancelados). */
+function _marcarEstornoUsado(alvoNorm) {
+  lerRegistros(CONFIG.SHEETS.EMBARQUE_ESTORNO).forEach(function (r) {
+    if (_normNumero(r.EMBARQUE) === alvoNorm && _norm(r.SITUACAO).indexOf('cancelado') === -1) {
+      atualizarCelula(CONFIG.SHEETS.EMBARQUE_ESTORNO, r.__row, 'SITUACAO', 'CANCELADO');
+    }
+  });
+}
+
+/** Lança as baixas compensatórias (negativas) no razão do fio crú, creditando
+ * de volta exatamente as NFs consumidas pelo embarque. Devolve quantas linhas. */
+function _estornarCruEmbarque(lotes, usuario, numero) {
+  var linhas = lotes.map(function (l) {
+    return [new Date(), l.tipoFio || '', l.nf, l.dataNf || '', l.item || '',
+      -(Number(l.peso) || 0), '', (usuario || '') + ' (cancelamento embarque ' + numero + ')'];
+  });
+  if (!linhas.length) return 0;
+  var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
+  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, FIO_CRU_BAIXAS_HEADERS.length).setValues(linhas);
+  return linhas.length;
+}
+
+/**
+ * Devolve à lista pendente de compra as quantidades de um embarque cancelado:
+ * soma numa linha ABERTA já existente do item; se não houver, cria uma linha
+ * nova (re-derivando descrição/cliente/tipo de fio/data limite pelos mesmos
+ * localizadores da Análise). Devolve quantos itens (distintos) foram devolvidos.
+ */
+function _restaurarPendenciaCompra(itensRestaurar, numero) {
+  var addPorItem = {};
+  (itensRestaurar || []).forEach(function (it) {
+    var k = _norm(it.item);
+    if (!k) return;
+    addPorItem[k] = (addPorItem[k] || 0) + (Number(it.quantidade) || 0);
+  });
+  var chaves = Object.keys(addPorItem);
+  if (!chaves.length) return 0;
+
+  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  var incrementadas = {};
+  var linhasFinais = regs.map(function (r) {
+    return RELACAO_COMPRA_HEADERS.map(function (h) {
+      if (h === 'SUGERIDO') {
+        var k = _norm(r.ITEM);
+        if (addPorItem.hasOwnProperty(k) && !incrementadas[k] && _emAberto(r)) {
+          incrementadas[k] = true;
+          return (Number(r.SUGERIDO) || 0) + addPorItem[k];
+        }
+      }
+      return r[h] == null ? '' : r[h];
+    });
+  });
+
+  var novas = [];
+  var faltando = chaves.filter(function (k) { return !incrementadas[k]; });
+  if (faltando.length) {
+    var localizarDesc = _criarLocalizadorDescricao();
+    var localizarData = _criarLocalizadorDataLimite();
+    var calcTing = _criarCalculadoraTingimento();
+    faltando.forEach(function (k) {
+      var itemTxt = '';
+      (itensRestaurar || []).forEach(function (it) { if (_norm(it.item) === k && !itemTxt) itemTxt = String(it.item).trim(); });
+      var d = localizarDesc(itemTxt);
+      var t = calcTing(itemTxt, 0, 0, 0);
+      var obj = {
+        ITEM: itemTxt, DESCRICAO: d.descricao || '', CLIENTE: d.cliente || '', TIPO_FIO: t.tipoFio || '',
+        SUGERIDO: addPorItem[k], DATA_LIMITE: localizarData(itemTxt) || '',
+        OBS: 'Reaberto pelo cancelamento do embarque ' + numero, STATUS: 'ABERTO', GERADO_EM: new Date()
+      };
+      novas.push(RELACAO_COMPRA_HEADERS.map(function (h) { return obj.hasOwnProperty(h) ? obj[h] : ''; }));
+    });
+  }
+  reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, linhasFinais.concat(novas));
+  return chaves.length;
+}
+
+/** HTML do e-mail de cancelamento de embarque. */
+function _cancelamentoEmbarqueHTML(numero, itens, unidade, autor) {
+  var rows = (itens || []).map(function (it) {
+    return '<tr><td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + _escHtmlEmail(it.item) +
+      '</td><td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + (Number(it.quantidade) || 0) + '</td></tr>';
+  }).join('');
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
+    '<h1 style="color:#B91C1C;margin:0 0 4px;font-size:20px">EMBARQUE CANCELADO — ' + unidade + ' nº ' + _escHtmlEmail(numero) + '</h1>' +
+    '<p style="margin:0 0 12px;font-size:13px;color:#334155">Cancelado por <b>' + _escHtmlEmail(autor) + '</b>. ' +
+      'Desconsiderem a confirmação anterior deste embarque — os itens abaixo voltaram para a lista pendente.</p>' +
+    '<table style="border-collapse:collapse"><thead><tr>' +
+      '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#B91C1C;color:#fff;text-align:left;font-size:13px">Item</th>' +
+      '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#B91C1C;color:#fff;text-align:left;font-size:13px">Quantidade (kg)</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
 /** dd/MM/aaaa → Date (local), ou null. */
