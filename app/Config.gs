@@ -6,7 +6,7 @@
  */
 
 var CONFIG = {
-  APP_NOME: 'Marfim · Gestão de Compras',
+  APP_NOME: 'Marfim · Relatório de Tingimento',
 
   /**
    * Logo usado na tela (splash, login, topo) e nos e-mails (Pedido de Fio,
