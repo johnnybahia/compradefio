@@ -1279,7 +1279,9 @@ function _embarquesEmViagemPorItem() {
     var qtd = parseFloat(row[iPeso]) || 0;
     var data = _parseData(row[iData]);
     if (!atual) {
-      porItemEmb[chave][num] = { numero: row[iEmb], data: data, quantidade: qtd };
+      // `item` guarda o texto como está na aba EMBARQUES — usado pelo Relatório
+      // pra montar a linha do item que já saiu da pendência mas não chegou.
+      porItemEmb[chave][num] = { item: String(item).trim(), numero: row[iEmb], data: data, quantidade: qtd };
     } else {
       atual.quantidade += qtd;
       if (data && !atual.data) atual.data = data;
