@@ -3074,13 +3074,86 @@ function viewRelatorio(alvo) {
       'crítico. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
       '<div class="no-print" style="margin:0 0 12px">' +
         '<button class="btn-principal" id="btn-imprimir-relatorio">Imprimir relatório</button>' +
+        (podeEditar(['master'])
+          ? '<button class="btn-principal" id="btn-config-chegada">Dias de recebimento</button>'
+          : '') +
       '</div>' +
+      (podeEditar(['master'])
+        ? '<div class="no-print" id="painel-config-chegada" style="display:none;border:1px solid #D8E0E8;' +
+            'border-radius:10px;padding:14px 16px;margin-bottom:12px">' +
+            '<b style="color:#0B4576">Dias em que os embarques chegam nesta empresa</b>' +
+            '<p class="desc" style="margin:6px 0 10px">A previsão de chegada é o primeiro desses dias que caia ' +
+            'pelo menos <b>N dias</b> depois da data do embarque. Configuração <b>por empresa</b> — troque a ' +
+            'unidade no topo pra configurar a outra.</p>' +
+            '<div id="chegada-dias" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px"></div>' +
+            '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+              '<label for="chegada-prazo" style="font-weight:600">Prazo mínimo de trânsito (dias):</label>' +
+              '<input type="number" id="chegada-prazo" min="0" step="1" ' +
+                'style="width:90px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px">' +
+              '<button class="btn-principal" id="btn-salvar-chegada">Salvar</button>' +
+            '</div>' +
+            '<div id="chegada-msg"></div>' +
+          '</div>'
+        : '') +
       '<div id="rel-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-relatorio"></div>' +
     '</section>';
   document.getElementById('btn-imprimir-relatorio').onclick = function () { window.print(); };
+  var btnCfg = document.getElementById('btn-config-chegada');
+  if (btnCfg) btnCfg.onclick = toggleConfigChegada;
   ativarRegua('tabela-relatorio');
   carregarRelatorio();
+}
+
+/* Configuração (master) dos dias em que o embarque chega na empresa ativa. */
+function toggleConfigChegada() {
+  var painel = document.getElementById('painel-config-chegada');
+  var abrir = painel.style.display === 'none';
+  painel.style.display = abrir ? '' : 'none';
+  if (abrir) carregarConfigChegada();
+}
+
+function carregarConfigChegada() {
+  var wrap = document.getElementById('chegada-dias');
+  var nomes = { 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado', 7: 'Domingo' };
+  chamar('obterConfigChegada', sessao.token)
+    .then(function (r) {
+      var dias = r.dias || [];
+      wrap.innerHTML = [1, 2, 3, 4, 5, 6, 7].map(function (n) {
+        return '<label style="font-weight:400;white-space:nowrap">' +
+          '<input type="checkbox" class="chk-chegada-dia" value="' + n + '"' +
+          (dias.indexOf(n) !== -1 ? ' checked' : '') + '> ' + nomes[n] + '</label>';
+      }).join('');
+      document.getElementById('chegada-prazo').value = r.prazoDias != null ? r.prazoDias : 3;
+      document.getElementById('btn-salvar-chegada').onclick = salvarConfigChegada;
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) document.getElementById('chegada-msg').innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+function salvarConfigChegada() {
+  var msg = document.getElementById('chegada-msg');
+  var dias = [];
+  Array.prototype.forEach.call(document.querySelectorAll('.chk-chegada-dia'), function (c) {
+    if (c.checked) dias.push(Number(c.value));
+  });
+  var prazo = document.getElementById('chegada-prazo').value;
+  var btn = document.getElementById('btn-salvar-chegada');
+  btn.disabled = true;
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Salvando…</span></div>';
+  chamar('salvarConfigChegada', sessao.token, dias, prazo)
+    .then(function () {
+      btn.disabled = false;
+      msg.innerHTML = '<div class="aviso ok">Dias de recebimento salvos.</div>';
+      carregarRelatorio(); // recalcula as previsões com a configuração nova
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
 }
 
 function carregarRelatorio() {
@@ -3094,6 +3167,15 @@ function carregarRelatorio() {
       document.getElementById('rel-numero').textContent = r.numeroPedido != null ? r.numeroPedido : '—';
       document.getElementById('rel-data').textContent = r.dataPedido || '—';
       document.getElementById('rel-atualizado-em').textContent = r.atualizadoEm || '—';
+      // Sem dias de recebimento configurados, a coluna de previsão não calcula.
+      if (!(r.chegadaDias || []).length) {
+        msg.innerHTML = '<div class="aviso">Previsão de chegada indisponível: os <b>dias de recebimento</b> ' +
+          'desta empresa ainda não foram configurados' +
+          (podeEditar(['master']) ? ' (botão "Dias de recebimento" acima).' : ' — peça ao master.') + '</div>';
+      } else {
+        msg.innerHTML = '<div class="aviso ok">Chegadas nesta empresa: <b>' +
+          (r.chegadaRotulos || []).join(', ') + '</b> · prazo mínimo de ' + r.chegadaPrazoDias + ' dia(s).</div>';
+      }
       estadoRelatorio.linhas = r.linhas || [];
       renderRelatorio();
     })
@@ -3111,6 +3193,17 @@ function renderRelatorio() {
     return;
   }
   var body = linhas.map(function (l) {
+    // Previsão só existe pra item com embarque a caminho; mostra o nº do
+    // embarque e os kg em viagem no title, pra dar contexto sem poluir.
+    var prevCel = '—';
+    if (l.previsaoChegada) {
+      prevCel = '<span title="Embarque ' + escAttr(l.embarqueNumero) + ' de ' + escAttr(l.dataEmbarque) +
+        ' · ' + num(l.emViagemQtd) + ' kg em viagem" style="color:#0B4576;font-weight:600">' +
+        l.previsaoChegada + '</span>';
+    } else if (l.emViagemQtd) {
+      prevCel = '<span class="sem-desc" title="Há ' + num(l.emViagemQtd) +
+        ' kg em viagem, mas falta configurar os dias de recebimento (ou a data do embarque)">a definir</span>';
+    }
     return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + '>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td class="col-item">' + (l.item || '—') + '</td>' +
@@ -3119,15 +3212,17 @@ function renderRelatorio() {
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
       '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
+      '<td>' + prevCel + '</td>' +
       '<td>' + (l.obs ? l.obs : '—') + '</td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:9%">Solicitado em</th><th style="width:10%">Item</th>' +
-      '<th style="width:22%">Descrição</th><th style="width:13%">Cliente</th>' +
-      '<th style="width:12%">Máquinas</th><th style="text-align:right;width:8%">Total (kg)</th>' +
-      '<th style="width:10%">Data limite</th><th style="width:16%">Observação</th>' +
+      '<th style="width:8%">Solicitado em</th><th style="width:9%">Item</th>' +
+      '<th style="width:20%">Descrição</th><th style="width:12%">Cliente</th>' +
+      '<th style="width:11%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
+      '<th style="width:9%">Data limite</th><th style="width:10%">Previsão de chegada</th>' +
+      '<th style="width:14%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   aplicarRegua(wrap);
 }
