@@ -3646,7 +3646,11 @@ function gravarEmbarqueConfirmado() {
   chamar('gravarEmbarque', sessao.token, { doc: doc, data: data, itens: embarqueItens })
     .then(function (r) {
       btn.disabled = false;
-      msg.innerHTML = '<div class="aviso ok">' + r.gravados + ' item(ns) gravado(s) na aba EMBARQUES.</div>';
+      var extra = [];
+      if (r.aprendidos) extra.push(r.aprendidos + ' descrição(ões) aprendida(s)');
+      if (r.corrigidos) extra.push(r.corrigidos + ' aprendizado(s) corrigido(s)');
+      msg.innerHTML = '<div class="aviso ok">' + r.gravados + ' item(ns) gravado(s) na aba EMBARQUES' +
+        (extra.length ? ' — ' + extra.join(' e ') + '.' : '.') + '</div>';
       carregarUltimosEmbarques();
     })
     .catch(function (err) {
