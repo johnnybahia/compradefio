@@ -105,9 +105,66 @@ function obterRelatorioCompraAtual(token) {
       saldoCritico: _saldoCritico(r),
       // Vazio quando não há nada a caminho (nem embarque, ou o parcial já chegou).
       remessas: remessas,
-      emViagemQtd: totalViagem
+      emViagemQtd: totalViagem,
+      status: 'pendente'
     };
   });
+
+  // O item embarcado SAI da lista pendente na hora do lançamento do embarque
+  // (regra do sistema — ver `_baixarPendenciaCompraPorEmbarque`), mas neste
+  // relatório ele deve continuar aparecendo, com a previsão, até ser marcado
+  // como CHEGOU. Então acrescenta os itens que estão a caminho e já não estão
+  // mais na lista pendente. (Só o Relatório muda; a análise de compra e o
+  // restante seguem como antes.)
+  var jaListado = {};
+  regs.forEach(function (r) { jaListado[_norm(r.ITEM)] = true; });
+  var faltantes = Object.keys(emViagem).filter(function (k) { return !jaListado[k]; });
+  if (faltantes.length) {
+    var localizarDesc = _criarLocalizadorDescricao();
+    var localizarData = _criarLocalizadorDataLimite();
+    faltantes.forEach(function (k) {
+      var lista = emViagem[k];
+      if (!lista || !lista.length) return;
+      var itemTxt = String(lista[0].item || '').trim();
+      // O nome do item vem da própria aba EMBARQUES (coluna CORES).
+      if (!itemTxt) return;
+      var d = localizarDesc(itemTxt);
+      var remessas = lista.map(function (v) {
+        var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
+        return {
+          numero: v.numero, quantidade: v.quantidade,
+          dataEmbarque: v.data ? _soData(v.data) : '',
+          previsaoChegada: p ? _soData(p) : ''
+        };
+      });
+      var total = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
+      linhas.push({
+        linha: 0, // não é linha de PENDENCIA_COMPRA (nada a editar aqui)
+        dataSolicitado: '',
+        item: itemTxt,
+        descricao: d.descricao || '',
+        cliente: d.cliente || '',
+        maquinas: '',
+        total: total,
+        dataLimite: localizarData(itemTxt) || '',
+        obs: '',
+        saldoCritico: false,
+        remessas: remessas,
+        emViagemQtd: total,
+        status: 'embarcado'
+      });
+    });
+    // Reordena o conjunto pela data limite (sem data vai pro fim), mantendo a
+    // mesma leitura de sempre — ver `_ordenarPorDataLimite`.
+    linhas.sort(function (a, b) {
+      var da = _parseData(a.dataLimite), db = _parseData(b.dataLimite);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da.getTime() - db.getTime();
+    });
+  }
+
   return {
     ok: true,
     numeroPedido: _numeroPedidoRelatorio(),

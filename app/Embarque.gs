@@ -201,24 +201,54 @@ function _lerMapaEmbarque() {
   return mapa;
 }
 
-/** Salva descrições aprendidas (descrição → item), sem duplicar. */
+/**
+ * Salva o aprendizado (descrição do PDF → item), sem duplicar:
+ *   - descrição nova            → acrescenta;
+ *   - já aprendida, item DIFERENTE → CORRIGE a linha existente (o usuário pode
+ *     ter ensinado errado na primeira vez e trocado o item na conferência —
+ *     senão o erro se repetiria em toda importação futura);
+ *   - já aprendida com o mesmo item → não faz nada.
+ * @return {Object} { novos, corrigidos }
+ */
 function _salvarMapaEmbarque(pares) {
-  var existentes = _lerMapaEmbarque();
-  var novos = [];
-  pares.forEach(function (p) {
+  var sh = _aba(CONFIG.SHEETS.MAPA_EMBARQUE, ['DESCRICAO', 'ITEM']);
+  var porChave = {};
+  lerRegistros(CONFIG.SHEETS.MAPA_EMBARQUE).forEach(function (r) {
+    var k = _norm(r.DESCRICAO);
+    if (k && !porChave[k]) porChave[k] = r;
+  });
+
+  var novos = [], corrigidos = 0, vistos = {};
+  (pares || []).forEach(function (p) {
     if (!p.descricao || !p.item) return;
     var k = _norm(p.descricao);
-    if (existentes[k]) return;
-    existentes[k] = String(p.item).trim();
-    novos.push([String(p.descricao).trim(), String(p.item).trim()]);
+    if (!k || vistos[k]) return; // mesma descrição repetida no mesmo PDF
+    vistos[k] = true;
+    var item = String(p.item).trim();
+    var ex = porChave[k];
+    if (!ex) {
+      novos.push([String(p.descricao).trim(), item]);
+      return;
+    }
+    // Item lido como data (célula corrompida) conta como "diferente", pra ser
+    // regravado como texto — ver `_lerMapaEmbarque`.
+    var atual = (ex.ITEM instanceof Date) ? '' : String(ex.ITEM == null ? '' : ex.ITEM).trim();
+    if (_norm(atual) !== _norm(item)) {
+      var cel = sh.getRange(ex.__row, 2);
+      cel.setNumberFormat('@'); // TEXTO PURO (ver abaixo)
+      cel.setValue(item);
+      corrigidos++;
+    }
   });
-  if (!novos.length) return;
-  var sh = _aba(CONFIG.SHEETS.MAPA_EMBARQUE, ['DESCRICAO', 'ITEM']);
-  var rng = sh.getRange(sh.getLastRow() + 1, 1, novos.length, 2);
-  // TEXTO PURO: senão o Sheets converte códigos como "5711/1" (sufixo do
-  // Reflexx) em data — foi a causa de item sair como "Thu Jan 01 5711...".
-  rng.setNumberFormat('@');
-  rng.setValues(novos);
+
+  if (novos.length) {
+    var rng = sh.getRange(sh.getLastRow() + 1, 1, novos.length, 2);
+    // TEXTO PURO: senão o Sheets converte códigos como "5711/1" (sufixo do
+    // Reflexx) em data — foi a causa de item sair como "Thu Jan 01 5711...".
+    rng.setNumberFormat('@');
+    rng.setValues(novos);
+  }
+  return { novos: novos.length, corrigidos: corrigidos };
 }
 
 /**
@@ -343,13 +373,17 @@ function gravarEmbarque(token, dados) {
   var itens = (dados.itens || []).filter(function (it) { return it.item && String(it.item).trim(); });
   if (!itens.length) throw new Error('Nenhum item válido para gravar. Resolva os itens pendentes.');
 
-  // Aprende as descrições resolvidas (para reconhecer nas próximas vezes).
-  _salvarMapaEmbarque(itens.map(function (it) {
+  // Aprende as descrições resolvidas (para reconhecer nas próximas vezes) e
+  // CORRIGE as que já estavam aprendidas com outro item (ensino errado antes).
+  var aprendizado = _salvarMapaEmbarque(itens.map(function (it) {
     return { descricao: it.descricao, item: it.item };
   }));
 
   var r = _registrarEmbarqueEDarBaixa(itens, doc, data, s.usuario);
-  return { ok: true, gravados: r.gravados, baixados: r.baixados };
+  return {
+    ok: true, gravados: r.gravados, baixados: r.baixados,
+    aprendidos: aprendizado.novos, corrigidos: aprendizado.corrigidos
+  };
 }
 
 /**
@@ -1245,7 +1279,9 @@ function _embarquesEmViagemPorItem() {
     var qtd = parseFloat(row[iPeso]) || 0;
     var data = _parseData(row[iData]);
     if (!atual) {
-      porItemEmb[chave][num] = { numero: row[iEmb], data: data, quantidade: qtd };
+      // `item` guarda o texto como está na aba EMBARQUES — usado pelo Relatório
+      // pra montar a linha do item que já saiu da pendência mas não chegou.
+      porItemEmb[chave][num] = { item: String(item).trim(), numero: row[iEmb], data: data, quantidade: qtd };
     } else {
       atual.quantidade += qtd;
       if (data && !atual.data) atual.data = data;

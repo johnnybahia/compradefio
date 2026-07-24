@@ -3207,9 +3207,13 @@ function renderRelatorio() {
           dado + ' <span style="color:#64748b">· ' + num(v.quantidade) + ' kg</span></div>';
       }).join('');
     }
-    return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + '>' +
+    // Linha "embarcado": item que já saiu da lista pendente (o embarque foi
+    // lançado) mas ainda não chegou — continua aqui até ser marcado CHEGOU.
+    var embarcado = l.status === 'embarcado';
+    return '<tr' + (l.saldoCritico ? ' class="destaque"' : (embarcado ? ' class="destaque-tingido-completo"' : '')) + '>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
-      '<td class="col-item">' + (l.item || '—') + '</td>' +
+      '<td class="col-item">' + (l.item || '—') +
+        (embarcado ? ' <span class="badge-tingido-completo">embarcado</span>' : '') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
@@ -3646,7 +3650,11 @@ function gravarEmbarqueConfirmado() {
   chamar('gravarEmbarque', sessao.token, { doc: doc, data: data, itens: embarqueItens })
     .then(function (r) {
       btn.disabled = false;
-      msg.innerHTML = '<div class="aviso ok">' + r.gravados + ' item(ns) gravado(s) na aba EMBARQUES.</div>';
+      var extra = [];
+      if (r.aprendidos) extra.push(r.aprendidos + ' descrição(ões) aprendida(s)');
+      if (r.corrigidos) extra.push(r.corrigidos + ' aprendizado(s) corrigido(s)');
+      msg.innerHTML = '<div class="aviso ok">' + r.gravados + ' item(ns) gravado(s) na aba EMBARQUES' +
+        (extra.length ? ' — ' + extra.join(' e ') + '.' : '.') + '</div>';
       carregarUltimosEmbarques();
     })
     .catch(function (err) {
