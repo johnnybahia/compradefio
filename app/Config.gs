@@ -109,18 +109,20 @@ var CONFIG = {
     MASTER: 'master',
     TINGIMENTO: 'tingimento',
     ALMOX1: 'almoxarifado1',
-    ALMOX2: 'almoxarifado2'
+    ALMOX2: 'almoxarifado2',
+    PROGRAMACAO: 'programacao'
   },
 
   /** Lista de papéis válidos (para validação). */
-  PAPEIS_VALIDOS: ['master', 'tingimento', 'almoxarifado1', 'almoxarifado2'],
+  PAPEIS_VALIDOS: ['master', 'tingimento', 'almoxarifado1', 'almoxarifado2', 'programacao'],
 
   /** Rótulos amigáveis exibidos na interface. */
   PAPEIS_ROTULO: {
     master: 'Master',
     tingimento: 'Tingimento',
     almoxarifado1: 'Almoxarifado 1',
-    almoxarifado2: 'Almoxarifado 2'
+    almoxarifado2: 'Almoxarifado 2',
+    programacao: 'Programação'
   },
 
   /** Nomes das abas (tabelas) no banco de dados. */

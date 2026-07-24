@@ -87,7 +87,8 @@ function mostrarLogin() {
 /* --------------------------- app shell --------------------------- */
 var ROTULO_PAPEL = {
   master: 'Master', tingimento: 'Tingimento',
-  almoxarifado1: 'Almoxarifado 1', almoxarifado2: 'Almoxarifado 2'
+  almoxarifado1: 'Almoxarifado 1', almoxarifado2: 'Almoxarifado 2',
+  programacao: 'Programação'
 };
 
 /** true se o papel da sessão atual está na lista de papéis que podem EDITAR
@@ -142,6 +143,13 @@ var MENUS = {
   almoxarifado2: [
     { id: 'relatorio',   rotulo: 'Relatório',           render: viewRelatorio },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque }
+  ],
+  // Programação: só VÊ Tingimento, Quantidade Tingida e Relatório (não edita).
+  // Exceção: pode marcar prioridade e disparar a urgência na tela de Tingimento.
+  programacao: [
+    { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
+    { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
+    { id: 'relatorio',  rotulo: 'Relatório',           render: viewRelatorio }
   ]
 };
 
@@ -2557,8 +2565,17 @@ function viewUsuarios(alvo) {
             '<option value="tingimento">Tingimento</option>' +
             '<option value="almoxarifado1">Almoxarifado 1</option>' +
             '<option value="almoxarifado2">Almoxarifado 2</option>' +
+            '<option value="programacao">Programação</option>' +
           '</select></div>' +
         '<div class="campo" style="max-width:180px"><label for="us-senha">Senha</label><input type="text" id="us-senha"></div>' +
+        '<div class="campo" style="flex:1;min-width:200px"><label>Empresas que pode ver</label>' +
+          '<div id="us-unidades" style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px">' +
+            (sessao.unidades || []).map(function (u) {
+              return '<label style="font-weight:400;white-space:nowrap">' +
+                '<input type="checkbox" class="us-unidade-chk" value="' + escAttr(u.id) + '" checked> ' +
+                escAttr(u.rotulo) + '</label>';
+            }).join('') +
+          '</div></div>' +
         '<button class="btn-principal" id="btn-criar-usuario">Cadastrar</button>' +
       '</div>' +
       '<div id="us-msg"></div>' +
@@ -2574,11 +2591,15 @@ function viewUsuarios(alvo) {
 
 function criarUsuario() {
   var msg = document.getElementById('us-msg');
+  var unidadesSel = Array.prototype.map.call(
+    document.querySelectorAll('#us-unidades .us-unidade-chk:checked'),
+    function (c) { return c.value; });
   var dados = {
     usuario: document.getElementById('us-usuario').value.trim(),
     nome: document.getElementById('us-nome').value.trim(),
     papel: document.getElementById('us-papel').value,
     senha: document.getElementById('us-senha').value,
+    unidades: unidadesSel,
     ativo: true
   };
   if (!dados.usuario) { msg.innerHTML = '<div class="aviso erro">Informe o usuário (login).</div>'; return; }
@@ -2592,6 +2613,7 @@ function criarUsuario() {
       msg.innerHTML = '<div class="aviso ok">Usuário "' + dados.usuario + '" cadastrado.</div>';
       ['us-usuario', 'us-nome', 'us-senha'].forEach(function (id) { document.getElementById(id).value = ''; });
       document.getElementById('us-papel').value = 'master';
+      Array.prototype.forEach.call(document.querySelectorAll('#us-unidades .us-unidade-chk'), function (c) { c.checked = true; });
       carregarUsuarios();
     })
     .catch(function (err) {
@@ -2622,7 +2644,7 @@ function carregarUsuarios() {
 function salvarCampoUsuario(usuario, patch, elemento) {
   var u = estadoUsuarios.lista.filter(function (x) { return x.usuario === usuario; })[0];
   if (!u) return;
-  var dados = { usuario: usuario, nome: u.nome, papel: u.papel, ativo: u.ativo };
+  var dados = { usuario: usuario, nome: u.nome, papel: u.papel, ativo: u.ativo, unidades: u.unidades || [] };
   Object.keys(patch).forEach(function (k) { dados[k] = patch[k]; });
   if (elemento) elemento.disabled = true;
   var msg = document.getElementById('us-msg');
@@ -2649,11 +2671,19 @@ function renderUsuarios() {
       '<td><input class="obs-input us-nome-input" data-usuario="' + escAttr(u.usuario) + '" value="' +
         escAttr(u.nome) + '"></td>' +
       '<td><select class="assoc-select us-papel-select" data-usuario="' + escAttr(u.usuario) + '">' +
-        ['master', 'tingimento', 'almoxarifado1', 'almoxarifado2'].map(function (p) {
+        ['master', 'tingimento', 'almoxarifado1', 'almoxarifado2', 'programacao'].map(function (p) {
           return '<option value="' + p + '"' + (p === u.papel ? ' selected' : '') + '>' +
             (ROTULO_PAPEL[p] || p) + '</option>';
         }).join('') +
       '</select></td>' +
+      '<td>' + (sessao.unidades || []).map(function (un) {
+          var marc = (u.unidades || []).indexOf(un.id) !== -1;
+          return '<label style="font-weight:400;white-space:nowrap;margin-right:10px">' +
+            '<input type="checkbox" class="us-unidade-row-chk" data-usuario="' + escAttr(u.usuario) +
+            '" value="' + escAttr(un.id) + '"' + (marc ? ' checked' : '') + '> ' + escAttr(un.rotulo) + '</label>';
+        }).join('') +
+        (u.todasUnidades ? ' <span class="badge-tingido-parcial" title="Vale para todas as empresas, inclusive futuras">todas</span>' : '') +
+      '</td>' +
       '<td style="text-align:center"><input type="checkbox" class="chk-grande us-ativo-chk" data-usuario="' +
         escAttr(u.usuario) + '"' + (u.ativo ? ' checked' : '') + '></td>' +
       '<td style="white-space:nowrap">' +
@@ -2670,8 +2700,9 @@ function renderUsuarios() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:14%">Usuário</th><th style="width:22%">Nome</th><th style="width:18%">Papel</th>' +
-      '<th style="text-align:center;width:8%">Ativo</th><th style="width:38%">Senha</th>' +
+      '<th style="width:12%">Usuário</th><th style="width:16%">Nome</th><th style="width:14%">Papel</th>' +
+      '<th style="width:18%">Empresas</th>' +
+      '<th style="text-align:center;width:7%">Ativo</th><th style="width:33%">Senha</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.us-nome-input'), function (inp) {
@@ -2682,6 +2713,16 @@ function renderUsuarios() {
   Array.prototype.forEach.call(wrap.querySelectorAll('.us-papel-select'), function (sel) {
     sel.addEventListener('change', function () {
       salvarCampoUsuario(sel.getAttribute('data-usuario'), { papel: sel.value }, sel);
+    });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.us-unidade-row-chk'), function (chk) {
+    chk.addEventListener('change', function () {
+      var usuario = chk.getAttribute('data-usuario');
+      var marcadas = [];
+      Array.prototype.forEach.call(wrap.querySelectorAll('.us-unidade-row-chk'), function (c) {
+        if (c.getAttribute('data-usuario') === usuario && c.checked) marcadas.push(c.value);
+      });
+      salvarCampoUsuario(usuario, { unidades: marcadas }, chk);
     });
   });
   Array.prototype.forEach.call(wrap.querySelectorAll('.us-ativo-chk'), function (chk) {
