@@ -74,7 +74,14 @@ function obterListaTingimento(token) {
 function obterRelatorioCompraAtual(token) {
   var s = exigirSessao(token);
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
+  // Previsão de chegada: para o item que tem embarque A CAMINHO, calcula em que
+  // dia ele deve chegar na filial, pelos dias de recebimento configurados da
+  // unidade (ver `_previsaoChegada`/`obterConfigChegada`, em Embarque.gs).
+  var cfgChegada = _configChegadaUnidade();
+  var emViagem = _embarqueEmViagemPorItem();
   var linhas = regs.map(function (r) {
+    var viagem = emViagem[_norm(r.ITEM)];
+    var previsao = viagem ? _previsaoChegada(viagem.data, cfgChegada.dias, cfgChegada.prazoDias) : null;
     return {
       linha: r.__row,
       dataSolicitado: _soData(r.GERADO_EM),
@@ -85,7 +92,12 @@ function obterRelatorioCompraAtual(token) {
       total: r.SUGERIDO,
       dataLimite: _soData(r.DATA_LIMITE),
       obs: r.OBS == null ? '' : String(r.OBS),
-      saldoCritico: _saldoCritico(r)
+      saldoCritico: _saldoCritico(r),
+      // Só existe quando há embarque em viagem daquele item.
+      emViagemQtd: viagem ? viagem.quantidade : 0,
+      embarqueNumero: viagem ? viagem.numero : '',
+      dataEmbarque: (viagem && viagem.data) ? _soData(viagem.data) : '',
+      previsaoChegada: previsao ? _soData(previsao) : ''
     };
   });
   return {
@@ -98,6 +110,10 @@ function obterRelatorioCompraAtual(token) {
     // TELA foi consultada, com hora e minuto.
     atualizadoEm: Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm'),
     unidadeRotulo: CONFIG.getUnidadeInfo(s.unidade).rotulo,
+    // Dias de recebimento configurados (pra tela avisar quando faltar configurar).
+    chegadaDias: cfgChegada.dias,
+    chegadaPrazoDias: cfgChegada.prazoDias,
+    chegadaRotulos: cfgChegada.dias.map(function (n) { return DIAS_SEMANA_ROTULO[n]; }),
     linhas: linhas
   };
 }

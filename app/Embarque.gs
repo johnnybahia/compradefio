@@ -1112,9 +1112,137 @@ function _emViagemPorItem() {
   vals.forEach(function (row) {
     var item = row[iItem];
     if (item === '' || item == null) return;
-    if (_norm(row[iSituacao]).indexOf('chegou') !== -1) return; // já chegou: não conta mais
+    var sit = _norm(row[iSituacao]);
+    if (sit.indexOf('chegou') !== -1) return;    // já chegou: não conta mais
+    if (sit.indexOf('cancelado') !== -1) return; // embarque cancelado: nunca vai chegar
     var chave = _norm(item);
     mapa[chave] = (mapa[chave] || 0) + (parseFloat(row[iPeso]) || 0);
+  });
+  return mapa;
+}
+
+/* --------------------- previsão de chegada na filial -------------------- */
+/**
+ * A chegada do embarque na filial é semanal e fixa: cada empresa recebe em
+ * certos DIAS DA SEMANA (ex.: só segunda; ou quarta e sexta), e existe um
+ * PRAZO MÍNIMO de trânsito entre emitir o relatório de embarque e a mercadoria
+ * poder chegar. A previsão é, então, o primeiro dia de recebimento que caia
+ * pelo menos `prazoDias` depois da data do embarque.
+ *
+ * Ex. (empresa que recebe só quarta, prazo 3): embarque na sexta 24/07 →
+ * 24+3 = segunda 27 → primeira quarta a partir daí = 29/07.
+ * Ex. (empresa que recebe só segunda, prazo 3): embarque na quarta → +3 = sábado
+ * → segunda seguinte.
+ *
+ * Configurado por unidade (Propriedades do script) — ver `obterConfigChegada`.
+ */
+var DIAS_SEMANA_ROTULO = {
+  1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado', 7: 'Domingo'
+};
+
+/** Date → dia da semana 1..7 (1=segunda ... 7=domingo). */
+function _diaSemana1a7(d) {
+  var g = d.getDay(); // 0=domingo ... 6=sábado
+  return g === 0 ? 7 : g;
+}
+
+/** Primeiro dia de recebimento a partir de (dataEmbarque + prazoDias). null se
+ * não houver dia configurado ou a data do embarque for inválida. */
+function _previsaoChegada(dataEmbarque, dias, prazoDias) {
+  if (!(dataEmbarque instanceof Date) || isNaN(dataEmbarque.getTime())) return null;
+  if (!dias || !dias.length) return null;
+  var d = new Date(dataEmbarque.getFullYear(), dataEmbarque.getMonth(), dataEmbarque.getDate());
+  d.setDate(d.getDate() + Math.max(Number(prazoDias) || 0, 0));
+  for (var i = 0; i < 14; i++) { // duas semanas cobrem qualquer configuração
+    if (dias.indexOf(_diaSemana1a7(d)) !== -1) return d;
+    d.setDate(d.getDate() + 1);
+  }
+  return null;
+}
+
+/** Prazo mínimo de trânsito (dias) usado quando a unidade não configurou nada. */
+var PRAZO_CHEGADA_PADRAO = 3;
+
+/**
+ * Dias de recebimento + prazo mínimo da unidade ATIVA. Leitura liberada a
+ * qualquer sessão (a tela Relatório usa pra mostrar a previsão); só o master
+ * altera (`salvarConfigChegada`).
+ * @return {Object} { ok, dias:[1..7], prazoDias, rotulos:[...] }
+ */
+function obterConfigChegada(token) {
+  exigirSessao(token);
+  var c = _configChegadaUnidade();
+  return {
+    ok: true, dias: c.dias, prazoDias: c.prazoDias,
+    rotulos: c.dias.map(function (n) { return DIAS_SEMANA_ROTULO[n]; })
+  };
+}
+
+/** Lê a configuração de chegada da unidade ativa (uso interno). */
+function _configChegadaUnidade() {
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty(_propUnidade('DIAS_CHEGADA')) || '';
+  var dias = raw.split(/[;,]/)
+    .map(function (s) { return parseInt(s, 10); })
+    .filter(function (n) { return n >= 1 && n <= 7; });
+  var prazo = parseInt(props.getProperty(_propUnidade('PRAZO_CHEGADA')), 10);
+  return { dias: dias, prazoDias: isNaN(prazo) ? PRAZO_CHEGADA_PADRAO : prazo };
+}
+
+/** Salva os dias de recebimento e o prazo mínimo da unidade ativa (só master). */
+function salvarConfigChegada(token, dias, prazoDias) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var lista = (Array.isArray(dias) ? dias : String(dias == null ? '' : dias).split(/[;,]/))
+    .map(function (s) { return parseInt(s, 10); })
+    .filter(function (n) { return n >= 1 && n <= 7; });
+  var prazo = parseInt(prazoDias, 10);
+  if (isNaN(prazo) || prazo < 0) prazo = PRAZO_CHEGADA_PADRAO;
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(_propUnidade('DIAS_CHEGADA'), lista.join(','));
+  props.setProperty(_propUnidade('PRAZO_CHEGADA'), String(prazo));
+  return { ok: true, dias: lista, prazoDias: prazo };
+}
+
+/**
+ * Embarque ainda EM VIAGEM de cada item (normalizado → { quantidade, data,
+ * numero }). Ignora linhas já chegadas ou canceladas. Quando o item tem mais de
+ * um embarque a caminho, soma as quantidades e fica com o embarque MAIS RECENTE
+ * como referência da data (registro antigo esquecido sem marcar "chegou" não
+ * puxa a previsão pro passado).
+ */
+function _embarqueEmViagemPorItem() {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES);
+  var mapa = {};
+  if (!sh) return mapa;
+  var last = sh.getLastRow();
+  if (last < 2) return mapa;
+
+  var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
+  var header = vals.shift().map(_norm);
+  var iItem = header.indexOf('cores'); if (iItem < 0) iItem = 0;
+  var iPeso = header.indexOf('peso'); if (iPeso < 0) iPeso = 1;
+  var iEmb = header.indexOf('embarque'); if (iEmb < 0) iEmb = 2;
+  var iData = header.indexOf('data'); if (iData < 0) iData = 3;
+  var iSit = header.indexOf('situacao'); if (iSit < 0) iSit = 4;
+
+  vals.forEach(function (row) {
+    var item = row[iItem];
+    if (item === '' || item == null) return;
+    var sit = _norm(row[iSit]);
+    if (sit.indexOf('chegou') !== -1 || sit.indexOf('cancelado') !== -1) return;
+    var chave = _norm(item);
+    var data = _parseData(row[iData]);
+    var qtd = parseFloat(row[iPeso]) || 0;
+    var cur = mapa[chave];
+    if (!cur) {
+      mapa[chave] = { quantidade: qtd, data: data, numero: row[iEmb] };
+    } else {
+      cur.quantidade += qtd;
+      if (data && (!cur.data || data.getTime() > cur.data.getTime())) {
+        cur.data = data;
+        cur.numero = row[iEmb];
+      }
+    }
   });
   return mapa;
 }
