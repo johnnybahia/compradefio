@@ -533,6 +533,14 @@ function num(v) {
   return isNaN(n) ? v : n.toLocaleString('pt-BR');
 }
 
+/** Texto sem acento e em minúsculas — pra buscar/comparar sem tropeçar em
+ * acentuação ou maiúsculas (ex.: "Poliéster" acha com "poliester"). */
+function semAcentoMinusculo(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 /** Formata um número como moeda em Reais (ex.: 1234.5 → "R$ 1.234,50"). */
 function moeda(v) {
   var n = Number(v) || 0;
@@ -3055,7 +3063,7 @@ function abrirModalNovaSenha(usuario, callback) {
 // obterRelatorioCompraAtual) — só pra consultar direto no sistema, sem
 // esperar/procurar o e-mail. Compartilhada por TODOS os papéis (ver MENUS),
 // só leitura. Régua de navegação (setas ↑/↓) igual às outras listas.
-var estadoRelatorio = { linhas: [] };
+var estadoRelatorio = { linhas: [], filtro: '' };
 
 function viewRelatorio(alvo) {
   alvo.innerHTML =
@@ -3095,10 +3103,30 @@ function viewRelatorio(alvo) {
             '<div id="chegada-msg"></div>' +
           '</div>'
         : '') +
+      '<div class="no-print" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
+        '<label for="rel-busca" style="font-weight:600">Buscar item:</label>' +
+        '<input type="text" id="rel-busca" list="rel-itens" autocomplete="off" ' +
+          'placeholder="código, descrição ou cliente" ' +
+          'style="flex:1;min-width:220px;max-width:340px;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px">' +
+        '<datalist id="rel-itens"></datalist>' +
+        '<button class="btn-principal" id="btn-limpar-busca" style="padding:7px 14px">Limpar</button>' +
+        '<span id="rel-contagem" class="desc" style="margin:0"></span>' +
+      '</div>' +
       '<div id="rel-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-relatorio"></div>' +
     '</section>';
   document.getElementById('btn-imprimir-relatorio').onclick = function () { window.print(); };
+  var busca = document.getElementById('rel-busca');
+  busca.addEventListener('input', function () {
+    estadoRelatorio.filtro = busca.value;
+    renderRelatorio();
+  });
+  document.getElementById('btn-limpar-busca').onclick = function () {
+    busca.value = '';
+    estadoRelatorio.filtro = '';
+    renderRelatorio();
+    busca.focus();
+  };
   var btnCfg = document.getElementById('btn-config-chegada');
   if (btnCfg) btnCfg.onclick = toggleConfigChegada;
   ativarRegua('tabela-relatorio');
@@ -3177,6 +3205,16 @@ function carregarRelatorio() {
           (r.chegadaRotulos || []).join(', ') + '</b> · prazo mínimo de ' + r.chegadaPrazoDias + ' dia(s).</div>';
       }
       estadoRelatorio.linhas = r.linhas || [];
+      // Autocomplete da busca: só os itens que estão neste relatório.
+      var dl = document.getElementById('rel-itens');
+      if (dl) {
+        var vistos = {};
+        dl.innerHTML = estadoRelatorio.linhas.map(function (l) {
+          if (!l.item || vistos[l.item]) return '';
+          vistos[l.item] = true;
+          return '<option value="' + escAttr(l.item) + '">' + escAttr(l.descricao || '') + '</option>';
+        }).join('');
+      }
       renderRelatorio();
     })
     .catch(function (err) {
@@ -3187,9 +3225,26 @@ function carregarRelatorio() {
 
 function renderRelatorio() {
   var wrap = document.getElementById('tabela-relatorio');
-  var linhas = estadoRelatorio.linhas;
-  if (!linhas.length) {
+  var todas = estadoRelatorio.linhas;
+  // Busca: filtra por código, descrição ou cliente (sem acento, sem caso).
+  var termo = semAcentoMinusculo(estadoRelatorio.filtro || '');
+  var linhas = !termo ? todas : todas.filter(function (l) {
+    return semAcentoMinusculo(l.item).indexOf(termo) !== -1 ||
+      semAcentoMinusculo(l.descricao).indexOf(termo) !== -1 ||
+      semAcentoMinusculo(l.cliente).indexOf(termo) !== -1;
+  });
+  var contagem = document.getElementById('rel-contagem');
+  if (contagem) {
+    contagem.textContent = termo
+      ? linhas.length + ' de ' + todas.length + ' item(ns)'
+      : todas.length + ' item(ns)';
+  }
+  if (!todas.length) {
     wrap.innerHTML = '<div class="vazio">Nenhum item pendente no momento.</div>';
+    return;
+  }
+  if (!linhas.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhum item encontrado para "' + escAttr(estadoRelatorio.filtro) + '".</div>';
     return;
   }
   var body = linhas.map(function (l) {

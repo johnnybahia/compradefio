@@ -154,16 +154,22 @@ function obterRelatorioCompraAtual(token) {
         status: 'embarcado'
       });
     });
-    // Reordena o conjunto pela data limite (sem data vai pro fim), mantendo a
-    // mesma leitura de sempre — ver `_ordenarPorDataLimite`.
-    linhas.sort(function (a, b) {
-      var da = _parseData(a.dataLimite), db = _parseData(b.dataLimite);
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      return da.getTime() - db.getTime();
-    });
   }
+
+  // Ordem final: primeiro os itens COM data de solicitação (o pedido em si),
+  // e só depois os SEM data (os já embarcados, que não vêm da lista pendente) —
+  // pra não misturar as duas coisas na leitura. Dentro de cada grupo, pela data
+  // limite mais próxima, com quem não tem data por último (mesmo critério de
+  // `_ordenarPorDataLimite`).
+  linhas.sort(function (a, b) {
+    var sa = a.dataSolicitado ? 0 : 1, sb = b.dataSolicitado ? 0 : 1;
+    if (sa !== sb) return sa - sb;
+    var da = _parseData(a.dataLimite), db = _parseData(b.dataLimite);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da.getTime() - db.getTime();
+  });
 
   return {
     ok: true,
