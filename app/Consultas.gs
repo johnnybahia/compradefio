@@ -412,6 +412,38 @@ function enviarUrgenciaTingimento(token, params) {
   return { ok: true, marcados: detalhes.length, destinatarios: lista.length };
 }
 
+/**
+ * Cancela/limpa a marcação de URGENTE da observação de itens (tira os trechos
+ * "URGENTE ..." da OBS, sem apagar o resto). Usado pelo master e Programação
+ * pra desfazer uma urgência marcada por engano. Não "desenvia" o e-mail — só
+ * limpa o registro na observação.
+ * @param {Object} params { linhas: [numeroLinha, ...] }
+ */
+function limparUrgenciaTingimento(token, params) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
+  params = params || {};
+  var linhas = (params.linhas || []).map(function (n) { return parseInt(n, 10); }).filter(function (n) { return n; });
+  if (!linhas.length) throw new Error('Nenhum item informado para limpar.');
+  var porLinha = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) { porLinha[r.__row] = r; });
+  var limpos = 0;
+  linhas.forEach(function (linha) {
+    var r = porLinha[linha];
+    if (!r) return;
+    var obs = String(r.OBS == null ? '' : r.OBS);
+    // Remove os trechos que começam com "URGENTE" (separados por " | ").
+    var partes = obs.split(' | ').filter(function (p) {
+      return p.trim().toUpperCase().indexOf('URGENTE') !== 0;
+    });
+    var nova = partes.join(' | ').trim();
+    if (nova !== obs.trim()) {
+      atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'OBS', nova);
+      limpos++;
+    }
+  });
+  return { ok: true, limpos: limpos };
+}
+
 /** HTML do e-mail de urgência (ver `enviarUrgenciaTingimento`). */
 function _urgenciaTingimentoHTML(detalhes, unidade, autor, dataFmt) {
   function th(t) {

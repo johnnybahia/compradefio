@@ -1026,10 +1026,15 @@ function renderTingimento(linhas) {
       : (l.obs ? escAttr(l.obs) : '—');
     var prioridadeCel = '';
     if (priorizar) {
+      var temUrg = String(l.obs || '').toUpperCase().indexOf('URGENTE') !== -1;
       prioridadeCel = '<td class="no-print" style="text-align:center;white-space:nowrap">' +
         '<input type="checkbox" class="chk-prioridade" data-linha="' + l.linha + '"' + (l.prioridade ? ' checked' : '') + '>' +
         (l.prioridade && l.dataUrgencia
           ? '<div style="font-size:11px;color:#B91C1C">p/ ' + escAttr(l.dataUrgencia) + '</div>'
+          : '') +
+        (temUrg
+          ? '<div><button type="button" class="btn-atualizar-data btn-limpar-urg" data-linha="' + l.linha +
+            '" title="Tirar o URGENTE da observação deste item">limpar urgência</button></div>'
           : '') +
       '</td>';
     }
@@ -1102,7 +1107,29 @@ function renderTingimento(linhas) {
         }
       });
     });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.btn-limpar-urg'), function (btn) {
+      btn.addEventListener('click', function () { limparUrgenciaItem(Number(btn.getAttribute('data-linha'))); });
+    });
   }
+}
+
+/** Tira o "URGENTE" da observação de um item (desfaz a urgência marcada por
+ * engano) — o e-mail já enviado não volta, só o registro na observação. */
+function limparUrgenciaItem(linha) {
+  var msg = document.getElementById('ting-msg');
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Limpando urgência…</span></div>';
+  chamar('limparUrgenciaTingimento', sessao.token, { linhas: [linha] })
+    .then(function () {
+      return chamar('obterListaTingimento', sessao.token).then(function (rr) {
+        estadoTingimento.linhas = rr.linhas || [];
+        renderTingimento(estadoTingimento.linhas);
+        msg.innerHTML = '<div class="aviso ok">Urgência removida da observação.</div>';
+      });
+    })
+    .catch(function (err) {
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
 }
 
 /** Janela que pergunta (opcional) a data desejada da urgência ao marcar
@@ -1299,14 +1326,66 @@ function viewConfirmarEmbarque(alvo) {
       '<h2>Histórico de embarques confirmados</h2>' +
       '<p class="desc">Itens já confirmados (por aqui ou pelo PDF) — já saíram da lista de pendentes ' +
       'acima; aqui é só pra consulta, mais recente primeiro.</p>' +
+      (editavel
+        ? '<div class="linha-form" style="align-items:flex-end">' +
+            '<div class="campo" style="max-width:170px"><label for="cancel-emb-num">Cancelar embarque nº</label>' +
+              '<input type="text" id="cancel-emb-num" placeholder="ex.: 5"></div>' +
+            '<label style="font-weight:400;white-space:nowrap">' +
+              '<input type="checkbox" id="cancel-emb-email"> avisar por e-mail</label>' +
+            '<button class="btn-principal" id="btn-cancelar-embarque" style="background:#B91C1C">Cancelar embarque</button>' +
+          '</div>' +
+          '<p class="desc" style="margin-top:0">Estorna o consumo de fio crú, devolve os itens à lista pendente e ' +
+          'marca o embarque como CANCELADO. O e-mail já enviado não volta.</p>' +
+          '<div id="cancel-emb-msg"></div>'
+        : '') +
       '<div class="tabela-wrap" id="tabela-historico-embarque"></div>' +
     '</section>';
 
   document.getElementById('btn-confirmar-embarque').onclick = confirmarEmbarqueSelecionado;
   document.getElementById('btn-historico-embarque').onclick = togglePainelHistoricoEmbarque;
+  var btnCancEmb = document.getElementById('btn-cancelar-embarque');
+  if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
   carregarCustoMaoObra();
+}
+
+function cancelarEmbarquePorNumero() {
+  var msg = document.getElementById('cancel-emb-msg');
+  var numero = (document.getElementById('cancel-emb-num').value || '').trim();
+  var avisar = document.getElementById('cancel-emb-email').checked;
+  if (!numero) { msg.innerHTML = '<div class="aviso erro">Informe o número do embarque.</div>'; return; }
+  confirmarModal(
+    'Cancelar embarque nº ' + numero + '?',
+    'Isso vai <b>estornar o consumo de fio crú</b> desse embarque, <b>devolver os itens à lista pendente</b> ' +
+    'e marcar o embarque como CANCELADO.' + (avisar ? ' Um e-mail de cancelamento será enviado aos contatos.' : '') +
+    ' O e-mail de confirmação original não pode ser desfeito.',
+    'Cancelar embarque', 'Voltar',
+    function (ok) {
+      if (!ok) return;
+      var btn = document.getElementById('btn-cancelar-embarque');
+      btn.disabled = true;
+      msg.innerHTML = '<div class="aviso"><span class="carregando">Cancelando…</span></div>';
+      chamar('cancelarEmbarque', sessao.token, numero, avisar)
+        .then(function (r) {
+          btn.disabled = false;
+          var extra = r.semInstantaneo
+            ? ' (embarque antigo, sem instantâneo de estorno — confira o fio crú manualmente)'
+            : '';
+          msg.innerHTML = '<div class="aviso ok">Embarque nº ' + r.numero + ' cancelado: ' + r.itens +
+            ' item(ns) devolvido(s) à pendência, ' + r.creditosCru + ' crédito(s) no fio crú' +
+            (r.destinatarios ? ', e-mail para ' + r.destinatarios + ' destinatário(s)' : '') + '.' + extra + '</div>';
+          document.getElementById('cancel-emb-num').value = '';
+          carregarHistoricoEmbarque();
+          carregarListaConfirmarEmbarque(); // a lista pendente mudou
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          var m = tratarErro(err);
+          if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+        });
+    }
+  );
 }
 
 /** Pré-preenche o campo de mão de obra com a última taxa usada nesta unidade. */
@@ -1347,17 +1426,20 @@ function renderHistoricoEmbarque(linhas) {
     return;
   }
   var body = linhas.map(function (l) {
-    return '<tr>' +
+    var canc = String(l.situacao || '').toUpperCase().indexOf('CANCEL') !== -1;
+    var chegou = String(l.situacao || '').toUpperCase().indexOf('CHEG') !== -1;
+    return '<tr' + (canc ? ' style="opacity:.5;text-decoration:line-through"' : '') + '>' +
       '<td class="col-item">' + (l.item || '—') + '</td>' +
       '<td style="text-align:right">' + num(l.quantidade) + ' kg</td>' +
       '<td>' + (l.numero != null && l.numero !== '' ? l.numero : '—') + '</td>' +
       '<td>' + (l.data || '—') + '</td>' +
+      '<td>' + (canc ? 'CANCELADO' : (chegou ? 'chegou' : '—')) + '</td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:35%">Item</th><th style="text-align:right;width:20%">Quantidade</th>' +
-      '<th style="width:20%">Nº embarque</th><th style="width:25%">Data</th>' +
+      '<th style="width:32%">Item</th><th style="text-align:right;width:16%">Quantidade</th>' +
+      '<th style="width:16%">Nº embarque</th><th style="width:20%">Data</th><th style="width:16%">Situação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 

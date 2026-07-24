@@ -135,6 +135,7 @@ var CONFIG = {
     EMBARQUES: 'EMBARQUES',           // embarques (preenchido pela leitura do PDF)
     MAPA_EMBARQUE: 'MAPA_EMBARQUE',   // aprendizado: descrição do PDF → item
     PENDENCIAS_EMBARQUE: 'PENDENCIAS EMBARQUE', // itens de embarque parcialmente lançados no estoque
+    EMBARQUE_ESTORNO: 'EMBARQUE_ESTORNO', // instantâneo por embarque (consumo de crú + pendência) pra permitir cancelar
     PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // backlog vivo: acumula até dar baixa (embarque confirmado ou remoção manual)
     RELACAO_COMPRA: 'RELACAO_COMPRA', // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
     FIO_CRU_ENTRADAS: 'FIO_CRU_ENTRADAS', // lotes de fio crú recebidos (um por NF + tipo de fio)

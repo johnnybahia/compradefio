@@ -344,7 +344,7 @@ function _baixarFioCru(tipoFio, quantidade, item, usuario) {
     var qtd = porChave[chave];
     var saldoApos = lote.saldo - qtd;
     linhas.push([agora, lote.tipoFio, lote.nf, lote.data || '', item || '', qtd, saldoApos, usuario || '']);
-    resultado.push({ nf: lote.nf, fornecedor: lote.fornecedor || '', dataNf: _soData(lote.data), quantidadeBaixada: qtd, saldoApos: saldoApos });
+    resultado.push({ tipoFio: lote.tipoFio, nf: lote.nf, fornecedor: lote.fornecedor || '', dataNf: _soData(lote.data), quantidadeBaixada: qtd, saldoApos: saldoApos });
   });
   // Ordena o retorno pela mesma ordem FIFO (mais antiga primeiro), pra ficar
   // legível na tela/e-mail.
@@ -405,7 +405,7 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
     var loteAtual = _saldosFioCru().filter(function (l) { return l.chave === chaveLote; })[0];
     var saldoApos = (loteAtual ? loteAtual.saldo : 0) + credito;
     linhas.push([agora, r.TIPO_FIO, r.NF, r.DATA_NF, item, -credito, saldoApos, usuario || '']);
-    resultado.push({ nf: r.NF, fornecedor: loteAtual ? (loteAtual.fornecedor || '') : '', dataNf: _soData(r.DATA_NF), quantidadeBaixada: -credito, saldoApos: saldoApos });
+    resultado.push({ tipoFio: r.TIPO_FIO, nf: r.NF, fornecedor: loteAtual ? (loteAtual.fornecedor || '') : '', dataNf: _soData(r.DATA_NF), quantidadeBaixada: -credito, saldoApos: saldoApos });
   }
   if (linhas.length) {
     var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
