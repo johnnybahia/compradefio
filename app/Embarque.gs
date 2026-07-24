@@ -1204,13 +1204,20 @@ function salvarConfigChegada(token, dias, prazoDias) {
 }
 
 /**
- * Embarque ainda EM VIAGEM de cada item (normalizado → { quantidade, data,
- * numero }). Ignora linhas já chegadas ou canceladas. Quando o item tem mais de
- * um embarque a caminho, soma as quantidades e fica com o embarque MAIS RECENTE
- * como referência da data (registro antigo esquecido sem marcar "chegou" não
- * puxa a previsão pro passado).
+ * Remessas ainda EM VIAGEM de cada item: normalizado(item) → lista de
+ * [{ numero, data, quantidade }], da mais antiga pra mais nova.
+ *
+ * Ignora linhas já chegadas ou canceladas — então, quando uma remessa PARCIAL
+ * é recebida (marcada "chegou"), ela sai daqui sozinha e o item fica SEM
+ * previsão até entrar um novo relatório de embarque com o saldo (e assim
+ * quantas vezes precisar, até fechar o pedido). Cada remessa a caminho mantém
+ * a SUA data e a SUA quantidade — com dois relatórios parciais em viagem,
+ * aparecem as duas datas (linhas do mesmo nº de embarque são somadas).
+ *
+ * Só a previsão de chegada do Relatório usa esta função; o cálculo de "em
+ * viagem" da análise de compra (`_emViagemPorItem`) segue somando, como antes.
  */
-function _embarqueEmViagemPorItem() {
+function _embarquesEmViagemPorItem() {
   var sh = _aba(CONFIG.SHEETS.EMBARQUES);
   var mapa = {};
   if (!sh) return mapa;
@@ -1225,24 +1232,34 @@ function _embarqueEmViagemPorItem() {
   var iData = header.indexOf('data'); if (iData < 0) iData = 3;
   var iSit = header.indexOf('situacao'); if (iSit < 0) iSit = 4;
 
+  var porItemEmb = {}; // item -> { nºembarque -> remessa }
   vals.forEach(function (row) {
     var item = row[iItem];
     if (item === '' || item == null) return;
     var sit = _norm(row[iSit]);
     if (sit.indexOf('chegou') !== -1 || sit.indexOf('cancelado') !== -1) return;
     var chave = _norm(item);
-    var data = _parseData(row[iData]);
+    var num = _normNumero(row[iEmb]) || '(sem número)';
+    if (!porItemEmb[chave]) porItemEmb[chave] = {};
+    var atual = porItemEmb[chave][num];
     var qtd = parseFloat(row[iPeso]) || 0;
-    var cur = mapa[chave];
-    if (!cur) {
-      mapa[chave] = { quantidade: qtd, data: data, numero: row[iEmb] };
+    var data = _parseData(row[iData]);
+    if (!atual) {
+      porItemEmb[chave][num] = { numero: row[iEmb], data: data, quantidade: qtd };
     } else {
-      cur.quantidade += qtd;
-      if (data && (!cur.data || data.getTime() > cur.data.getTime())) {
-        cur.data = data;
-        cur.numero = row[iEmb];
-      }
+      atual.quantidade += qtd;
+      if (data && !atual.data) atual.data = data;
     }
+  });
+
+  Object.keys(porItemEmb).forEach(function (chave) {
+    var lista = Object.keys(porItemEmb[chave]).map(function (n) { return porItemEmb[chave][n]; });
+    lista.sort(function (a, b) {
+      var ta = a.data ? a.data.getTime() : Infinity; // sem data vai pro fim
+      var tb = b.data ? b.data.getTime() : Infinity;
+      return ta - tb;
+    });
+    mapa[chave] = lista;
   });
   return mapa;
 }
