@@ -3106,7 +3106,7 @@ function viewRelatorio(alvo) {
       '<div class="no-print" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
         '<label for="rel-busca" style="font-weight:600">Buscar item:</label>' +
         '<input type="text" id="rel-busca" list="rel-itens" autocomplete="off" ' +
-          'placeholder="código, descrição ou cliente" ' +
+          'placeholder="código do item" ' +
           'style="flex:1;min-width:220px;max-width:340px;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px">' +
         '<datalist id="rel-itens"></datalist>' +
         '<button class="btn-principal" id="btn-limpar-busca" style="padding:7px 14px">Limpar</button>' +
@@ -3226,12 +3226,10 @@ function carregarRelatorio() {
 function renderRelatorio() {
   var wrap = document.getElementById('tabela-relatorio');
   var todas = estadoRelatorio.linhas;
-  // Busca: filtra por código, descrição ou cliente (sem acento, sem caso).
+  // Busca: só pela coluna Item (sem acento, sem caso).
   var termo = semAcentoMinusculo(estadoRelatorio.filtro || '');
   var linhas = !termo ? todas : todas.filter(function (l) {
-    return semAcentoMinusculo(l.item).indexOf(termo) !== -1 ||
-      semAcentoMinusculo(l.descricao).indexOf(termo) !== -1 ||
-      semAcentoMinusculo(l.cliente).indexOf(termo) !== -1;
+    return semAcentoMinusculo(l.item).indexOf(termo) !== -1;
   });
   var contagem = document.getElementById('rel-contagem');
   if (contagem) {
