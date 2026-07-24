@@ -198,3 +198,41 @@ function _criarCalculadoraTingimento() {
     return { tipoFio: achado.tipoFio, alvo: alvo, maquinas: sel.maquinas, total: sel.total };
   };
 }
+
+/**
+ * Lotes de tingimento (capacidades das máquinas da BASE TINGIMENTO) do tipo de
+ * fio de um item — pra oferecer como opções de "quantidade prioritária" na
+ * urgência. Usa a mesma regra de casamento da calculadora (padrão mais longo
+ * no código; poliéster de reserva pra código só-número; caso especial empresta
+ * a base de outro tipo). Devolve { tipoFio, lotes:[capacidades ordenadas] }.
+ */
+function _lotesTingimentoDoItem(item) {
+  var base = _lerBaseTingimento();
+  var poliester = null;
+  base.forEach(function (b) { if (b.patternNorm === 'poliester') poliester = b; });
+  var it = _norm(item);
+
+  var caso = _casoEspecialTingimento(it);
+  if (caso) {
+    var emp = null;
+    base.forEach(function (b) { if (b.patternNorm === _norm(caso.baseTingimento)) emp = b; });
+    if (emp) return { tipoFio: caso.tipoFio, lotes: emp.caps.slice().sort(function (a, b) { return a - b; }) };
+  }
+
+  var achado = null;
+  base.forEach(function (b) {
+    if (b.patternNorm && it.indexOf(b.patternNorm) !== -1) {
+      if (!achado || b.patternNorm.length > achado.patternNorm.length) achado = b;
+    }
+  });
+  if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
+  if (!achado) return { tipoFio: '', lotes: [] };
+  return { tipoFio: achado.tipoFio, lotes: achado.caps.slice().sort(function (a, b) { return a - b; }) };
+}
+
+/** Lotes de tingimento disponíveis pro item (pro campo de quantidade da urgência). */
+function obterLotesTingimentoItem(token, item) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.PROGRAMACAO]);
+  var r = _lotesTingimentoDoItem(String(item == null ? '' : item));
+  return { ok: true, tipoFio: r.tipoFio, lotes: r.lotes };
+}

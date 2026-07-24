@@ -394,11 +394,13 @@ function enviarUrgenciaTingimento(token, params) {
     var r = porLinha[it.linha];
     if (!r) return;
     var dataUrg = String(it.dataUrgencia == null ? '' : it.dataUrgencia).trim();
-    var nota = 'URGENTE' + (dataUrg ? ' (prioridade para ' + dataUrg + ')' : '');
+    var qtdUrg = Number(it.qtdUrgencia) || 0;
+    var nota = 'URGENTE' + (qtdUrg > 0 ? ' ' + qtdUrg + ' kg' : '') +
+      (dataUrg ? ' (prioridade para ' + dataUrg + ')' : '');
     var obsAtual = String(r.OBS == null ? '' : r.OBS).trim();
     var novaObs = obsAtual ? (obsAtual + ' | ' + nota) : nota;
     atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, it.linha, 'OBS', novaObs);
-    detalhes.push({ item: r.ITEM, descricao: r.DESCRICAO, cliente: r.CLIENTE, dataUrgencia: dataUrg });
+    detalhes.push({ item: r.ITEM, descricao: r.DESCRICAO, cliente: r.CLIENTE, dataUrgencia: dataUrg, qtdUrgencia: qtdUrg });
   });
   if (!detalhes.length) throw new Error('Os itens marcados não foram encontrados (recarregue a tela e tente de novo).');
 
@@ -455,7 +457,9 @@ function _urgenciaTingimentoHTML(detalhes, unidade, autor, dataFmt) {
   }
   var rows = detalhes.map(function (d) {
     return '<tr>' + td(_escHtmlEmail(d.item)) + td(_escHtmlEmail(d.descricao) || '—') +
-      td(_escHtmlEmail(d.cliente) || '—') + td(d.dataUrgencia ? _escHtmlEmail(d.dataUrgencia) : '—') + '</tr>';
+      td(_escHtmlEmail(d.cliente) || '—') +
+      td(Number(d.qtdUrgencia) > 0 ? (d.qtdUrgencia + ' kg') : '—') +
+      td(d.dataUrgencia ? _escHtmlEmail(d.dataUrgencia) : '—') + '</tr>';
   }).join('');
   return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
     '<table style="border-collapse:collapse;margin-bottom:14px"><tr>' +
@@ -467,9 +471,9 @@ function _urgenciaTingimentoHTML(detalhes, unidade, autor, dataFmt) {
           '</b> em ' + dataFmt + ' (horário de Fortaleza)</p></td>' +
     '</tr></table>' +
     '<p style="font-size:14px;margin:0 0 10px">Os itens abaixo são <b style="color:#B91C1C">prioridade</b> — ' +
-      'favor priorizar o tingimento/entrega:</p>' +
+      'favor priorizar o tingimento/entrega (a quantidade prioritária pode ser menor que o pedido total):</p>' +
     '<table style="border-collapse:collapse"><thead><tr>' +
-      ['Item', 'Descrição', 'Cliente', 'Prioridade para'].map(th).join('') +
+      ['Item', 'Descrição', 'Cliente', 'Prioridade (kg)', 'Prioridade para'].map(th).join('') +
     '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
