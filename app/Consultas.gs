@@ -78,10 +78,20 @@ function obterRelatorioCompraAtual(token) {
   // dia ele deve chegar na filial, pelos dias de recebimento configurados da
   // unidade (ver `_previsaoChegada`/`obterConfigChegada`, em Embarque.gs).
   var cfgChegada = _configChegadaUnidade();
-  var emViagem = _embarqueEmViagemPorItem();
+  var emViagem = _embarquesEmViagemPorItem();
   var linhas = regs.map(function (r) {
-    var viagem = emViagem[_norm(r.ITEM)];
-    var previsao = viagem ? _previsaoChegada(viagem.data, cfgChegada.dias, cfgChegada.prazoDias) : null;
+    // Uma entrada por remessa a caminho (cada uma com sua data e quantidade).
+    // Remessa parcial já recebida não aparece — ver `_embarquesEmViagemPorItem`.
+    var remessas = (emViagem[_norm(r.ITEM)] || []).map(function (v) {
+      var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
+      return {
+        numero: v.numero,
+        quantidade: v.quantidade,
+        dataEmbarque: v.data ? _soData(v.data) : '',
+        previsaoChegada: p ? _soData(p) : ''
+      };
+    });
+    var totalViagem = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
     return {
       linha: r.__row,
       dataSolicitado: _soData(r.GERADO_EM),
@@ -93,11 +103,9 @@ function obterRelatorioCompraAtual(token) {
       dataLimite: _soData(r.DATA_LIMITE),
       obs: r.OBS == null ? '' : String(r.OBS),
       saldoCritico: _saldoCritico(r),
-      // Só existe quando há embarque em viagem daquele item.
-      emViagemQtd: viagem ? viagem.quantidade : 0,
-      embarqueNumero: viagem ? viagem.numero : '',
-      dataEmbarque: (viagem && viagem.data) ? _soData(viagem.data) : '',
-      previsaoChegada: previsao ? _soData(previsao) : ''
+      // Vazio quando não há nada a caminho (nem embarque, ou o parcial já chegou).
+      remessas: remessas,
+      emViagemQtd: totalViagem
     };
   });
   return {

@@ -3193,16 +3193,19 @@ function renderRelatorio() {
     return;
   }
   var body = linhas.map(function (l) {
-    // Previsão só existe pra item com embarque a caminho; mostra o nº do
-    // embarque e os kg em viagem no title, pra dar contexto sem poluir.
+    // Uma linha por remessa a caminho: cada relatório de embarque pendente
+    // mostra a SUA previsão e os kg daquela remessa. Parcial já recebido não
+    // aparece (fica sem data até vir o saldo em outro relatório).
     var prevCel = '—';
-    if (l.previsaoChegada) {
-      prevCel = '<span title="Embarque ' + escAttr(l.embarqueNumero) + ' de ' + escAttr(l.dataEmbarque) +
-        ' · ' + num(l.emViagemQtd) + ' kg em viagem" style="color:#0B4576;font-weight:600">' +
-        l.previsaoChegada + '</span>';
-    } else if (l.emViagemQtd) {
-      prevCel = '<span class="sem-desc" title="Há ' + num(l.emViagemQtd) +
-        ' kg em viagem, mas falta configurar os dias de recebimento (ou a data do embarque)">a definir</span>';
+    var remessas = l.remessas || [];
+    if (remessas.length) {
+      prevCel = remessas.map(function (v) {
+        var dado = v.previsaoChegada
+          ? '<b style="color:#0B4576">' + v.previsaoChegada + '</b>'
+          : '<span class="sem-desc">a definir</span>';
+        return '<div title="Embarque ' + escAttr(v.numero) + ' de ' + escAttr(v.dataEmbarque || '—') + '">' +
+          dado + ' <span style="color:#64748b">· ' + num(v.quantidade) + ' kg</span></div>';
+      }).join('');
     }
     return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + '>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
