@@ -852,31 +852,40 @@ var pedidoInfo = { numero: null, data: null };
 var estadoTingimento = { linhas: [] };
 
 function viewTingimento(alvo) {
+  // Master/Tingimento editam (obs, data, e-mail do Pedido de Fio). Programação
+  // só VÊ — mas pode marcar Prioridade e disparar a urgência (master também).
+  var editavelTing = podeEditar(['master', 'tingimento']);
+  var priorizar = podeEditar(['master', 'programacao']);
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Relação de compra / Tingimento</h2>' +
       '<p class="desc no-print">Itens enviados para tingir (gerados na Análise de Compra), ' +
-      'ordenados pela <b>data limite de embarque</b> mais próxima. Ao alterar uma data, a lista ' +
-      'se reordena sozinha. O número do pedido só avança depois que o e-mail é enviado.</p>' +
+      'ordenados pela <b>data limite de embarque</b> mais próxima.' +
+      (editavelTing ? ' Ao alterar uma data, a lista se reordena sozinha. O número do pedido só avança depois que o e-mail é enviado.' : '') +
+      (priorizar ? ' Marque <b>Prioridade</b> (à direita) e clique em <b>Enviar urgência</b> para avisar os contatos e registrar na observação — sem mudar a data limite original.' : '') +
+      '</p>' +
       '<div class="linha-form no-print">' +
-        '<div class="campo" style="max-width:150px">' +
-          '<label for="in-numero-pedido">Nº do pedido</label>' +
-          '<div style="display:flex;gap:6px;align-items:center">' +
-            '<input type="number" id="in-numero-pedido" min="1" step="1" ' +
-              'title="Editável — ajuste na mão se precisar. O próximo número, depois do envio, ' +
-              'passa a seguir a partir do que estiver aqui.">' +
-            '<button type="button" class="btn-atualizar-data" id="btn-atualizar-numero" ' +
-              'title="Buscar de novo o número salvo no servidor (descarta o que foi digitado aqui)">↻</button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="campo" style="flex:1;min-width:260px">' +
-          '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
-          '<input type="text" id="emails-compra" placeholder="fulano@empresa.com; ciclano@empresa.com">' +
-        '</div>' +
-        '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>' +
+        (editavelTing
+          ? '<div class="campo" style="max-width:150px">' +
+              '<label for="in-numero-pedido">Nº do pedido</label>' +
+              '<div style="display:flex;gap:6px;align-items:center">' +
+                '<input type="number" id="in-numero-pedido" min="1" step="1" ' +
+                  'title="Editável — ajuste na mão se precisar. O próximo número, depois do envio, ' +
+                  'passa a seguir a partir do que estiver aqui.">' +
+                '<button type="button" class="btn-atualizar-data" id="btn-atualizar-numero" ' +
+                  'title="Buscar de novo o número salvo no servidor (descarta o que foi digitado aqui)">↻</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="campo" style="flex:1;min-width:260px">' +
+              '<label for="emails-compra">E-mails para envio (separe por ;)</label>' +
+              '<input type="text" id="emails-compra" placeholder="fulano@empresa.com; ciclano@empresa.com">' +
+            '</div>' +
+            '<button class="btn-principal" id="btn-salvar-emails">Salvar e-mails</button>'
+          : '') +
         '<button class="btn-principal" id="btn-reordenar">Reordenar por data limite</button>' +
         '<button class="btn-principal" id="btn-imprimir">Imprimir</button>' +
-        '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>' +
+        (editavelTing ? '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>' : '') +
+        (priorizar ? '<button class="btn-principal" id="btn-enviar-urgencia" style="background:#B91C1C">Enviar urgência</button>' : '') +
       '</div>' +
       '<div id="ting-msg"></div>' +
       '<div class="cabecalho-relatorio so-print">' +
@@ -893,25 +902,28 @@ function viewTingimento(alvo) {
     '</section>';
 
   document.getElementById('btn-imprimir').onclick = imprimirRelatorioTingimento;
-  document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
-  document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
-  document.getElementById('btn-atualizar-numero').onclick = carregarNumeroPedido;
-  document.getElementById('in-numero-pedido').addEventListener('input', function () {
-    var n = parseInt(this.value, 10);
-    pedidoInfo.numero = (this.value !== '' && !isNaN(n)) ? n : null;
-    var elNum = document.getElementById('rel-numero');
-    if (elNum) elNum.textContent = pedidoInfo.numero != null ? pedidoInfo.numero : '—';
-  });
   document.getElementById('btn-reordenar').onclick = function () {
     estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
     renderTingimento(estadoTingimento.linhas);
   };
-
-  chamar('obterDestinatarios', sessao.token)
-    .then(function (r) { document.getElementById('emails-compra').value = r.emails || ''; })
-    .catch(function () {});
-
-  carregarNumeroPedido();
+  if (editavelTing) {
+    document.getElementById('btn-salvar-emails').onclick = salvarEmailsCompra;
+    document.getElementById('btn-enviar-email').onclick = enviarEmailCompra;
+    document.getElementById('btn-atualizar-numero').onclick = carregarNumeroPedido;
+    document.getElementById('in-numero-pedido').addEventListener('input', function () {
+      var n = parseInt(this.value, 10);
+      pedidoInfo.numero = (this.value !== '' && !isNaN(n)) ? n : null;
+      var elNum = document.getElementById('rel-numero');
+      if (elNum) elNum.textContent = pedidoInfo.numero != null ? pedidoInfo.numero : '—';
+    });
+    chamar('obterDestinatarios', sessao.token)
+      .then(function (r) { document.getElementById('emails-compra').value = r.emails || ''; })
+      .catch(function () {});
+    carregarNumeroPedido();
+  }
+  if (priorizar) {
+    document.getElementById('btn-enviar-urgencia').onclick = enviarUrgenciaSelecionada;
+  }
 
   var msg = document.getElementById('ting-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
@@ -1002,23 +1014,41 @@ function renderTingimento(linhas) {
   }
   var temCritico = linhas.some(function (l) { return l.saldoCritico; });
   if (legenda) legenda.style.display = temCritico ? '' : 'none';
+  var editavelTing = podeEditar(['master', 'tingimento']);
+  var priorizar = podeEditar(['master', 'programacao']);
 
   var body = linhas.map(function (l) {
-    return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + '>' +
+    var dataCel = editavelTing
+      ? '<input type="date" class="data-input" data-linha="' + l.linha + '" value="' + brParaISO(l.dataLimite) + '">'
+      : (l.dataLimite || '—');
+    var obsCel = editavelTing
+      ? '<input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) + '" placeholder="anotação…">'
+      : (l.obs ? escAttr(l.obs) : '—');
+    var prioridadeCel = '';
+    if (priorizar) {
+      prioridadeCel = '<td class="no-print" style="text-align:center;white-space:nowrap">' +
+        '<input type="checkbox" class="chk-prioridade" data-linha="' + l.linha + '"' + (l.prioridade ? ' checked' : '') + '>' +
+        (l.prioridade && l.dataUrgencia
+          ? '<div style="font-size:11px;color:#B91C1C">p/ ' + escAttr(l.dataUrgencia) + '</div>'
+          : '') +
+      '</td>';
+    }
+    return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + (l.prioridade ? ' style="box-shadow:inset 4px 0 0 0 #B91C1C"' : '') + '>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td>' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
-      '<td><input type="date" class="data-input" data-linha="' + l.linha + '" value="' +
-        brParaISO(l.dataLimite) + '"></td>' +
-      '<td><input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) +
-        '" placeholder="anotação…"></td>' +
-      '<td class="no-print" style="text-align:center">' +
-        '<button type="button" class="btn-remover-linha" data-linha="' + l.linha + '" ' +
-          'title="Remover este item da lista pendente (sem receber embarque — resíduo que não vale mais esperar)">✕</button>' +
-      '</td>' +
+      '<td>' + dataCel + '</td>' +
+      '<td>' + obsCel + '</td>' +
+      (editavelTing
+        ? '<td class="no-print" style="text-align:center">' +
+            '<button type="button" class="btn-remover-linha" data-linha="' + l.linha + '" ' +
+              'title="Remover este item da lista pendente (sem receber embarque — resíduo que não vale mais esperar)">✕</button>' +
+          '</td>'
+        : '') +
+      prioridadeCel +
     '</tr>';
   }).join('');
   wrap.innerHTML =
@@ -1028,28 +1058,118 @@ function renderTingimento(linhas) {
       '<th style="width:13%">Cliente</th><th style="width:11%">Máquinas</th>' +
       '<th style="text-align:right;width:7%">Total (kg)</th>' +
       '<th style="width:13%">Data limite embarque</th><th style="width:14%">Observação</th>' +
-      '<th class="no-print" style="width:4%"></th>' +
+      (editavelTing ? '<th class="no-print" style="width:4%"></th>' : '') +
+      (priorizar ? '<th class="no-print" style="width:6%">Prioridade</th>' : '') +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
-  Array.prototype.forEach.call(wrap.querySelectorAll('.obs-input'), function (inp) {
-    inp.addEventListener('change', function () { salvarCampoTing(inp, 'OBS', inp.value); });
-  });
-  Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
-    inp.addEventListener('change', function () {
-      var linha = Number(inp.getAttribute('data-linha'));
-      var novaData = isoParaBR(inp.value);
-      salvarCampoTing(inp, 'DATA_LIMITE', novaData, function () {
-        var alvo = null;
-        estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
-        if (alvo) alvo.dataLimite = novaData;
-        estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
-        renderTingimento(estadoTingimento.linhas);
+  if (editavelTing) {
+    Array.prototype.forEach.call(wrap.querySelectorAll('.obs-input'), function (inp) {
+      inp.addEventListener('change', function () { salvarCampoTing(inp, 'OBS', inp.value); });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
+      inp.addEventListener('change', function () {
+        var linha = Number(inp.getAttribute('data-linha'));
+        var novaData = isoParaBR(inp.value);
+        salvarCampoTing(inp, 'DATA_LIMITE', novaData, function () {
+          var alvo = null;
+          estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
+          if (alvo) alvo.dataLimite = novaData;
+          estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
+          renderTingimento(estadoTingimento.linhas);
+        });
       });
     });
-  });
-  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-remover-linha'), function (btn) {
-    btn.addEventListener('click', function () { removerLinhaTingimento(btn); });
-  });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.btn-remover-linha'), function (btn) {
+      btn.addEventListener('click', function () { removerLinhaTingimento(btn); });
+    });
+  }
+  if (priorizar) {
+    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-prioridade'), function (chk) {
+      chk.addEventListener('change', function () {
+        var linha = Number(chk.getAttribute('data-linha'));
+        var alvo = null;
+        estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
+        if (!alvo) return;
+        if (chk.checked) {
+          abrirModalDataUrgencia(alvo.item, function (confirmado, dataBR) {
+            if (!confirmado) { alvo.prioridade = false; alvo.dataUrgencia = ''; }
+            else { alvo.prioridade = true; alvo.dataUrgencia = dataBR || ''; }
+            renderTingimento(estadoTingimento.linhas);
+          });
+        } else {
+          alvo.prioridade = false; alvo.dataUrgencia = '';
+          renderTingimento(estadoTingimento.linhas);
+        }
+      });
+    });
+  }
+}
+
+/** Janela que pergunta (opcional) a data desejada da urgência ao marcar
+ * prioridade. callback(confirmado, dataBR). Cancelar → desmarca. */
+function abrirModalDataUrgencia(item, callback) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:24px 26px 20px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
+      '<h3 style="margin:0 0 8px;color:#B91C1C;font-size:17px">Marcar como urgente</h3>' +
+      '<p style="margin:0 0 14px;color:#475569;font-size:14px;line-height:1.5">Item <b>' + escAttr(item) + '</b>. ' +
+        'Quer indicar uma <b>data</b> para essa urgência? (opcional — não muda a data limite original)</p>' +
+      '<input type="date" id="modal-urg-data" style="width:100%;box-sizing:border-box;padding:9px 11px;' +
+        'border:1px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:16px">' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+        '<button id="modal-btn-secundario" style="padding:10px 16px;border:1px solid #D8E0E8;border-radius:8px;background:#fff;cursor:pointer;font-size:14px">Cancelar</button>' +
+        '<button id="modal-btn-destaque" style="padding:10px 18px;border:none;border-radius:8px;background:#B91C1C;color:#fff;cursor:pointer;font-size:14px;font-weight:600">Marcar urgente</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  function fechar() { if (overlay.parentNode) document.body.removeChild(overlay); }
+  overlay.querySelector('#modal-btn-destaque').onclick = function () {
+    var dataBR = isoParaBR(overlay.querySelector('#modal-urg-data').value);
+    fechar(); callback(true, dataBR);
+  };
+  overlay.querySelector('#modal-btn-secundario').onclick = function () { fechar(); callback(false, ''); };
+  overlay.querySelector('#modal-urg-data').focus();
+}
+
+/** Coleta os itens marcados como prioridade e dispara a urgência (e-mail + obs). */
+function enviarUrgenciaSelecionada() {
+  var msg = document.getElementById('ting-msg');
+  var marcados = estadoTingimento.linhas.filter(function (l) { return l.prioridade; });
+  if (!marcados.length) {
+    msg.innerHTML = '<div class="aviso erro">Marque ao menos um item na coluna Prioridade.</div>';
+    return;
+  }
+  confirmarModal(
+    'Enviar urgência?',
+    'Isso vai avisar os contatos que <b>' + marcados.length + ' item(ns)</b> são urgentes e registrar ' +
+    '"URGENTE" na observação de cada um (somando ao que já houver). A data limite original não muda.',
+    'Enviar urgência', 'Cancelar',
+    function (ok) {
+      if (!ok) return;
+      var btn = document.getElementById('btn-enviar-urgencia');
+      if (btn) btn.disabled = true;
+      msg.innerHTML = '<div class="aviso"><span class="carregando">Enviando urgência…</span></div>';
+      var itens = marcados.map(function (l) { return { linha: l.linha, dataUrgencia: l.dataUrgencia || '' }; });
+      chamar('enviarUrgenciaTingimento', sessao.token, { itens: itens })
+        .then(function (r) {
+          if (btn) btn.disabled = false;
+          msg.innerHTML = '<div class="aviso ok">Urgência enviada para ' + r.destinatarios +
+            ' destinatário(s) — ' + r.marcados + ' item(ns) marcado(s) na observação.</div>';
+          // recarrega pra mostrar a observação atualizada e limpar as marcações
+          chamar('obterListaTingimento', sessao.token).then(function (rr) {
+            estadoTingimento.linhas = rr.linhas || [];
+            renderTingimento(estadoTingimento.linhas);
+          }).catch(function () {});
+        })
+        .catch(function (err) {
+          if (btn) btn.disabled = false;
+          var m = tratarErro(err);
+          if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+        });
+    }
+  );
 }
 
 /** Remove uma linha da lista pendente (PENDENCIA_COMPRA), com confirmação —

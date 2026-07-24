@@ -45,7 +45,7 @@ function _saldoCritico(r) {
  * ao papel tingimento.
  */
 function obterListaTingimento(token) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.PROGRAMACAO]);
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   var linhas = regs.map(function (r) {
     return {
@@ -362,6 +362,84 @@ function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
     '<table style="border-collapse:collapse;width:100%;table-layout:auto">' +
     '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p style="color:#64748b;font-size:9px;margin-top:8px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+}
+
+/**
+ * Marca itens como PRIORIDADE/URGENTE: grava a marcação na OBSERVAÇÃO de cada
+ * item (somando ao que já houver, sem apagar) e dispara UM e-mail curto aos
+ * mesmos destinatários da compra, listando os itens urgentes e a data desejada
+ * (quando informada — NÃO altera a data limite original, é só pra sinalizar).
+ * Usado pelo papel Programação e pelo master (botão dedicado "Enviar urgência"
+ * na tela de Tingimento).
+ * @param {Object} params { itens: [{linha, dataUrgencia}] }
+ */
+function enviarUrgenciaTingimento(token, params) {
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
+  params = params || {};
+  var marcados = (params.itens || []).filter(function (it) { return it && it.linha; });
+  if (!marcados.length) throw new Error('Marque ao menos um item como prioridade antes de enviar.');
+
+  var lista = _destinatariosCompra().split(/[;,]/)
+    .map(function (e) { return e.trim(); })
+    .filter(function (e) { return e && e.indexOf('@') !== -1; });
+  if (!lista.length) {
+    throw new Error('Não há e-mails de destino configurados (mesma lista da tela de Tingimento).');
+  }
+
+  var porLinha = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) { porLinha[r.__row] = r; });
+
+  var detalhes = [];
+  marcados.forEach(function (it) {
+    var r = porLinha[it.linha];
+    if (!r) return;
+    var dataUrg = String(it.dataUrgencia == null ? '' : it.dataUrgencia).trim();
+    var nota = 'URGENTE' + (dataUrg ? ' (prioridade para ' + dataUrg + ')' : '');
+    var obsAtual = String(r.OBS == null ? '' : r.OBS).trim();
+    var novaObs = obsAtual ? (obsAtual + ' | ' + nota) : nota;
+    atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, it.linha, 'OBS', novaObs);
+    detalhes.push({ item: r.ITEM, descricao: r.DESCRICAO, cliente: r.CLIENTE, dataUrgencia: dataUrg });
+  });
+  if (!detalhes.length) throw new Error('Os itens marcados não foram encontrados (recarregue a tela e tente de novo).');
+
+  var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
+  var dataFmt = Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm');
+  MailApp.sendEmail({
+    to: lista.join(','),
+    subject: 'URGENTE · Prioridade de tingimento ' + unidade + ' — ' + detalhes.length + ' item(ns)',
+    htmlBody: _urgenciaTingimentoHTML(detalhes, unidade, s.usuario, dataFmt)
+  });
+  return { ok: true, marcados: detalhes.length, destinatarios: lista.length };
+}
+
+/** HTML do e-mail de urgência (ver `enviarUrgenciaTingimento`). */
+function _urgenciaTingimentoHTML(detalhes, unidade, autor, dataFmt) {
+  function th(t) {
+    return '<th style="border:1px solid #cbd5e1;padding:7px 9px;background:#B91C1C;' +
+      'color:#fff;text-align:left;font-size:13px">' + t + '</th>';
+  }
+  function td(v) {
+    return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
+  }
+  var rows = detalhes.map(function (d) {
+    return '<tr>' + td(_escHtmlEmail(d.item)) + td(_escHtmlEmail(d.descricao) || '—') +
+      td(_escHtmlEmail(d.cliente) || '—') + td(d.dataUrgencia ? _escHtmlEmail(d.dataUrgencia) : '—') + '</tr>';
+  }).join('');
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
+    '<table style="border-collapse:collapse;margin-bottom:14px"><tr>' +
+      '<td style="padding:0 14px 0 0;vertical-align:middle">' +
+        '<img src="' + CONFIG.LOGO_URL + '" alt="Marfim" style="height:48px;width:auto;display:block"></td>' +
+      '<td style="vertical-align:middle">' +
+        '<h1 style="color:#B91C1C;margin:0 0 4px;font-size:20px">TINGIMENTO URGENTE — ' + unidade + '</h1>' +
+        '<p style="margin:0;font-size:13px;color:#334155">Solicitado por <b>' + _escHtmlEmail(autor) +
+          '</b> em ' + dataFmt + ' (horário de Fortaleza)</p></td>' +
+    '</tr></table>' +
+    '<p style="font-size:14px;margin:0 0 10px">Os itens abaixo são <b style="color:#B91C1C">prioridade</b> — ' +
+      'favor priorizar o tingimento/entrega:</p>' +
+    '<table style="border-collapse:collapse"><thead><tr>' +
+      ['Item', 'Descrição', 'Cliente', 'Prioridade para'].map(th).join('') +
+    '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 
 /** Campos editáveis no painel de tingimento. */
