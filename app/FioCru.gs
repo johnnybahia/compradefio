@@ -441,7 +441,8 @@ function obterListaFioParaTingir(token) {
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
       tingido: tingidoPorItem[_norm(r.ITEM)] || 0,
-      dataSolicitado: _soData(r.GERADO_EM)
+      dataSolicitado: _soData(r.GERADO_EM),
+      volumes: (r.VOLUMES === '' || r.VOLUMES == null) ? '' : r.VOLUMES
     };
   });
   return {

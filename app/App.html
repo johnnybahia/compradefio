@@ -120,7 +120,6 @@ var MENUS = {
   // lançar quanto foi feito); em Confirmar Embarque só pode VER (a confirmação
   // final é decisão de logística/almoxarifado, não do chão de tingimento).
   tingimento: [
-    { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
     { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
@@ -1503,7 +1502,8 @@ function carregarListaConfirmarEmbarque() {
           tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
           dataSolicitado: l.dataSolicitado || '',
           quantidade: l.tingido ? String(l.tingido) : '', selecionado: false,
-          doEstoque: false, obs: ''
+          doEstoque: false, obs: '',
+          volumes: (l.volumes === '' || l.volumes == null) ? '' : l.volumes
         };
         // "Completo" já vem marcado quando o tingido bateu o alvo — o usuário
         // só digita observação nos casos parciais (pode desmarcar se quiser).
@@ -1560,6 +1560,12 @@ function renderConfirmarEmbarque() {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total ? num(l.total) : '—') + '</td>' +
+      // Volumes: informado no tingimento, corrigível aqui pelo almoxarifado 1.
+      '<td style="text-align:center">' + (editavel
+        ? '<input type="number" class="vol-input" data-linha="' + l.linha + '" data-idx="' + i + '" ' +
+          'min="0" step="any" value="' + escAttr(l.volumes) + '" placeholder="vol." ' +
+          'style="width:60px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">'
+        : (l.volumes !== '' && l.volumes != null ? l.volumes : '—')) + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg</td>' +
       '<td>' + (editavel
         ? '<input type="number" class="qtd-embarcar-input" data-idx="' + i + '" min="0" step="any" value="' +
@@ -1590,6 +1596,7 @@ function renderConfirmarEmbarque() {
       '<th style="width:8%">Item</th><th style="width:' + (editavel ? '11' : '13') + '%">Descrição</th>' +
       '<th style="width:8%">Cliente</th><th style="width:8%">Tipo de fio</th>' +
       '<th style="text-align:right;width:5%">Alvo</th>' +
+      '<th style="text-align:center;width:5%">Volumes</th>' +
       '<th style="text-align:right;width:7%">Já tingido</th><th style="width:10%">Quantidade a confirmar</th>' +
       '<th style="width:' + (editavel
         ? '11%">Situação</th><th style="width:16%">Observação (e-mail)</th><th style="width:5%">Do estoque'
@@ -1606,6 +1613,9 @@ function renderConfirmarEmbarque() {
       chk.addEventListener('change', function () {
         estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].doEstoque = chk.checked;
       });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.vol-input'), function (inp) {
+      inp.addEventListener('change', function () { salvarVolumes(inp); });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-obs-completo'), function (chk) {
       chk.addEventListener('change', function () {
@@ -1664,6 +1674,7 @@ function confirmarEmbarqueSelecionado() {
       var itens = selecionados.map(function (l) {
         return {
           item: l.item, quantidade: Number(l.quantidade), doEstoque: !!l.doEstoque,
+          volumes: l.volumes,
           // "Completo" marcado dispensa digitação; senão vai o texto digitado.
           obs: l.completo ? 'COMPLETO' : String(l.obs || '').trim()
         };
@@ -1785,6 +1796,31 @@ function carregarQuantidadeTingida() {
     });
 }
 
+/** Salva o nº de volumes de um item (usado na Quantidade Tingida e na
+ * Confirmar Embarque — as duas telas gravam no mesmo campo da lista pendente,
+ * então o almoxarifado 1 corrige o que o tingimento informou errado). */
+function salvarVolumes(inp) {
+  var linha = Number(inp.getAttribute('data-linha'));
+  if (!linha) return;
+  inp.disabled = true;
+  chamar('salvarVolumesItem', sessao.token, linha, inp.value)
+    .then(function (r) {
+      inp.disabled = false;
+      inp.style.borderColor = '#1E8E5A'; // confirma visualmente que salvou
+      setTimeout(function () { inp.style.borderColor = '#cbd5e1'; }, 900);
+      // mantém o estado local em sincronia (as duas telas usam `volumes`)
+      var alvo = null;
+      (estadoQuantidadeTingida.linhas || []).forEach(function (l) { if (l.linha === linha) alvo = l; });
+      (estadoConfirmarEmbarque.linhas || []).forEach(function (l) { if (l.linha === linha) alvo = l; });
+      if (alvo) alvo.volumes = r.volumes;
+    })
+    .catch(function (err) {
+      inp.disabled = false;
+      inp.style.borderColor = '#D0342C';
+      tratarErro(err);
+    });
+}
+
 function renderQuantidadeTingida() {
   var wrap = document.getElementById('tabela-qtd-tingida');
   var linhas = estadoQuantidadeTingida.linhas;
@@ -1804,6 +1840,13 @@ function renderQuantidadeTingida() {
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      // Volumes (caixas): o tingimento informa aqui; o almox 1 pode corrigir na
+      // tela Confirmar Embarque. Vai pro embarque, pro Relatório e pro PDF.
+      '<td style="text-align:center">' + (editavel
+        ? '<input type="number" class="vol-input" data-linha="' + l.linha + '" data-idx="' + i + '" ' +
+          'min="0" step="any" value="' + escAttr(l.volumes) + '" placeholder="vol." ' +
+          'style="width:64px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">'
+        : (l.volumes !== '' && l.volumes != null ? l.volumes : '—')) + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg ' +
         (editavel
           ? '<button type="button" class="btn-atualizar-data btn-corrigir-tingido" data-idx="' + i +
@@ -1826,12 +1869,16 @@ function renderQuantidadeTingida() {
       '<th style="width:8%">Solicitado em</th>' +
       '<th style="width:9%">Item</th><th style="width:18%">Descrição</th>' +
       '<th style="width:10%">Cliente</th><th style="width:10%">Tipo de fio</th>' +
-      '<th style="width:8%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
-      '<th style="text-align:right;width:9%">Já tingido</th>' +
-      (editavel ? '<th style="width:11%">+ kg agora</th><th style="width:6%">Confirmar</th>' : '') +
+      '<th style="width:7%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
+      '<th style="text-align:center;width:6%">Volumes</th>' +
+      '<th style="text-align:right;width:8%">Já tingido</th>' +
+      (editavel ? '<th style="width:10%">+ kg agora</th><th style="width:6%">Confirmar</th>' : '') +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   if (editavel) {
+    Array.prototype.forEach.call(wrap.querySelectorAll('.vol-input'), function (inp) {
+      inp.addEventListener('change', function () { salvarVolumes(inp); });
+    });
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-confirmar-tingido'), function (chk) {
       chk.addEventListener('change', function () {
         if (!chk.checked) return; // a caixa só dispara a ação ao marcar
@@ -3271,6 +3318,7 @@ function renderRelatorio() {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td style="text-align:center">' + (l.volumes !== '' && l.volumes != null ? l.volumes : '—') + '</td>' +
       '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
       '<td>' + prevCel + '</td>' +
       '<td>' + (l.obs ? l.obs : '—') + '</td>' +
@@ -3278,11 +3326,12 @@ function renderRelatorio() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:8%">Solicitado em</th><th style="width:9%">Item</th>' +
-      '<th style="width:20%">Descrição</th><th style="width:12%">Cliente</th>' +
-      '<th style="width:11%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
+      '<th style="width:7%">Solicitado em</th><th style="width:9%">Item</th>' +
+      '<th style="width:19%">Descrição</th><th style="width:11%">Cliente</th>' +
+      '<th style="width:10%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
+      '<th style="text-align:center;width:5%">Volumes</th>' +
       '<th style="width:9%">Data limite</th><th style="width:10%">Previsão de chegada</th>' +
-      '<th style="width:14%">Observação</th>' +
+      '<th style="width:13%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   aplicarRegua(wrap);
 }

@@ -310,7 +310,26 @@ function analisarEmbarquePdf(token, base64, nome) {
   };
 }
 
-var EMBARQUES_HEADERS = ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO'];
+var EMBARQUES_HEADERS = ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO', 'VOLUMES'];
+
+/**
+ * Garante que a aba EMBARQUES tem todas as colunas do cabeçalho atual —
+ * acrescenta no fim as que faltarem (ex.: VOLUMES), sem apagar nada. Mesmo
+ * padrão de `_prepararFioCruEntradas`.
+ */
+function _prepararEmbarques() {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES, EMBARQUES_HEADERS);
+  var largura = sh.getLastColumn();
+  var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+  EMBARQUES_HEADERS.forEach(function (h) {
+    if (atuais.indexOf(h) === -1) {
+      atuais.push(h);
+      sh.getRange(1, atuais.length).setValue(h)
+        .setFontWeight('bold').setBackground('#0F5FA0').setFontColor('#FFFFFF');
+    }
+  });
+  return sh;
+}
 
 /**
  * Núcleo comum a QUALQUER confirmação de embarque: grava as linhas em
@@ -325,9 +344,13 @@ var EMBARQUES_HEADERS = ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO'];
  * @return {Object} { gravados, baixados }
  */
 function _registrarEmbarqueEDarBaixa(itens, doc, data, usuario, lotesCru) {
-  var sh = _aba(CONFIG.SHEETS.EMBARQUES, EMBARQUES_HEADERS);
+  var sh = _prepararEmbarques();
   var linhas = itens.map(function (it) {
-    return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, ''];
+    // VOLUMES vem da lista pendente (informado no tingimento e corrigível na
+    // confirmação) — fica registrado no embarque pra não se perder quando o
+    // item sair da pendência.
+    var vol = (it.volumes === '' || it.volumes == null) ? '' : (Number(it.volumes) || 0);
+    return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, '', vol];
   });
   var inicio = sh.getLastRow() + 1;
   // Coluna CORES (item) como TEXTO PURO: senão o Sheets converte códigos como
@@ -378,6 +401,22 @@ function gravarEmbarque(token, dados) {
   var aprendizado = _salvarMapaEmbarque(itens.map(function (it) {
     return { descricao: it.descricao, item: it.item };
   }));
+
+  // Leva os VOLUMES da lista pendente (informados no tingimento) pro registro
+  // do embarque — o PDF da transportadora não traz esse dado.
+  var volumesPorItem = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (k && volumesPorItem[k] == null && r.VOLUMES !== '' && r.VOLUMES != null) {
+      volumesPorItem[k] = Number(r.VOLUMES) || 0;
+    }
+  });
+  itens.forEach(function (it) {
+    if (it.volumes === '' || it.volumes == null) {
+      var v = volumesPorItem[_norm(it.item)];
+      if (v != null) it.volumes = v;
+    }
+  });
 
   var r = _registrarEmbarqueEDarBaixa(itens, doc, data, s.usuario);
   return {
@@ -471,7 +510,8 @@ function confirmarEmbarqueManual(token, params) {
     .map(function (it) {
       return {
         item: String(it.item).trim(), quantidade: Number(it.quantidade),
-        doEstoque: !!it.doEstoque, obs: String(it.obs == null ? '' : it.obs).trim()
+        doEstoque: !!it.doEstoque, obs: String(it.obs == null ? '' : it.obs).trim(),
+        volumes: (it.volumes === '' || it.volumes == null) ? '' : (Number(it.volumes) || 0)
       };
     });
   if (!itens.length) throw new Error('Marque ao menos um item, com quantidade, para confirmar o embarque.');
@@ -523,7 +563,9 @@ function confirmarEmbarqueManual(token, params) {
     if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, totalEstoque: 0, itens: [], lotes: [] };
     porTipo[chaveTipo].totalTingido += it.quantidade - qtdEstoque;
     porTipo[chaveTipo].totalEstoque += qtdEstoque;
-    porTipo[chaveTipo].itens.push({ item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque, obs: it.obs });
+    porTipo[chaveTipo].itens.push({
+      item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque, obs: it.obs, volumes: it.volumes
+    });
     lotes.forEach(function (l) {
       porTipo[chaveTipo].lotes.push({
         item: it.item, nf: l.nf, fornecedor: l.fornecedor || '',
@@ -624,7 +666,7 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
   function th(t) { return '<th style="' + thStyle + '">' + t + '</th>'; }
   function td(v) { return '<td style="' + tdStyle + '">' + v + '</td>'; }
 
-  var thItens = ['Item', 'Quantidade (kg)', 'Mão de obra (R$)', 'Observação'].map(th).join('');
+  var thItens = ['Item', 'Volumes', 'Quantidade (kg)', 'Mão de obra (R$)', 'Observação'].map(th).join('');
   var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)']
     .map(th).join('');
   var rotuloFonte = Math.max(d.fonte - 1, 8);
@@ -639,8 +681,9 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
         ? it.quantidade + ' <span style="color:#64748b">(' + qtdEstoque + ' do estoque, sem consumo de crú)</span>'
         : String(it.quantidade);
       var obsCel = it.obs ? _escHtmlEmail(it.obs) : '—';
+      var volCel = (it.volumes === '' || it.volumes == null) ? '—' : String(it.volumes);
       // Mão de obra só sobre o que passou pelo tingimento.
-      return '<tr>' + td(it.item) + td(qtdCel) +
+      return '<tr>' + td(it.item) + td(volCel) + td(qtdCel) +
         td(_moedaBR((it.quantidade - qtdEstoque) * custoMaoObra)) + td(obsCel) + '</tr>';
     }).join('');
 
@@ -1265,6 +1308,7 @@ function _embarquesEmViagemPorItem() {
   var iEmb = header.indexOf('embarque'); if (iEmb < 0) iEmb = 2;
   var iData = header.indexOf('data'); if (iData < 0) iData = 3;
   var iSit = header.indexOf('situacao'); if (iSit < 0) iSit = 4;
+  var iVol = header.indexOf('volumes'); // pode não existir em aba antiga
 
   var porItemEmb = {}; // item -> { nºembarque -> remessa }
   vals.forEach(function (row) {
@@ -1278,12 +1322,16 @@ function _embarquesEmViagemPorItem() {
     var atual = porItemEmb[chave][num];
     var qtd = parseFloat(row[iPeso]) || 0;
     var data = _parseData(row[iData]);
+    var vol = (iVol >= 0) ? (parseFloat(row[iVol]) || 0) : 0;
     if (!atual) {
       // `item` guarda o texto como está na aba EMBARQUES — usado pelo Relatório
       // pra montar a linha do item que já saiu da pendência mas não chegou.
-      porItemEmb[chave][num] = { item: String(item).trim(), numero: row[iEmb], data: data, quantidade: qtd };
+      porItemEmb[chave][num] = {
+        item: String(item).trim(), numero: row[iEmb], data: data, quantidade: qtd, volumes: vol
+      };
     } else {
       atual.quantidade += qtd;
+      atual.volumes += vol;
       if (data && !atual.data) atual.data = data;
     }
   });
