@@ -543,7 +543,9 @@ function confirmarEmbarqueManual(token, params) {
   // Itens marcados "do estoque" com quantidade acima do já tingido NÃO passam
   // pelo ajuste: a sobra sai do estoque de produto pronto (ver docstring).
   var tingidoAtualPorItem = _tingidoPorItem();
-  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, totalEstoque, itens:[{item,quantidade,qtdEstoque}], lotes:[{item,nf,fornecedor,dataNf,peso,saldoApos}] }
+  var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, totalEstoque, itens:[...], lotes:[...] }
+  var deltaLotes = []; // só o que ESTA confirmação baixou/creditou (pro estorno)
+  var itensPorTipo = {}; // chaveTipo -> [itens] (pra montar o consumo depois)
   itens.forEach(function (it) {
     var tipoFio = tipoFioPorItem[_norm(it.item)] || '';
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
@@ -551,14 +553,20 @@ function confirmarEmbarqueManual(token, params) {
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
     // senão não há sobra nenhuma pra tirar do estoque pronto.
     var qtdEstoque = (it.doEstoque && it.quantidade > jaTingido) ? (it.quantidade - jaTingido) : 0;
-    var lotes = [];
     if (qtdEstoque > 0) {
       // Não mexe no fio crú: o que já estava baixado (jaTingido) permanece
       // como o consumo do crú; a sobra é estoque pronto. Nenhuma linha nova
       // no razão de baixas.
     } else {
       var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
-      lotes = ajuste.lotes || [];
+      (ajuste.lotes || []).forEach(function (l) {
+        deltaLotes.push({
+          // tipo de fio REAL da linha de baixa (pode diferir do tipo do item por
+          // caso especial) — é o que o estorno precisa pra creditar na NF certa.
+          tipoFio: l.tipoFio || tipoFio, item: it.item, nf: l.nf,
+          dataNf: l.dataNf, peso: l.quantidadeBaixada
+        });
+      });
     }
     if (!porTipo[chaveTipo]) porTipo[chaveTipo] = { tipoFio: chaveTipo, totalTingido: 0, totalEstoque: 0, itens: [], lotes: [] };
     porTipo[chaveTipo].totalTingido += it.quantidade - qtdEstoque;
@@ -566,13 +574,21 @@ function confirmarEmbarqueManual(token, params) {
     porTipo[chaveTipo].itens.push({
       item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque, obs: it.obs, volumes: it.volumes
     });
-    lotes.forEach(function (l) {
-      porTipo[chaveTipo].lotes.push({
-        item: it.item, nf: l.nf, fornecedor: l.fornecedor || '',
-        dataNf: l.dataNf, peso: l.quantidadeBaixada, saldoApos: l.saldoApos,
-        // tipo de fio REAL da linha de baixa (pode diferir do tipo do item por
-        // caso especial/resolução) — é o que o estorno precisa pra creditar na NF certa.
-        tipoFioLote: l.tipoFio || tipoFio
+    if (!itensPorTipo[chaveTipo]) itensPorTipo[chaveTipo] = [];
+    itensPorTipo[chaveTipo].push(it.item);
+  });
+
+  // NFs consumidas pra o relatório: vêm do RAZÃO (depois dos ajustes acima),
+  // não da diferença desta confirmação — no caminho normal o consumo aconteceu
+  // ao lançar o tingimento, e a diferença aqui é zero (ver `_consumoCruPorItens`).
+  var consumoPorItem = _consumoCruPorItens(itens.map(function (it) { return it.item; }));
+  Object.keys(itensPorTipo).forEach(function (chaveTipo) {
+    itensPorTipo[chaveTipo].forEach(function (item) {
+      (consumoPorItem[_norm(item)] || []).forEach(function (c) {
+        porTipo[chaveTipo].lotes.push({
+          item: item, nf: c.nf, fornecedor: c.fornecedor || '',
+          dataNf: c.dataNf, peso: c.peso, saldoApos: c.saldoApos
+        });
       });
     });
   });
@@ -586,17 +602,11 @@ function confirmarEmbarqueManual(token, params) {
     };
   });
 
-  // Consumo de crú desta confirmação (achatado) pro instantâneo de estorno.
-  var lotesCru = [];
-  resumo.forEach(function (g) {
-    g.lotes.forEach(function (l) {
-      lotesCru.push({ tipoFio: l.tipoFioLote, item: l.item, nf: l.nf, dataNf: l.dataNf, peso: l.peso });
-    });
-  });
-
+  // Instantâneo de estorno leva SÓ o delta desta confirmação — cancelar não
+  // pode creditar de volta o consumo que veio do lançamento do tingimento.
   var numero = _numeroEmbarqueManualAtual();
   var agora = new Date();
-  var r = _registrarEmbarqueEDarBaixa(itens, numero, agora, s.usuario, lotesCru);
+  var r = _registrarEmbarqueEDarBaixa(itens, numero, agora, s.usuario, deltaLotes);
   _avancarNumeroEmbarqueManual(); // só agora — o registro já foi gravado
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
