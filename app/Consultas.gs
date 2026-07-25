@@ -103,6 +103,7 @@ function obterRelatorioCompraAtual(token) {
       dataLimite: _soData(r.DATA_LIMITE),
       obs: r.OBS == null ? '' : String(r.OBS),
       saldoCritico: _saldoCritico(r),
+      volumes: (r.VOLUMES === '' || r.VOLUMES == null) ? '' : r.VOLUMES,
       // Vazio quando não há nada a caminho (nem embarque, ou o parcial já chegou).
       remessas: remessas,
       emViagemQtd: totalViagem,
@@ -138,6 +139,8 @@ function obterRelatorioCompraAtual(token) {
         };
       });
       var total = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
+      // Volumes vêm registrados na própria aba EMBARQUES (o item já saiu da pendência).
+      var volTotal = lista.reduce(function (a, v) { return a + (Number(v.volumes) || 0); }, 0);
       linhas.push({
         linha: 0, // não é linha de PENDENCIA_COMPRA (nada a editar aqui)
         dataSolicitado: '',
@@ -149,6 +152,7 @@ function obterRelatorioCompraAtual(token) {
         dataLimite: localizarData(itemTxt) || '',
         obs: '',
         saldoCritico: false,
+        volumes: volTotal || '',
         remessas: remessas,
         emViagemQtd: total,
         status: 'embarcado'
@@ -563,6 +567,26 @@ function _urgenciaTingimentoHTML(detalhes, unidade, autor, dataFmt) {
       ['Item', 'Descrição', 'Cliente', 'Prioridade (kg)', 'Prioridade para'].map(th).join('') +
     '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+}
+
+/**
+ * Grava o nº de VOLUMES (caixas) de um item da lista pendente. Quem informa é
+ * o tingimento (tela Quantidade Tingida); o almoxarifado 1 pode corrigir na
+ * tela Confirmar Embarque, caso venha errado. Vazio limpa o campo.
+ */
+function salvarVolumesItem(token, linha, volumes) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.ALMOX1]);
+  linha = parseInt(linha, 10);
+  if (!linha) throw new Error('Linha inválida.');
+  var txt = String(volumes == null ? '' : volumes).trim();
+  var valor = '';
+  if (txt !== '') {
+    var n = parseFloat(txt.replace(',', '.'));
+    if (isNaN(n) || n < 0) throw new Error('Volumes inválido: informe um número (ou deixe vazio).');
+    valor = n;
+  }
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'VOLUMES', valor);
+  return { ok: true, volumes: valor };
 }
 
 /** Campos editáveis no painel de tingimento. */

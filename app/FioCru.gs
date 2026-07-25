@@ -415,6 +415,65 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
 }
 
 /**
+ * Consumo de fio crú POR ITEM, lido do razão de baixas (FIO_CRU_BAIXAS): quais
+ * NFs alimentaram o tingimento de cada item e quanto saiu de cada uma (líquido
+ * — correções negativas já descontadas), com o saldo ATUAL do lote.
+ *
+ * Existe porque o relatório de Confirmação de Embarque precisa mostrar as NFs
+ * consumidas mesmo quando a confirmação em si não gerou baixa nova — que é o
+ * caso NORMAL: o consumo acontece quando o tingimento é lançado (tela
+ * Quantidade Tingida), então confirmar a mesma quantidade dá diferença zero
+ * (ver `_ajustarBaixaFioCru`) e não haveria nada a listar.
+ *
+ * @param {Array} itens nomes dos itens de interesse
+ * @return {Object} normalizado(item) → [{ tipoFio, nf, fornecedor, dataNf, peso, saldoApos }]
+ */
+function _consumoCruPorItens(itens) {
+  var querido = {};
+  (itens || []).forEach(function (it) {
+    var k = _norm(typeof it === 'string' ? it : it.item);
+    if (k) querido[k] = true;
+  });
+  var res = {};
+  if (!Object.keys(querido).length) return res;
+
+  var porChaveLote = {}; // saldo atual + fornecedor de cada lote
+  _saldosFioCru().forEach(function (l) { porChaveLote[l.chave] = l; });
+
+  var acum = {}; // item -> chaveLote -> { tipoFio, nf, dataNf, peso }
+  lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (!querido[k]) return;
+    var chave = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
+    if (!chave) return;
+    if (!acum[k]) acum[k] = {};
+    if (!acum[k][chave]) {
+      acum[k][chave] = {
+        chave: chave, nf: r.NF, dataNf: _soData(r.DATA_NF), peso: 0,
+        tipoFio: r.TIPO_FIO == null ? '' : String(r.TIPO_FIO).trim()
+      };
+    }
+    acum[k][chave].peso += Number(r.QUANTIDADE) || 0;
+  });
+
+  Object.keys(acum).forEach(function (k) {
+    var lista = [];
+    Object.keys(acum[k]).forEach(function (chave) {
+      var g = acum[k][chave];
+      if (Math.abs(g.peso) < 0.001) return; // consumo líquido zerado (foi corrigido)
+      var lote = porChaveLote[chave];
+      lista.push({
+        tipoFio: g.tipoFio, nf: g.nf, dataNf: g.dataNf, peso: g.peso,
+        fornecedor: lote ? (lote.fornecedor || '') : '',
+        saldoApos: lote ? lote.saldo : ''
+      });
+    });
+    res[k] = lista;
+  });
+  return res;
+}
+
+/**
  * Lista para a tela "Quantidade Tingida" — SEPARADA da tela "Relação de
  * compra / Tingimento" (que fica intocada; ver `obterListaTingimento`, em
  * Consultas.gs). É a mesma lista de itens do Pedido de Fio (PENDENCIA_COMPRA
@@ -441,7 +500,8 @@ function obterListaFioParaTingir(token) {
       maquinas: r.MAQUINAS,
       total: r.SUGERIDO,
       tingido: tingidoPorItem[_norm(r.ITEM)] || 0,
-      dataSolicitado: _soData(r.GERADO_EM)
+      dataSolicitado: _soData(r.GERADO_EM),
+      volumes: (r.VOLUMES === '' || r.VOLUMES == null) ? '' : r.VOLUMES
     };
   });
   return {

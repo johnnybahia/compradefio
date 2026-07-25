@@ -51,7 +51,8 @@ var RELACAO_COMPRA_HEADERS = [
   'EM_ABERTO',     // já solicitado e ainda não recebido
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
   'STATUS',        // em PENDENCIA_COMPRA: ABERTO (aguardando envio). Em RELACAO_COMPRA: ENVIADO.
-  'GERADO_EM'      // data/hora em que este pedido foi gerado
+  'GERADO_EM',     // data/hora em que este pedido foi gerado
+  'VOLUMES'        // nº de volumes/caixas do item (tingimento informa; almox 1 corrige)
 ];
 
 /**
@@ -293,7 +294,8 @@ function gerarRelacaoDeCompra(token, params) {
       '',                       // EM_ABERTO (pedidos em aberto)
       '',                       // A_COMPRAR
       'ABERTO',                 // STATUS
-      agora                     // GERADO_EM
+      agora,                    // GERADO_EM
+      ''                        // VOLUMES (o tingimento informa depois, na tela)
     ];
     var linhaExistente = linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
     if (linhaExistente) {
@@ -350,6 +352,19 @@ function _prepararAbaCompra(nomeAba) {
   var igual = atuais.length === RELACAO_COMPRA_HEADERS.length &&
     atuais.every(function (h, i) { return h === RELACAO_COMPRA_HEADERS[i]; });
   if (igual) return sh;
+
+  // Só FALTAM colunas no fim (o cabeçalho atual é um prefixo do novo): dá pra
+  // acrescentar sem desalinhar nada — as linhas antigas ficam com a coluna nova
+  // vazia. É o caso de ganhar um campo novo (ex.: VOLUMES), e é seguro mesmo
+  // com dados gravados; só um cabeçalho REALMENTE diferente é que é recusado.
+  var soFaltamNoFim = atuais.length < RELACAO_COMPRA_HEADERS.length &&
+    atuais.every(function (h, i) { return h === RELACAO_COMPRA_HEADERS[i]; });
+  if (soFaltamNoFim) {
+    var novas = RELACAO_COMPRA_HEADERS.slice(atuais.length);
+    sh.getRange(1, atuais.length + 1, 1, novas.length).setValues([novas])
+      .setFontWeight('bold').setBackground('#0F5FA0').setFontColor('#FFFFFF');
+    return sh;
+  }
 
   if (sh.getLastRow() > 1) {
     throw new Error(
