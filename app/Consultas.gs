@@ -6,6 +6,28 @@
  * - consultarHistoricoItem: histórico de um item, como está na aba ESTOQUE.
  */
 
+/**
+ * Converte um valor de célula em TEXTO simples pra devolver ao cliente. Valor
+ * cru da planilha pode ser Date, booleano ou até um erro de fórmula (#REF!,
+ * #N/A, #VALUE!) — e mandar isso direto pro `google.script.run` pode fazer a
+ * resposta inteira voltar nula, derrubando a tela toda (aconteceu na planilha
+ * da Bahia, com o Ceará funcionando). Toda leitura que vai pra tela passa por
+ * aqui ou por `_numeroCelula`.
+ */
+function _textoCelula(v) {
+  if (v === '' || v == null) return '';
+  if (v instanceof Date) return isNaN(v.getTime()) ? '' : _soData(v);
+  return String(v);
+}
+
+/** Converte um valor de célula em número; devolve '' quando não é numérico. */
+function _numeroCelula(v) {
+  if (v === '' || v == null) return '';
+  if (v instanceof Date) return '';
+  var n = Number(String(v).replace(',', '.'));
+  return isNaN(n) ? '' : n;
+}
+
 /** Um registro do rascunho pendente (PENDENCIA_COMPRA) está em aberto (ainda não enviado). */
 function _emAberto(r) {
   var s = _norm(r.STATUS);
@@ -50,14 +72,14 @@ function obterListaTingimento(token) {
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
-      item: r.ITEM,
-      descricao: r.DESCRICAO,
-      cliente: r.CLIENTE,
-      maquinas: r.MAQUINAS,
-      total: r.SUGERIDO,
+      item: _textoCelula(r.ITEM),
+      descricao: _textoCelula(r.DESCRICAO),
+      cliente: _textoCelula(r.CLIENTE),
+      maquinas: _textoCelula(r.MAQUINAS),
+      total: _numeroCelula(r.SUGERIDO),
       dataLimite: _soData(r.DATA_LIMITE),
       dataSolicitado: _soData(r.GERADO_EM),
-      obs: r.OBS == null ? '' : String(r.OBS),
+      obs: _textoCelula(r.OBS),
       saldoCritico: _saldoCritico(r)
     };
   });
@@ -95,15 +117,15 @@ function obterRelatorioCompraAtual(token) {
     return {
       linha: r.__row,
       dataSolicitado: _soData(r.GERADO_EM),
-      item: r.ITEM,
-      descricao: r.DESCRICAO,
-      cliente: r.CLIENTE,
-      maquinas: r.MAQUINAS,
-      total: r.SUGERIDO,
+      item: _textoCelula(r.ITEM),
+      descricao: _textoCelula(r.DESCRICAO),
+      cliente: _textoCelula(r.CLIENTE),
+      maquinas: _textoCelula(r.MAQUINAS),
+      total: _numeroCelula(r.SUGERIDO),
       dataLimite: _soData(r.DATA_LIMITE),
-      obs: r.OBS == null ? '' : String(r.OBS),
+      obs: _textoCelula(r.OBS),
       saldoCritico: _saldoCritico(r),
-      volumes: (r.VOLUMES === '' || r.VOLUMES == null) ? '' : r.VOLUMES,
+      volumes: _numeroCelula(r.VOLUMES),
       // Vazio quando não há nada a caminho (nem embarque, ou o parcial já chegou).
       remessas: remessas,
       emViagemQtd: totalViagem,

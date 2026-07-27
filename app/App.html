@@ -13,13 +13,27 @@ var LOGO_URL = 'https://i.ibb.co/FGGjdsM/LOGO-MARFIM.jpg';
 function chamar(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
   return new Promise(function (resolve, reject) {
-    var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
-    if (typeof r[fn] !== 'function') {
+    var runner = google.script.run
+      .withSuccessHandler(function (resp) {
+        // Resposta vazia = a função existe mas não devolveu nada. Quase sempre
+        // é arquivo .gs desatualizado no Apps Script (ou implantação não
+        // republicada) — sem esta checagem, o erro que aparecia na tela era um
+        // "Cannot read properties of null", que não ajuda ninguém.
+        if (resp === null || resp === undefined) {
+          reject(new Error('O servidor não devolveu resposta em "' + fn + '". ' +
+            'Confira se os arquivos .gs no Apps Script estão atualizados e publique ' +
+            'uma NOVA versão da implantação.'));
+          return;
+        }
+        resolve(resp);
+      })
+      .withFailureHandler(reject);
+    if (typeof runner[fn] !== 'function') {
       reject(new Error('Função "' + fn + '" não existe no servidor. ' +
-        'Atualize os arquivos .gs (Analise, Associacao, Config) e publique uma NOVA versão da implantação.'));
+        'Atualize os arquivos .gs no Apps Script e publique uma NOVA versão da implantação.'));
       return;
     }
-    r[fn].apply(r, args);
+    runner[fn].apply(runner, args);
   });
 }
 
