@@ -493,15 +493,18 @@ function obterListaFioParaTingir(token) {
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
-      item: r.ITEM,
-      descricao: r.DESCRICAO,
-      cliente: r.CLIENTE,
-      tipoFio: r.TIPO_FIO,
-      maquinas: r.MAQUINAS,
-      total: r.SUGERIDO,
+      // _textoCelula/_numeroCelula (Consultas.gs): nunca manda valor cru de
+      // célula pro cliente — data corrompida ou erro de fórmula na planilha
+      // faz a resposta inteira voltar nula e derruba a tela.
+      item: _textoCelula(r.ITEM),
+      descricao: _textoCelula(r.DESCRICAO),
+      cliente: _textoCelula(r.CLIENTE),
+      tipoFio: _textoCelula(r.TIPO_FIO),
+      maquinas: _textoCelula(r.MAQUINAS),
+      total: _numeroCelula(r.SUGERIDO),
       tingido: tingidoPorItem[_norm(r.ITEM)] || 0,
       dataSolicitado: _soData(r.GERADO_EM),
-      volumes: (r.VOLUMES === '' || r.VOLUMES == null) ? '' : r.VOLUMES
+      volumes: _numeroCelula(r.VOLUMES)
     };
   });
   return {
