@@ -840,6 +840,7 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         return r[h] == null ? '' : r[h];
       });
     });
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante cabeçalho/coluna de item como texto
   reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, linhasFinais);
   return { baixados: baixados };
 }
@@ -1065,6 +1066,7 @@ function _restaurarPendenciaCompra(itensRestaurar, numero) {
       novas.push(RELACAO_COMPRA_HEADERS.map(function (h) { return obj.hasOwnProperty(h) ? obj[h] : ''; }));
     });
   }
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante cabeçalho/coluna de item como texto
   reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, linhasFinais.concat(novas));
   return chaves.length;
 }
@@ -1326,7 +1328,7 @@ function _embarquesEmViagemPorItem() {
     if (item === '' || item == null) return;
     var sit = _norm(row[iSit]);
     if (sit.indexOf('chegou') !== -1 || sit.indexOf('cancelado') !== -1) return;
-    var chave = _norm(item);
+    var chave = _norm(_itemDeCelula(item));
     var num = _normNumero(row[iEmb]) || '(sem número)';
     if (!porItemEmb[chave]) porItemEmb[chave] = {};
     var atual = porItemEmb[chave][num];
@@ -1337,7 +1339,7 @@ function _embarquesEmViagemPorItem() {
       // `item` guarda o texto como está na aba EMBARQUES — usado pelo Relatório
       // pra montar a linha do item que já saiu da pendência mas não chegou.
       porItemEmb[chave][num] = {
-        item: String(item).trim(), numero: row[iEmb], data: data, quantidade: qtd, volumes: vol
+        item: _itemDeCelula(item), numero: row[iEmb], data: data, quantidade: qtd, volumes: vol
       };
     } else {
       atual.quantidade += qtd;
