@@ -3144,7 +3144,10 @@ function viewRelatorio(alvo) {
       '<div class="no-print" style="margin:0 0 12px">' +
         '<button class="btn-principal" id="btn-imprimir-relatorio">Imprimir relatório</button>' +
         (podeEditar(['master'])
-          ? '<button class="btn-principal" id="btn-config-chegada">Dias de recebimento</button>'
+          ? '<button class="btn-principal" id="btn-config-chegada">Dias de recebimento</button>' +
+            '<button class="btn-principal" id="btn-reparar-itens" ' +
+              'title="Conserta itens que a planilha converteu em data (ex.: 5108/1 → 01/01/5108) ' +
+              'e unifica as linhas duplicadas que isso causou">Corrigir itens duplicados/data</button>'
           : '') +
       '</div>' +
       (podeEditar(['master'])
@@ -3190,8 +3193,46 @@ function viewRelatorio(alvo) {
   };
   var btnCfg = document.getElementById('btn-config-chegada');
   if (btnCfg) btnCfg.onclick = toggleConfigChegada;
+  var btnRep = document.getElementById('btn-reparar-itens');
+  if (btnRep) btnRep.onclick = repararItensDaLista;
   ativarRegua('tabela-relatorio');
   carregarRelatorio();
+}
+
+/** Conserta, na unidade ATIVA, os itens que a planilha converteu em data e as
+ * linhas duplicadas que isso causou (ver `repararItensPendencia`, no servidor). */
+function repararItensDaLista() {
+  var msg = document.getElementById('rel-msg');
+  confirmarModal(
+    'Corrigir itens da lista?',
+    'Isso vai devolver ao formato de texto os itens que a planilha gravou como data ' +
+    '(ex.: <b>5108/1</b> virou <b>01/01/5108</b>) e <b>unificar as linhas duplicadas</b> do mesmo item ' +
+    'com a mesma data limite — fica a mais recente. Vale para a empresa que está aberta agora.',
+    'Corrigir', 'Cancelar',
+    function (ok) {
+      if (!ok) return;
+      var btn = document.getElementById('btn-reparar-itens');
+      btn.disabled = true;
+      msg.innerHTML = '<div class="aviso"><span class="carregando">Corrigindo…</span></div>';
+      chamar('repararItensPendencia', sessao.token)
+        .then(function (r) {
+          btn.disabled = false;
+          var partes = [];
+          if (r.corrigidos) partes.push(r.corrigidos + ' item(ns) com data corrigido(s)');
+          if (r.duplicadosRemovidos) partes.push(r.duplicadosRemovidos + ' linha(s) duplicada(s) unificada(s)');
+          if (r.naoRecuperados) partes.push(r.naoRecuperados + ' item(ns) em data que não deu pra recuperar (ajuste na planilha)');
+          msg.innerHTML = '<div class="aviso ok">' +
+            (partes.length ? partes.join(' · ') : 'Nada a corrigir.') +
+            ' — ' + r.restantes + ' item(ns) na lista.</div>';
+          carregarRelatorio();
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          var m = tratarErro(err);
+          if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+        });
+    }
+  );
 }
 
 /* Configuração (master) dos dias em que o embarque chega na empresa ativa. */

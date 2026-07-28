@@ -270,7 +270,7 @@ function gerarRelacaoDeCompra(token, params) {
   // vazias) = mesmo pedido; data diferente = pedido à parte.
   var linhaPorChave = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
-    var chave = _chaveItemData(r.ITEM, r.DATA_LIMITE);
+    var chave = _chaveItemData(_itemDeCelula(r.ITEM), r.DATA_LIMITE);
     if (chave) linhaPorChave[chave] = r.__row;
   });
 
@@ -347,6 +347,11 @@ function excluirRelacaoDeCompra(token) {
  */
 function _prepararAbaCompra(nomeAba) {
   var sh = _aba(nomeAba, RELACAO_COMPRA_HEADERS);
+  // Coluna ITEM sempre como TEXTO PURO: senão o Sheets converte códigos como
+  // "5108/1" em data (01/01/5108) — o item vira lixo no relatório E a regra de
+  // "mesmo item + mesma data limite = atualiza" para de casar, duplicando a
+  // linha em cada geração de compra. Ver `repararItensPendencia`.
+  sh.getRange(1, 1, sh.getMaxRows(), 1).setNumberFormat('@');
   var largura = sh.getLastColumn();
   var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
   var igual = atuais.length === RELACAO_COMPRA_HEADERS.length &&
@@ -383,6 +388,63 @@ function _prepararAbaCompra(nomeAba) {
     sh.getRange(1, RELACAO_COMPRA_HEADERS.length + 1, 1, largura - RELACAO_COMPRA_HEADERS.length).clearContent();
   }
   return sh;
+}
+
+/**
+ * Repara a lista pendente (PENDENCIA_COMPRA) de duas coisas causadas pelo
+ * mesmo problema — código de item convertido em data pelo Sheets (ex.: "5108/1"
+ * virou 01/01/5108):
+ *   1. devolve o item pra forma de texto ("ano/mês" → "5108/1");
+ *   2. unifica linhas DUPLICADAS do mesmo item + mesma data limite, que só
+ *      existem porque o upsert não conseguia casar item-data com item-texto
+ *      (ver `gerarRelacaoDeCompra`) — fica a linha mais recente do grupo.
+ *
+ * Só master, e roda na unidade ATIVA (troque de unidade pra reparar a outra).
+ * @return {Object} { ok, corrigidos, naoRecuperados, duplicadosRemovidos, restantes }
+ */
+function repararItensPendencia(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  if (!regs.length) return { ok: true, corrigidos: 0, naoRecuperados: 0, duplicadosRemovidos: 0, restantes: 0 };
+
+  var corrigidos = 0, naoRecuperados = 0;
+  regs.forEach(function (r) {
+    if (!(r.ITEM instanceof Date)) return;
+    var d = r.ITEM;
+    // "5108/1" foi lido como 1º de janeiro do ano 5108 → volta a "5108/1".
+    // Só reconstrói quando o dia é 1; fora desse padrão não há como inferir.
+    if (d.getDate() === 1) {
+      r.ITEM = d.getFullYear() + '/' + (d.getMonth() + 1);
+      corrigidos++;
+    } else {
+      naoRecuperados++;
+    }
+  });
+
+  // Unifica duplicados por [item + data limite] — mantém a ÚLTIMA linha (a mais
+  // recente), que é a que o upsert teria deixado se tivesse funcionado.
+  var ultimaPorChave = {};
+  regs.forEach(function (r) {
+    var chave = _chaveItemData(_itemDeCelula(r.ITEM), r.DATA_LIMITE);
+    if (chave) ultimaPorChave[chave] = r.__row;
+  });
+  var finais = regs.filter(function (r) {
+    var chave = _chaveItemData(_itemDeCelula(r.ITEM), r.DATA_LIMITE);
+    return !chave || ultimaPorChave[chave] === r.__row;
+  });
+  var duplicadosRemovidos = regs.length - finais.length;
+
+  if (corrigidos || duplicadosRemovidos) {
+    reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS,
+      finais.map(function (r) {
+        return RELACAO_COMPRA_HEADERS.map(function (h) { return r[h] == null ? '' : r[h]; });
+      }));
+  }
+  return {
+    ok: true, corrigidos: corrigidos, naoRecuperados: naoRecuperados,
+    duplicadosRemovidos: duplicadosRemovidos, restantes: finais.length
+  };
 }
 
 /* ------------------------------ auxiliares ----------------------------- */

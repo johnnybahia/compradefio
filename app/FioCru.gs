@@ -496,7 +496,7 @@ function obterListaFioParaTingir(token) {
       // _textoCelula/_numeroCelula (Consultas.gs): nunca manda valor cru de
       // célula pro cliente — data corrompida ou erro de fórmula na planilha
       // faz a resposta inteira voltar nula e derruba a tela.
-      item: _textoCelula(r.ITEM),
+      item: _itemDeCelula(r.ITEM),
       descricao: _textoCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       tipoFio: _textoCelula(r.TIPO_FIO),

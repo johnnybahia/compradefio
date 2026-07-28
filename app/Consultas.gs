@@ -28,6 +28,21 @@ function _numeroCelula(v) {
   return isNaN(n) ? '' : n;
 }
 
+/**
+ * Código do ITEM vindo de uma célula. Quando o Sheets converteu o código em
+ * DATA (ex.: "5108/1" → 01/01/5108), reconstrói "ano/mês" em vez de devolver a
+ * data — senão o item sai como data no relatório e deixa de casar com o mesmo
+ * item gravado como texto (o que duplicava linhas). O conserto definitivo dos
+ * dados é o `repararItensPendencia`; isto aqui garante que, mesmo antes dele,
+ * a tela mostre e case o item certo.
+ */
+function _itemDeCelula(v) {
+  if (v instanceof Date && !isNaN(v.getTime()) && v.getDate() === 1) {
+    return v.getFullYear() + '/' + (v.getMonth() + 1);
+  }
+  return _textoCelula(v);
+}
+
 /** Um registro do rascunho pendente (PENDENCIA_COMPRA) está em aberto (ainda não enviado). */
 function _emAberto(r) {
   var s = _norm(r.STATUS);
@@ -72,7 +87,7 @@ function obterListaTingimento(token) {
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
-      item: _textoCelula(r.ITEM),
+      item: _itemDeCelula(r.ITEM),
       descricao: _textoCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       maquinas: _textoCelula(r.MAQUINAS),
@@ -104,7 +119,7 @@ function obterRelatorioCompraAtual(token) {
   var linhas = regs.map(function (r) {
     // Uma entrada por remessa a caminho (cada uma com sua data e quantidade).
     // Remessa parcial já recebida não aparece — ver `_embarquesEmViagemPorItem`.
-    var remessas = (emViagem[_norm(r.ITEM)] || []).map(function (v) {
+    var remessas = (emViagem[_norm(_itemDeCelula(r.ITEM))] || []).map(function (v) {
       var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
       return {
         numero: v.numero,
@@ -117,7 +132,7 @@ function obterRelatorioCompraAtual(token) {
     return {
       linha: r.__row,
       dataSolicitado: _soData(r.GERADO_EM),
-      item: _textoCelula(r.ITEM),
+      item: _itemDeCelula(r.ITEM),
       descricao: _textoCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       maquinas: _textoCelula(r.MAQUINAS),
@@ -140,7 +155,7 @@ function obterRelatorioCompraAtual(token) {
   // mais na lista pendente. (Só o Relatório muda; a análise de compra e o
   // restante seguem como antes.)
   var jaListado = {};
-  regs.forEach(function (r) { jaListado[_norm(r.ITEM)] = true; });
+  regs.forEach(function (r) { jaListado[_norm(_itemDeCelula(r.ITEM))] = true; });
   var faltantes = Object.keys(emViagem).filter(function (k) { return !jaListado[k]; });
   if (faltantes.length) {
     var localizarDesc = _criarLocalizadorDescricao();
@@ -646,6 +661,7 @@ function removerItemPendente(token, linha) {
     .map(function (r) {
       return RELACAO_COMPRA_HEADERS.map(function (h) { return r[h] == null ? '' : r[h]; });
     });
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante cabeçalho/coluna de item como texto
   reescreverAba(CONFIG.SHEETS.PENDENCIA_COMPRA, RELACAO_COMPRA_HEADERS, linhasFinais);
   return { ok: true };
 }
