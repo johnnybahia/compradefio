@@ -599,7 +599,9 @@ function confirmarEmbarqueManual(token, params) {
       (consumoPorItem[_norm(item)] || []).forEach(function (c) {
         porTipo[chaveTipo].lotes.push({
           item: item, nf: c.nf, fornecedor: c.fornecedor || '',
-          dataNf: c.dataNf, peso: c.peso, saldoApos: c.saldoApos
+          dataNf: c.dataNf, peso: c.peso, saldoApos: c.saldoApos,
+          // Preço unitário da NF de onde o fio saiu (pedido dos usuários).
+          precoUnitario: c.precoUnitario
         });
       });
     });
@@ -710,9 +712,9 @@ function _moedaBR(v) {
  * anexo). Um bloco por tipo de fio: cabeçalho do tipo (com total tingido e o
  * total de mão de obra do grupo), a tabela de itens tingidos daquele tipo
  * (com o custo de mão de obra de cada item) e, abaixo, o consumo no estoque
- * de fio crú (item, NF, fornecedor, data da NF, peso consumido e saldo
- * restante — listando TODAS as NFs usadas). No fim, o total geral de mão de
- * obra do embarque.
+ * de fio crú (item, NF, fornecedor, data da NF, PREÇO UNITÁRIO daquela NF,
+ * peso consumido e saldo restante — listando TODAS as NFs usadas). No fim, o
+ * total geral de mão de obra do embarque.
  * Cada item tem uma coluna "Observação" (ex.: "COMPLETO", ou o texto digitado
  * nos casos parciais), e `observacao` (geral, digitada na tela) sai no fim.
  *
@@ -739,8 +741,11 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
   function td(v) { return '<td style="' + tdStyle + '">' + v + '</td>'; }
 
   var thItens = ['Item', 'Volumes', 'Quantidade (kg)', 'Mão de obra (R$)', 'Observação'].map(th).join('');
-  var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)']
-    .map(th).join('');
+  // "Preço unit. (R$)" = preço do fio naquela NF (pedido dos usuários, pra
+  // saber a que preço entrou o fio que está sendo baixado).
+  var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Preço unit. (R$)',
+                 'Peso consumido (kg)', 'Saldo restante (kg)'].map(th).join('');
+  var COLS_LOTES = 7;
   var rotuloFonte = Math.max(d.fonte - 1, 8);
 
   var totalGeral = 0;
@@ -769,10 +774,14 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
       : 'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)';
     var rowsLotes = g.lotes.length
       ? g.lotes.map(function (l) {
+          // NF sem preço cadastrado sai como "—" (não inventa zero).
+          var precoCel = (l.precoUnitario === '' || l.precoUnitario == null)
+            ? '—' : _moedaBR(l.precoUnitario);
           return '<tr>' + td(l.item) + td(l.nf || '—') + td(l.fornecedor || '—') +
-            td(l.dataNf || '—') + td(l.peso) + td(l.saldoApos) + '</tr>';
+            td(l.dataNf || '—') + td(precoCel) + td(l.peso) + td(l.saldoApos) + '</tr>';
         }).join('')
-      : '<tr><td colspan="6" style="' + tdStyle + ';color:#94a3b8">' + msgSemLotes + '</td></tr>';
+      : '<tr><td colspan="' + COLS_LOTES + '" style="' + tdStyle + ';color:#94a3b8">' +
+        msgSemLotes + '</td></tr>';
 
     var totalEstoque = Number(g.totalEstoque) || 0;
     var rotuloTotais = totalEstoque > 0

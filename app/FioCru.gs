@@ -467,6 +467,9 @@ function _consumoCruPorItens(itens) {
       lista.push({
         tipoFio: g.tipoFio, nf: g.nf, dataNf: g.dataNf, peso: g.peso,
         fornecedor: lote ? (lote.fornecedor || '') : '',
+        // Preço unitário da NF de onde saiu a baixa — vai no relatório de
+        // confirmação de embarque, pra saber a que preço aquele fio entrou.
+        precoUnitario: (lote && lote.precoUnitario) ? lote.precoUnitario : '',
         saldoApos: lote ? lote.saldo : ''
       });
     });

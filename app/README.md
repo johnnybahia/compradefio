@@ -78,6 +78,8 @@ O PDF anexo ao e-mail de confirmação traz, além dos itens por tipo de fio e d
 consumo de fio crú:
 
 - **Total de volumes** dos fios (e o subtotal de volumes em cada tipo de fio).
+- No consumo de fio crú, o **preço unitário da NF** de onde o fio saiu (ao
+  lado de fornecedor e data). NF sem preço cadastrado aparece como `—`.
 - **Total de mão de obra** com a **base do cálculo** ao lado
   (`R$ x,xx/kg × N kg tingidos`), pra conferir o valor sem refazer a conta.
 - **MALOTE**, quando marcado na tela Confirmar Embarque (caixa logo abaixo da
