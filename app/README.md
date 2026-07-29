@@ -72,6 +72,22 @@ mudança que aconteceu antes de o usuário chegar). Abrir a tela Relatório
 também confirma a revisão — quem está olhando a lista atualizada não precisa
 do aviso.
 
+## Confirmação de embarque (PDF do e-mail)
+
+O PDF anexo ao e-mail de confirmação traz, além dos itens por tipo de fio e do
+consumo de fio crú:
+
+- **Total de volumes** dos fios (e o subtotal de volumes em cada tipo de fio).
+- **Total de mão de obra** com a **base do cálculo** ao lado
+  (`R$ x,xx/kg × N kg tingidos`), pra conferir o valor sem refazer a conta.
+- **MALOTE**, quando marcado na tela Confirmar Embarque (caixa logo abaixo da
+  observação geral):
+  - *Segue com os fios* — o PDF só informa que há malote; nada muda nos números.
+  - *Nota separada* — o PDF ganha o campo **Volumes do malote**, que é a base
+    para emitir a nota só dele. Esses volumes **não** entram no total de
+    volumes dos fios. Sem quantidade informada, a confirmação é barrada (tela
+    e servidor).
+
 ## Arquivos
 
 | Arquivo | Papel |

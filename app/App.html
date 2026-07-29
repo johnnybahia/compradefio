@@ -1498,8 +1498,9 @@ function viewConfirmarEmbarque(alvo) {
       'parte confirmada ACIMA do já tingido sai do estoque de produto pronto — sem consumir fio crú e sem ' +
       'mão de obra nessa parte (ex.: tingiu 50, confirma 100 marcado → 50 do crú + 50 do estoque). ' +
       'O e-mail de confirmação usa a mesma lista de ' +
-      'destinatários configurada na tela de Tingimento. Use as setas ↑/↓ (ou clique numa linha) para ' +
-      'navegar item por item.'
+      'destinatários configurada na tela de Tingimento — o PDF traz o <b>total de volumes</b> e a ' +
+      '<b>base da mão de obra</b> (R$/kg × kg tingidos). Se o embarque levar <b>malote</b>, marque a caixa ' +
+      'abaixo da observação. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.'
     : 'Somente consulta — quem confirma o embarque é o almoxarifado 1. Linhas em ' +
       '<span class="badge-tingido-completo">verde</span> já bateram o alvo de tingimento; em ' +
       '<span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele.';
@@ -1522,6 +1523,27 @@ function viewConfirmarEmbarque(alvo) {
             '<textarea id="obs-embarque" rows="2" placeholder="opcional — ex.: embarque sai amanhã pela transportadora X" ' +
               'style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;' +
               'font-family:inherit;font-size:13px;resize:vertical"></textarea>' +
+          '</div>' +
+          // MALOTE: fica junto da observação, como pedido. Marcar só abre a
+          // escolha; nada acontece com os números do embarque.
+          '<div id="bloco-malote" style="margin-top:12px;border:1px solid #F0C36D;background:#FFFBEB;' +
+            'border-radius:8px;padding:10px 14px">' +
+            '<label style="font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px">' +
+              '<input type="checkbox" class="chk-grande" id="chk-malote"> MALOTE</label>' +
+            '<div id="malote-opcoes" style="display:none;margin-top:8px">' +
+              '<label style="display:block;font-weight:400;cursor:pointer;margin-bottom:4px">' +
+                '<input type="radio" name="malote-modo" value="fios" checked> ' +
+                'Segue com os fios (mesma nota) — o relatório só informa que há malote</label>' +
+              '<label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;flex-wrap:wrap">' +
+                '<input type="radio" name="malote-modo" value="volumes"> ' +
+                'Nota separada só do malote — volumes:' +
+                '<input type="number" id="malote-volumes" min="0" step="any" placeholder="qtd." disabled ' +
+                  'style="width:90px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;text-align:right">' +
+              '</label>' +
+              '<p class="desc" style="margin:6px 0 0">Com volumes informados, o PDF ganha um campo próprio ' +
+              '<b>Malote / Volumes</b> — é a partir dele que a nota só do malote é emitida (esses volumes ' +
+              'não entram no total de volumes dos fios).</p>' +
+            '</div>' +
           '</div>'
         : '') +
       '<div style="margin-top:16px">' +
@@ -1554,9 +1576,62 @@ function viewConfirmarEmbarque(alvo) {
   if (btnHist) btnHist.onclick = togglePainelHistoricoEmbarque;
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
   if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
+  ligarControlesMalote();
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
   carregarCustoMaoObra();
+}
+
+/** Liga a caixa MALOTE: marcar abre as opções; o campo de volumes só fica
+ * ativo na opção "nota separada" (ver `lerMaloteDaTela`). */
+function ligarControlesMalote() {
+  var chk = document.getElementById('chk-malote');
+  if (!chk) return; // só existe pra quem edita
+  chk.addEventListener('change', function () { atualizarControlesMalote(true); });
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="malote-modo"]'), function (r) {
+    r.addEventListener('change', function () { atualizarControlesMalote(true); });
+  });
+}
+
+/** Mostra/esconde as opções do malote e habilita o campo de volumes só na
+ * opção "nota separada". `focar` só é true quando veio de um clique. */
+function atualizarControlesMalote(focar) {
+  var chk = document.getElementById('chk-malote');
+  if (!chk) return;
+  var opcoes = document.getElementById('malote-opcoes');
+  var campoVol = document.getElementById('malote-volumes');
+  opcoes.style.display = chk.checked ? '' : 'none';
+  var porVolumes = chk.checked && lerModoMalote() === 'volumes';
+  campoVol.disabled = !porVolumes;
+  if (!porVolumes) campoVol.value = '';
+  else if (focar) campoVol.focus();
+}
+
+/** Zera o malote depois de confirmar (é por embarque, não deve “grudar”). */
+function limparMalote() {
+  var chk = document.getElementById('chk-malote');
+  if (!chk) return;
+  chk.checked = false;
+  var fios = document.querySelector('input[name="malote-modo"][value="fios"]');
+  if (fios) fios.checked = true;
+  atualizarControlesMalote(false);
+}
+
+function lerModoMalote() {
+  var m = document.querySelector('input[name="malote-modo"]:checked');
+  return m ? m.value : 'fios';
+}
+
+/** Estado do malote conforme a tela: { ativo, modo, volumes }. */
+function lerMaloteDaTela() {
+  var chk = document.getElementById('chk-malote');
+  if (!chk || !chk.checked) return { ativo: false, modo: '', volumes: '' };
+  var modo = lerModoMalote();
+  var campoVol = document.getElementById('malote-volumes');
+  return {
+    ativo: true, modo: modo,
+    volumes: modo === 'volumes' ? (campoVol ? campoVol.value : '') : ''
+  };
 }
 
 function cancelarEmbarquePorNumero() {
@@ -1822,11 +1897,31 @@ function confirmarEmbarqueSelecionado() {
     ? ' ' + comDoEstoque + ' item(ns) marcado(s) como "do estoque": a parte acima do já tingido sai do ' +
       'estoque pronto, sem consumir fio crú (e sem mão de obra nessa parte).'
     : '';
+  var totalVolumes = selecionados.reduce(function (acc, l) { return acc + (Number(l.volumes) || 0); }, 0);
+  var linhaVolumes = ' Total de volumes dos fios: ' + num(totalVolumes) + '.';
+
+  // Malote (ao lado da observação): sem volumes na opção de nota separada não
+  // dá pra emitir a nota do malote — barra aqui, antes de gravar qualquer coisa.
+  var malote = lerMaloteDaTela();
+  if (malote.ativo && malote.modo === 'volumes' && !(Number(String(malote.volumes).replace(',', '.')) > 0)) {
+    msg.innerHTML = '<div class="aviso erro">Malote com nota separada: informe a quantidade de volumes do ' +
+      'malote (ou marque "segue com os fios").</div>';
+    var campoVol = document.getElementById('malote-volumes');
+    if (campoVol) campoVol.focus();
+    return;
+  }
+  var linhaMalote = !malote.ativo ? ''
+    : (malote.modo === 'volumes'
+        ? ' Vai um MALOTE em nota separada, com ' + num(parseNumeroBR(malote.volumes)) + ' volume(s) — ' +
+          'o PDF traz o campo pra emitir a nota só dele.'
+        : ' Vai um MALOTE junto com os fios (mesma nota) — o PDF só informa.');
+
   confirmarModal(
     'Confirmar embarque?',
     'Isso vai gravar ' + selecionados.length + ' item(ns) (total ' + num(totalKg) + ' kg) como embarcados, ' +
     'dar baixa na lista pendente de compra e no estoque de fio crú, e enviar o e-mail de confirmação ' +
-    '(relatório em PDF anexo).' + linhaEstoque + linhaMaoObra + ' Não pode ser desfeito por aqui.',
+    '(relatório em PDF anexo).' + linhaEstoque + linhaVolumes + linhaMaoObra + linhaMalote +
+    ' Não pode ser desfeito por aqui.',
     'Confirmar', 'Cancelar',
     function (ok) {
       if (!ok) return;
@@ -1843,7 +1938,8 @@ function confirmarEmbarqueSelecionado() {
       });
       var campoObs = document.getElementById('obs-embarque');
       var observacao = campoObs ? campoObs.value : '';
-      chamar('confirmarEmbarqueManual', sessao.token, { itens: itens, custoMaoObra: custoMaoObra, observacao: observacao })
+      chamar('confirmarEmbarqueManual', sessao.token,
+        { itens: itens, custoMaoObra: custoMaoObra, observacao: observacao, malote: malote })
         .then(function (r) {
           btn.disabled = false;
           var resumoTxt = r.resumo.map(function (g) {
@@ -1851,8 +1947,15 @@ function confirmarEmbarqueSelecionado() {
               (g.totalEstoque ? ' + ' + num(g.totalEstoque) + ' kg do estoque' : '') +
               (g.maoObra ? ' (' + moeda(g.maoObra) + ')' : '');
           }).join(' · ');
+          var maloteTxt = (r.malote && r.malote.ativo)
+            ? ' Malote: ' + (r.malote.modo === 'volumes'
+                ? num(r.malote.volumes) + ' volume(s) em nota separada.'
+                : 'segue com os fios.')
+            : '';
           msg.innerHTML = '<div class="aviso ok">Embarque nº ' + r.numero + ' confirmado (' + r.gravados +
-            ' item(ns)) — e-mail com PDF enviado para ' + r.destinatarios + ' destinatário(s). ' + resumoTxt + '</div>';
+            ' item(ns), ' + num(r.volumesTotal) + ' volume(s)) — e-mail com PDF enviado para ' +
+            r.destinatarios + ' destinatário(s). ' + resumoTxt + maloteTxt + '</div>';
+          limparMalote(); // é por embarque: não deixa marcado pro próximo
           carregarListaConfirmarEmbarque();
         })
         .catch(function (err) {
@@ -3288,7 +3391,9 @@ function viewRelatorio(alvo) {
       '</div>' +
       '<p class="desc">O mesmo pedido que sai por e-mail — pra consultar direto no sistema, sem esperar. ' +
       'Linha destacada em <span style="color:#C0392B;font-weight:600">vermelho</span> tem saldo de estoque ' +
-      'crítico. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
+      'crítico. Primeiro vem o que <b>aguarda embarque</b>; depois o que está <b>em viagem</b>, ' +
+      '<b>agrupado por nº do embarque</b> (do menor para o maior), com a data de saída, a previsão de ' +
+      'chegada e o total de kg de cada um. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
       '<div class="no-print" style="margin:0 0 12px">' +
         '<button class="btn-principal" id="btn-imprimir-relatorio">Imprimir relatório</button>' +
         (podeEditar(['master'])
@@ -3540,12 +3645,41 @@ function renderRelatorio() {
     wrap.innerHTML = '<div class="vazio">Nenhum item encontrado para "' + escAttr(estadoRelatorio.filtro) + '".</div>';
     return;
   }
-  var body = linhas.map(function (l) {
-    // Uma linha por remessa a caminho: cada relatório de embarque pendente
-    // mostra a SUA previsão e os kg daquela remessa. Parcial já recebido não
-    // aparece (fica sem data até vir o saldo em outro relatório).
-    var prevCel = '—';
+  // Duas partes na tabela: primeiro o que ainda AGUARDA embarque; depois o que
+  // está EM VIAGEM, agrupado por NÚMERO DE EMBARQUE (um bloco por embarque,
+  // do menor número para o maior). Item que foi em mais de um embarque aparece
+  // no bloco de cada um, com os kg daquela remessa.
+  var aguardando = [];
+  var grupos = {}; // numero -> { numero, dataEmbarque, itens: [{linha, remessa}] }
+  linhas.forEach(function (l) {
     var remessas = l.remessas || [];
+    if (!remessas.length) { aguardando.push(l); return; }
+    remessas.forEach(function (v) {
+      var chave = String(v.numero == null ? '' : v.numero).trim() || '—';
+      if (!grupos[chave]) grupos[chave] = { numero: chave, dataEmbarque: v.dataEmbarque || '', itens: [] };
+      if (!grupos[chave].dataEmbarque && v.dataEmbarque) grupos[chave].dataEmbarque = v.dataEmbarque;
+      grupos[chave].itens.push({ linha: l, remessa: v });
+    });
+  });
+  var ordemGrupos = Object.keys(grupos).sort(function (a, b) {
+    var na = parseFloat(String(a).replace(/[^\d.-]/g, ''));
+    var nb = parseFloat(String(b).replace(/[^\d.-]/g, ''));
+    var va = isNaN(na), vb = isNaN(nb);
+    if (va && vb) return a.localeCompare(b);
+    if (va) return 1;   // número não reconhecido vai pro fim
+    if (vb) return -1;
+    return na - nb;
+  });
+
+  var COLUNAS_RELATORIO = 10;
+  function cabecalhoGrupo(texto, cor) {
+    return '<tr class="linha-grupo"><td colspan="' + COLUNAS_RELATORIO + '" ' +
+      'style="background:' + cor + '">' + texto + '</td></tr>';
+  }
+  function linhaRelatorio(l, remessa) {
+    // Previsão: só a remessa deste bloco (fora do bloco, todas as do item).
+    var prevCel = '—';
+    var remessas = remessa ? [remessa] : (l.remessas || []);
     if (remessas.length) {
       prevCel = remessas.map(function (v) {
         var dado = v.previsaoChegada
@@ -3578,7 +3712,30 @@ function renderRelatorio() {
       '<td>' + prevCel + '</td>' +
       '<td>' + (l.obs ? l.obs : '—') + '</td>' +
     '</tr>';
-  }).join('');
+  }
+
+  var body = '';
+  if (aguardando.length) {
+    // Só vale mostrar a divisória quando existe também algo em viagem.
+    if (ordemGrupos.length) {
+      body += cabecalhoGrupo('AGUARDANDO EMBARQUE · ' + aguardando.length + ' item(ns)', '#EEF3F8');
+    }
+    body += aguardando.map(function (l) { return linhaRelatorio(l, null); }).join('');
+  }
+  ordemGrupos.forEach(function (chave) {
+    var g = grupos[chave];
+    var kg = g.itens.reduce(function (a, x) { return a + (Number(x.remessa.quantidade) || 0); }, 0);
+    var previsoes = {};
+    g.itens.forEach(function (x) { if (x.remessa.previsaoChegada) previsoes[x.remessa.previsaoChegada] = true; });
+    var listaPrev = Object.keys(previsoes);
+    body += cabecalhoGrupo(
+      'EMBARQUE Nº ' + escAttr(g.numero) +
+      (g.dataEmbarque ? ' · saiu em ' + escAttr(g.dataEmbarque) : '') +
+      (listaPrev.length ? ' · previsão ' + escAttr(listaPrev.join(' / ')) : ' · previsão a definir') +
+      ' · ' + g.itens.length + ' item(ns) · ' + num(kg) + ' kg',
+      '#DDEBF7');
+    body += g.itens.map(function (x) { return linhaRelatorio(x.linha, x.remessa); }).join('');
+  });
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
       '<th style="width:7%">Solicitado em</th><th style="width:9%">Item</th>' +
