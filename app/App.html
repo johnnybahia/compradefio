@@ -89,6 +89,7 @@ function aoEntrar(e) {
 function sair() {
   localStorage.removeItem(TOKEN_KEY);
   sessao = { token: null, nome: null, papel: null };
+  if (vigiaRelatorio.timer) { clearInterval(vigiaRelatorio.timer); vigiaRelatorio.timer = null; }
   mostrarLogin();
 }
 
@@ -191,10 +192,14 @@ function abrirApp() {
   itens.forEach(function (item, i) {
     var b = document.createElement('button');
     b.textContent = item.rotulo;
+    b.setAttribute('data-id', item.id); // usado pela bolinha de "tem novidade"
     b.onclick = function () { selecionar(item, b); };
     nav.appendChild(b);
     if (i === 0) selecionar(item, b);
   });
+
+  // Vigia a lista do Relatório e avisa quando ela mudar (ver `iniciarVigiaRelatorio`).
+  iniciarVigiaRelatorio();
 }
 
 /* ------------------------- seletor de unidade ------------------------- */
@@ -483,6 +488,149 @@ function confirmarModal(titulo, texto, rotuloDestaque, rotuloSecundario, callbac
   document.body.appendChild(overlay);
   overlay.querySelector('#modal-btn-destaque').onclick = function () { document.body.removeChild(overlay); callback(true); };
   overlay.querySelector('#modal-btn-secundario').onclick = function () { document.body.removeChild(overlay); callback(false); };
+}
+
+/** Caixa de aviso com um único botão (OK) — usada no aviso de relatório
+ * atualizado. `corpoHtml` já vem montado (pode ter listas/negrito). */
+function avisarModal(titulo, corpoHtml, rotuloOk, callback) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:520px;width:100%;' +
+      'padding:26px 26px 22px;box-shadow:0 20px 50px rgba(0,0,0,.28);max-height:80vh;overflow:auto">' +
+      '<h3 style="margin:0 0 10px;color:#0B4576;font-size:17px">' + titulo + '</h3>' +
+      '<div style="margin:0 0 22px;color:#475569;font-size:14px;line-height:1.55">' + corpoHtml + '</div>' +
+      '<div style="display:flex;justify-content:flex-end">' +
+        '<button id="modal-btn-ok" style="padding:10px 22px;border:none;border-radius:8px;' +
+          'background:#0F5FA0;color:#fff;cursor:pointer;font-size:14px;font-weight:600">' +
+          (rotuloOk || 'OK') + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  var fechar = function () {
+    if (overlay.parentNode) document.body.removeChild(overlay);
+    if (callback) callback();
+  };
+  var btn = overlay.querySelector('#modal-btn-ok');
+  btn.onclick = fechar;
+  btn.focus();
+}
+
+/* ============================================================
+   Aviso de "Relatório atualizado"
+   ------------------------------------------------------------
+   Toda vez que a lista do Relatório muda (item novo, quantidade
+   alterada, baixa/embarque, item que saiu), quem estiver com o
+   sistema aberto recebe uma caixa de aviso com um OK. O servidor
+   numera cada mudança (revisão) e o navegador guarda a última
+   revisão que ESTE usuário já confirmou — por unidade, porque
+   Ceará e Bahia têm listas separadas.
+   ============================================================ */
+var VIGIA_RELATORIO_MS = 60000; // de quanto em quanto tempo pergunta ao servidor
+var vigiaRelatorio = { timer: null, aberto: false, ultima: null, rev: null };
+
+function chaveRevisaoRelatorio() {
+  return 'marfim_rel_rev_' + (sessao.unidade && sessao.unidade.id ? sessao.unidade.id : 'PADRAO');
+}
+function revisaoConfirmada() {
+  var v = parseInt(localStorage.getItem(chaveRevisaoRelatorio()), 10);
+  return isNaN(v) ? null : v;
+}
+function confirmarRevisao(rev) {
+  if (rev == null) return;
+  try { localStorage.setItem(chaveRevisaoRelatorio(), String(rev)); } catch (e) {}
+  marcarMenuAtualizado('relatorio', false);
+}
+
+/** Liga (ou religa, ao trocar de unidade) a verificação periódica. */
+function iniciarVigiaRelatorio() {
+  if (vigiaRelatorio.timer) clearInterval(vigiaRelatorio.timer);
+  vigiaRelatorio.timer = setInterval(function () {
+    if (!document.hidden) verificarRelatorioAtualizado();
+  }, VIGIA_RELATORIO_MS);
+  verificarRelatorioAtualizado();
+}
+
+// Voltou para a aba do navegador (ou destravou o celular): confere na hora,
+// sem esperar o próximo ciclo.
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden && sessao.token) verificarRelatorioAtualizado();
+});
+
+function verificarRelatorioAtualizado() {
+  if (!sessao.token || vigiaRelatorio.aberto) return;
+  chamar('verificarRevisaoRelatorio', sessao.token)
+    .then(function (r) {
+      if (!r || r.rev == null) return;
+      vigiaRelatorio.rev = r.rev;
+      vigiaRelatorio.ultima = r;
+      var vista = revisaoConfirmada();
+      // Primeira vez neste navegador/unidade: só memoriza (não faz sentido
+      // avisar de uma mudança que aconteceu antes de o usuário chegar).
+      if (vista == null) { confirmarRevisao(r.rev); return; }
+      if (r.rev <= vista) return;
+      marcarMenuAtualizado('relatorio', true);
+      mostrarAvisoRelatorio(r);
+    })
+    .catch(function () { /* silencioso: aviso não pode atrapalhar o trabalho */ });
+}
+
+/** Monta o texto do que mudou (ou uma frase genérica, quando o servidor não
+ * tinha base de comparação — primeira revisão depois da atualização). */
+function textoMudancasRelatorio(r) {
+  var partes = [];
+  var bloco = function (rotulo, res) {
+    if (!res || !res.total) return;
+    var lista = (res.itens || []).map(function (i) { return escAttr(i); }).join(', ');
+    var resto = res.total - (res.itens || []).length;
+    partes.push('<li><b>' + res.total + ' ' + rotulo + '</b>' +
+      (lista ? ': ' + lista + (resto > 0 ? ' e mais ' + resto : '') : '') + '</li>');
+  };
+  bloco('item(ns) novo(s)', r.novos);
+  bloco('item(ns) com valor/prazo alterado', r.alterados);
+  bloco('item(ns) que saiu(íram) da lista (baixa/chegada)', r.saidos);
+  if (r.pedidoMudou) {
+    partes.push('<li><b>Novo nº de pedido</b>: ' + escAttr(r.numeroPedido) + '</li>');
+  }
+  if (!partes.length) return '<p style="margin:0">O conteúdo da lista mudou.</p>';
+  return '<ul style="margin:0;padding-left:20px">' + partes.join('') + '</ul>';
+}
+
+function mostrarAvisoRelatorio(r) {
+  vigiaRelatorio.aberto = true;
+  var unidade = (sessao.unidade && sessao.unidade.rotulo) ? ' — ' + escAttr(sessao.unidade.rotulo) : '';
+  avisarModal(
+    'Relatório atualizado' + unidade,
+    '<p style="margin:0 0 10px">A lista do <b>Relatório</b> foi atualizada em <b>' +
+      escAttr(r.atualizadoEm || '—') + '</b> (horário de Fortaleza).</p>' +
+    textoMudancasRelatorio(r) +
+    '<p style="margin:12px 0 0;font-size:13px;color:#64748b">Abra a tela <b>Relatório</b> ' +
+      'para ver a lista já atualizada.</p>',
+    'OK, entendi',
+    function () {
+      vigiaRelatorio.aberto = false;
+      confirmarRevisao(r.rev);
+      // Se o usuário está justamente na tela do relatório, recarrega para ele
+      // não continuar olhando a lista velha.
+      if (document.getElementById('tabela-relatorio')) carregarRelatorio();
+    }
+  );
+}
+
+/** Bolinha de "tem novidade" no item de menu (some quando o usuário dá OK). */
+function marcarMenuAtualizado(id, ativo) {
+  var b = document.querySelector('#menu button[data-id="' + id + '"]');
+  if (!b) return;
+  var ponto = b.querySelector('.ponto-novidade');
+  if (ativo && !ponto) {
+    ponto = document.createElement('span');
+    ponto.className = 'ponto-novidade';
+    ponto.title = 'Relatório atualizado';
+    b.appendChild(ponto);
+  } else if (!ativo && ponto) {
+    b.removeChild(ponto);
+  }
 }
 
 function analisarEstoque() {
@@ -3124,7 +3272,7 @@ function abrirModalNovaSenha(usuario, callback) {
 // obterRelatorioCompraAtual) — só pra consultar direto no sistema, sem
 // esperar/procurar o e-mail. Compartilhada por TODOS os papéis (ver MENUS),
 // só leitura. Régua de navegação (setas ↑/↓) igual às outras listas.
-var estadoRelatorio = { linhas: [], filtro: '' };
+var estadoRelatorio = { linhas: [], filtro: '', marcas: {} };
 
 function viewRelatorio(alvo) {
   alvo.innerHTML =
@@ -3177,6 +3325,7 @@ function viewRelatorio(alvo) {
         '<span id="rel-contagem" class="desc" style="margin:0"></span>' +
       '</div>' +
       '<div id="rel-msg"></div>' +
+      '<div id="rel-atualizacao"></div>' +
       '<div class="tabela-wrap" id="tabela-relatorio"></div>' +
     '</section>';
   document.getElementById('btn-imprimir-relatorio').onclick = function () { window.print(); };
@@ -3307,6 +3456,7 @@ function carregarRelatorio() {
           (r.chegadaRotulos || []).join(', ') + '</b> · prazo mínimo de ' + r.chegadaPrazoDias + ' dia(s).</div>';
       }
       estadoRelatorio.linhas = r.linhas || [];
+      mostrarUltimaAtualizacaoRelatorio(r.revisao);
       // Autocomplete da busca: só os itens que estão neste relatório.
       var dl = document.getElementById('rel-itens');
       if (dl) {
@@ -3323,6 +3473,49 @@ function carregarRelatorio() {
       var m = tratarErro(err);
       if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
+}
+
+/**
+ * Faixa no topo do Relatório com a última atualização detectada e quais itens
+ * mudaram — e marca esses itens na tabela (verde = novo, laranja = alterado).
+ * É o "aviso melhor" que complementa a caixa de OK: quem abre a tela depois
+ * ainda enxerga o que mudou, sem depender de ter visto o aviso na hora.
+ */
+function mostrarUltimaAtualizacaoRelatorio(rev) {
+  var alvo = document.getElementById('rel-atualizacao');
+  estadoRelatorio.marcas = {};
+  if (!alvo) return;
+  if (!rev || rev.rev == null) { alvo.innerHTML = ''; return; }
+  // Guarda a revisão vista: quem está justamente com a tela do relatório
+  // aberta não precisa receber a caixa de aviso da mesma mudança.
+  if (vigiaRelatorio.rev == null || rev.rev >= vigiaRelatorio.rev) vigiaRelatorio.rev = rev.rev;
+  confirmarRevisao(rev.rev);
+
+  var marcar = function (res, tipo) {
+    ((res && res.itens) || []).forEach(function (i) {
+      estadoRelatorio.marcas[semAcentoMinusculo(i)] = tipo;
+    });
+  };
+  marcar(rev.alterados, 'alterado');
+  marcar(rev.novos, 'novo'); // "novo" tem prioridade sobre "alterado"
+
+  var mudou = (rev.novos && rev.novos.total) || (rev.alterados && rev.alterados.total) ||
+              (rev.saidos && rev.saidos.total) || rev.pedidoMudou;
+  alvo.innerHTML =
+    '<div class="faixa-atualizacao no-print">' +
+      'Última atualização da lista: <b>' + escAttr(rev.atualizadoEm || '—') + '</b>' +
+      (mudou ? ' — ' + resumoCurtoAtualizacao(rev) : ' (sem mudanças desde então)') +
+    '</div>';
+}
+
+/** Uma linha só: "3 novos · 2 alterados · 1 saiu". */
+function resumoCurtoAtualizacao(rev) {
+  var p = [];
+  if (rev.novos && rev.novos.total) p.push('<b>' + rev.novos.total + '</b> novo(s)');
+  if (rev.alterados && rev.alterados.total) p.push('<b>' + rev.alterados.total + '</b> alterado(s)');
+  if (rev.saidos && rev.saidos.total) p.push('<b>' + rev.saidos.total + '</b> fora da lista');
+  if (rev.pedidoMudou) p.push('novo nº de pedido');
+  return p.join(' · ');
 }
 
 function renderRelatorio() {
@@ -3365,9 +3558,16 @@ function renderRelatorio() {
     // Linha "embarcado": item que já saiu da lista pendente (o embarque foi
     // lançado) mas ainda não chegou — continua aqui até ser marcado CHEGOU.
     var embarcado = l.status === 'embarcado';
+    // Marca o que mudou na última atualização da lista (ver `mostrarUltimaAtualizacaoRelatorio`).
+    var marca = estadoRelatorio.marcas[semAcentoMinusculo(l.item || '')];
+    var selo = marca === 'novo'
+      ? ' <span class="badge-item-novo" title="Entrou na última atualização">novo</span>'
+      : (marca === 'alterado'
+          ? ' <span class="badge-item-alterado" title="Mudou na última atualização">alterado</span>'
+          : '');
     return '<tr' + (l.saldoCritico ? ' class="destaque"' : (embarcado ? ' class="destaque-tingido-completo"' : '')) + '>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
-      '<td class="col-item">' + (l.item || '—') +
+      '<td class="col-item">' + (l.item || '—') + selo +
         (embarcado ? ' <span class="badge-tingido-completo">embarcado</span>' : '') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
@@ -3582,7 +3782,9 @@ function viewConsultaEstoque(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Consulta de Estoque</h2>' +
-      '<p class="desc">Busque um item para ver o histórico de movimentações, como está na aba ESTOQUE.</p>' +
+      '<p class="desc">Busque um item para ver o histórico de movimentações, como está na aba ESTOQUE. ' +
+      'A busca é <b>pelo item exato</b>: digitar <b>10</b> traz só o item 10 (não 100, 1000, 1020). ' +
+      'Se nenhum item for exatamente igual ao que você digitou, o sistema mostra os parecidos.</p>' +
       '<div class="linha-form">' +
         '<div class="campo" style="flex:1;min-width:220px">' +
           '<label for="consulta-item">Item</label>' +
@@ -3595,7 +3797,7 @@ function viewConsultaEstoque(alvo) {
       '<div id="consulta-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-consulta"></div>' +
     '</section>';
-  document.getElementById('btn-consultar').onclick = consultarEstoque;
+  document.getElementById('btn-consultar').onclick = function () { consultarEstoque(); };
   document.getElementById('consulta-item').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') consultarEstoque();
   });
@@ -3611,21 +3813,35 @@ function viewConsultaEstoque(alvo) {
     .catch(function () { /* silencioso — a busca por texto continua funcionando */ });
 }
 
-function consultarEstoque() {
+/** Busca o histórico do item. `modo = 'contem'` força a busca ampla (itens que
+ * apenas contêm o texto digitado) — usada pelo link "ver todos", quando o
+ * usuário quer mesmo ver 100/1000/1020 ao buscar 10. */
+function consultarEstoque(modo) {
   var termo = document.getElementById('consulta-item').value.trim();
   var msg = document.getElementById('consulta-msg');
   var wrap = document.getElementById('tabela-consulta');
   if (!termo) { msg.innerHTML = '<div class="aviso erro">Digite um item para buscar.</div>'; return; }
   msg.innerHTML = '<div class="aviso"><span class="carregando">Buscando…</span></div>';
   wrap.innerHTML = '';
-  chamar('consultarHistoricoItem', sessao.token, termo)
+  chamar('consultarHistoricoItem', sessao.token, termo, modo || '')
     .then(function (r) {
       if (!r.linhas.length) {
-        msg.innerHTML = '<div class="aviso">Nenhum registro encontrado para "' + termo + '".</div>';
+        msg.innerHTML = '<div class="aviso">Nenhum registro encontrado para "' + escAttr(termo) + '".</div>';
         return;
       }
-      msg.innerHTML = '<div class="aviso ok">' + r.total + ' registro(s)' +
-        (r.truncado ? ' (mostrando os 1000 mais recentes)' : '') + '.</div>';
+      var cabeca = r.exato
+        ? r.total + ' registro(s) do item <b>' + escAttr(termo) + '</b>'
+        : r.total + ' registro(s) em itens que contêm "' + escAttr(termo) + '"';
+      msg.innerHTML =
+        '<div class="aviso ok">' + cabeca +
+          (r.truncado ? ' (mostrando os 1000 mais recentes)' : '') + '.</div>' +
+        (r.exato && r.outrosItens && r.outrosItens.length
+          ? '<div class="aviso">Há também ' + r.outrosItens.length + ' item(ns) parecido(s): <b>' +
+              escAttr(r.outrosItens.join(', ')) + '</b> — ' +
+              '<a href="#" id="link-consulta-ampla">ver todos (' + r.outrosRegistros + ' registro(s) a mais)</a>.</div>'
+          : '');
+      var link = document.getElementById('link-consulta-ampla');
+      if (link) link.onclick = function (e) { e.preventDefault(); consultarEstoque('contem'); };
       renderHistorico(r.cabecalho, r.linhas);
     })
     .catch(function (err) {

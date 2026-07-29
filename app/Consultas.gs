@@ -110,11 +110,47 @@ function obterListaTingimento(token) {
  */
 function obterRelatorioCompraAtual(token) {
   var s = exigirSessao(token);
+  var cfgChegada = _configChegadaUnidade();
+  var linhas = _montarLinhasRelatorio(cfgChegada);
+  // Aproveita que as linhas já estão montadas para conferir (e registrar) se o
+  // relatório mudou desde a última vez — é o que alimenta o aviso de
+  // "relatório atualizado" (ver `verificarRevisaoRelatorio`). Nunca pode
+  // derrubar a tela: o relatório em si é o que importa aqui.
+  var revisao = null;
+  try { revisao = _revisaoRelatorio(linhas); } catch (e) { revisao = null; }
+
+  return {
+    ok: true,
+    numeroPedido: _numeroPedidoRelatorio(),
+    dataPedido: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+    // Horário de Fortaleza/Brasil sempre — fixo, não depende do fuso horário
+    // configurado no projeto do Apps Script (Project Settings). Separado da
+    // "Data" do pedido (que é só o dia) porque este é o instante em que a
+    // TELA foi consultada, com hora e minuto.
+    atualizadoEm: Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm'),
+    unidadeRotulo: CONFIG.getUnidadeInfo(s.unidade).rotulo,
+    // Dias de recebimento configurados (pra tela avisar quando faltar configurar).
+    chegadaDias: cfgChegada.dias,
+    chegadaPrazoDias: cfgChegada.prazoDias,
+    chegadaRotulos: cfgChegada.dias.map(function (n) { return DIAS_SEMANA_ROTULO[n]; }),
+    revisao: revisao,
+    linhas: linhas
+  };
+}
+
+/**
+ * Monta as linhas do relatório (lista pendente + o que está a caminho). Fica
+ * separado de `obterRelatorioCompraAtual` porque o controle de atualização
+ * (`_revisaoRelatorio`) usa exatamente as mesmas linhas — o aviso precisa
+ * enxergar o relatório do mesmo jeito que a tela.
+ * `cfg` (opcional) evita reler a configuração de chegada quem já a tem.
+ */
+function _montarLinhasRelatorio(cfg) {
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   // Previsão de chegada: para o item que tem embarque A CAMINHO, calcula em que
   // dia ele deve chegar na filial, pelos dias de recebimento configurados da
   // unidade (ver `_previsaoChegada`/`obterConfigChegada`, em Embarque.gs).
-  var cfgChegada = _configChegadaUnidade();
+  var cfgChegada = cfg || _configChegadaUnidade();
   var emViagem = _embarquesEmViagemPorItem();
   var linhas = regs.map(function (r) {
     // Uma entrada por remessa a caminho (cada uma com sua data e quantidade).
@@ -212,22 +248,228 @@ function obterRelatorioCompraAtual(token) {
     return da.getTime() - db.getTime();
   });
 
+  return linhas;
+}
+
+/* --------------- Aviso de atualização do relatório ---------------- */
+/*
+ * Objetivo: quando a lista do Relatório muda (item novo, quantidade alterada,
+ * baixa/embarque, item que saiu), TODO mundo que estiver com o sistema aberto
+ * recebe um aviso — sem depender de e-mail nem de alguém avisar no grupo.
+ *
+ * Como funciona: a cada leitura do relatório o sistema calcula uma
+ * "impressão digital" do conteúdo (item + quantidade + data limite + status +
+ * observação + nº do pedido). Se ela mudou em relação à última guardada, a
+ * REVISÃO avança de número e fica registrado o que mudou. O navegador de cada
+ * usuário pergunta de tempos em tempos qual é a revisão atual
+ * (`verificarRevisaoRelatorio`); se for maior que a última que aquele usuário
+ * confirmou, a tela abre a caixa de aviso com o botão OK.
+ *
+ * O registro fica numa aba própria da planilha da unidade (RELATORIO_REVISAO,
+ * oculta) — assim cada empresa tem a sua contagem e o histórico sobrevive a
+ * qualquer republicação do script.
+ */
+
+var RELATORIO_REVISAO_HEADERS = ['REV', 'ATUALIZADO_EM', 'HASH', 'RESUMO', 'SNAPSHOT'];
+/** Máximo de itens citados nominalmente no aviso (o resto vira contagem). */
+var RELATORIO_REVISAO_MAX_ITENS = 25;
+/** Teto do instantâneo gravado na célula (limite do Sheets é ~50 mil). */
+var RELATORIO_REVISAO_MAX_SNAPSHOT = 45000;
+
+/** Aba (oculta) onde mora o controle de revisão do relatório desta unidade. */
+function _abaRevisaoRelatorio() {
+  var sh = _aba(CONFIG.SHEETS.RELATORIO_REVISAO);
+  if (sh) return sh;
+  sh = _aba(CONFIG.SHEETS.RELATORIO_REVISAO, RELATORIO_REVISAO_HEADERS);
+  try { sh.hideSheet(); } catch (e) {} // é controle interno, não dado de trabalho
+  return sh;
+}
+
+/**
+ * "Impressão digital" do relatório: o que cada item tem de relevante para o
+ * usuário. Mudou qualquer um desses campos, mudou o relatório.
+ * @return {Object} { chaveNormalizada: [rotuloDoItem, assinatura] }
+ */
+function _mapaAssinaturaRelatorio(linhas) {
+  var mapa = {};
+  (linhas || []).forEach(function (l) {
+    var chave = _norm(l.item);
+    if (!chave) return;
+    var partes = [
+      l.total === '' || l.total == null ? '' : l.total,
+      l.dataLimite || '',
+      l.status || '',
+      l.emViagemQtd || 0,
+      l.volumes === '' || l.volumes == null ? '' : l.volumes,
+      _norm(l.obs)
+    ].join('|');
+    // O mesmo item pode aparecer mais de uma vez (pendente + embarcado):
+    // as duas entradas somam na mesma assinatura.
+    mapa[chave] = mapa[chave] ? [l.item, mapa[chave][1] + '#' + partes] : [l.item, partes];
+  });
+  return mapa;
+}
+
+/** Compara dois mapas de assinatura e diz o que entrou, mudou e saiu. */
+function _diffRelatorio(antes, agora) {
+  var novos = [], alterados = [], saidos = [];
+  Object.keys(agora).forEach(function (k) {
+    if (!antes.hasOwnProperty(k)) novos.push(agora[k][0]);
+    else if (antes[k][1] !== agora[k][1]) alterados.push(agora[k][0]);
+  });
+  Object.keys(antes).forEach(function (k) {
+    if (!agora.hasOwnProperty(k)) saidos.push(antes[k][0]);
+  });
+  var ordenar = function (a) { return a.sort(function (x, y) { return String(x).localeCompare(String(y)); }); };
   return {
-    ok: true,
-    numeroPedido: _numeroPedidoRelatorio(),
-    dataPedido: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
-    // Horário de Fortaleza/Brasil sempre — fixo, não depende do fuso horário
-    // configurado no projeto do Apps Script (Project Settings). Separado da
-    // "Data" do pedido (que é só o dia) porque este é o instante em que a
-    // TELA foi consultada, com hora e minuto.
-    atualizadoEm: Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm'),
-    unidadeRotulo: CONFIG.getUnidadeInfo(s.unidade).rotulo,
-    // Dias de recebimento configurados (pra tela avisar quando faltar configurar).
-    chegadaDias: cfgChegada.dias,
-    chegadaPrazoDias: cfgChegada.prazoDias,
-    chegadaRotulos: cfgChegada.dias.map(function (n) { return DIAS_SEMANA_ROTULO[n]; }),
-    linhas: linhas
+    novos: ordenar(novos), alterados: ordenar(alterados), saidos: ordenar(saidos)
   };
+}
+
+/** Corta a lista de itens do resumo, guardando quantos ficaram de fora. */
+function _resumoItens(lista) {
+  return {
+    total: lista.length,
+    itens: lista.slice(0, RELATORIO_REVISAO_MAX_ITENS)
+  };
+}
+
+/**
+ * Estado da revisão do relatório da unidade ativa. Se `linhas` não vier,
+ * monta o relatório para conferir. Quando o conteúdo mudou desde o último
+ * registro, avança a revisão e grava o que mudou.
+ *
+ * @return {Object} { rev, atualizadoEm, novos, alterados, saidos, pedidoMudou,
+ *                    numeroPedido, totalItens, primeira }
+ */
+function _revisaoRelatorio(linhas) {
+  if (!linhas) linhas = _montarLinhasRelatorio();
+  var mapa = _mapaAssinaturaRelatorio(linhas);
+  var numeroPedido = _numeroPedidoRelatorio();
+  var textoAssinatura = 'P' + numeroPedido + ';' + Object.keys(mapa).sort().map(function (k) {
+    return k + '=' + mapa[k][1];
+  }).join(';');
+  var hash = Utilities.base64Encode(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, textoAssinatura, Utilities.Charset.UTF_8));
+
+  var sh = _abaRevisaoRelatorio();
+  var atual = sh.getLastRow() >= 2
+    ? sh.getRange(2, 1, 1, RELATORIO_REVISAO_HEADERS.length).getValues()[0]
+    : null;
+  var revAtual = atual ? (parseInt(atual[0], 10) || 0) : 0;
+  var hashAtual = atual ? String(atual[2] || '') : '';
+
+  if (atual && hashAtual === hash) {
+    // Nada mudou: devolve o registro como está (é o caso da grande maioria
+    // das consultas — nenhuma escrita na planilha).
+    var resumoGravado = _lerResumoRevisao(atual[3]);
+    resumoGravado.rev = revAtual;
+    resumoGravado.atualizadoEm = _textoCelula(atual[1]);
+    resumoGravado.numeroPedido = numeroPedido;
+    resumoGravado.totalItens = linhas.length;
+    return resumoGravado;
+  }
+
+  // Mudou (ou é a primeira vez): grava a revisão nova. O lock evita que dois
+  // usuários consultando ao mesmo tempo gravem duas revisões pela mesma mudança.
+  var lock = LockService.getScriptLock();
+  var travou = false;
+  try { travou = lock.tryLock(5000); } catch (e) {}
+  if (!travou) {
+    // Sem o lock, não grava — o próximo acesso (de qualquer usuário) registra.
+    return {
+      rev: revAtual, atualizadoEm: atual ? _textoCelula(atual[1]) : '',
+      novos: _resumoItens([]), alterados: _resumoItens([]), saidos: _resumoItens([]),
+      pedidoMudou: false, numeroPedido: numeroPedido, totalItens: linhas.length,
+      primeira: !atual
+    };
+  }
+  try {
+    // Relê depois do lock: outro usuário pode ter registrado a mesma mudança.
+    atual = sh.getLastRow() >= 2
+      ? sh.getRange(2, 1, 1, RELATORIO_REVISAO_HEADERS.length).getValues()[0]
+      : null;
+    revAtual = atual ? (parseInt(atual[0], 10) || 0) : 0;
+    if (atual && String(atual[2] || '') === hash) {
+      var jaGravado = _lerResumoRevisao(atual[3]);
+      jaGravado.rev = revAtual;
+      jaGravado.atualizadoEm = _textoCelula(atual[1]);
+      jaGravado.numeroPedido = numeroPedido;
+      jaGravado.totalItens = linhas.length;
+      return jaGravado;
+    }
+
+    var antes = {};
+    var tinhaSnapshot = false;
+    if (atual && atual[4]) {
+      try { antes = JSON.parse(atual[4]); tinhaSnapshot = true; } catch (e) { antes = {}; }
+    }
+    var pedidoAnterior = atual ? _lerResumoRevisao(atual[3]).numeroPedido : null;
+    var diff = tinhaSnapshot
+      ? _diffRelatorio(antes, mapa)
+      : { novos: [], alterados: [], saidos: [] }; // sem base de comparação: só registra
+    var resumo = {
+      novos: _resumoItens(diff.novos),
+      alterados: _resumoItens(diff.alterados),
+      saidos: _resumoItens(diff.saidos),
+      pedidoMudou: !!(pedidoAnterior != null && pedidoAnterior !== numeroPedido),
+      numeroPedido: numeroPedido,
+      primeira: !atual
+    };
+    var novaRev = revAtual + 1;
+    var agora = Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm');
+    var snapshot = JSON.stringify(mapa);
+    if (snapshot.length > RELATORIO_REVISAO_MAX_SNAPSHOT) snapshot = ''; // grande demais: só o hash vale
+    sh.getRange(2, 1, 1, RELATORIO_REVISAO_HEADERS.length)
+      .setValues([[novaRev, agora, hash, JSON.stringify(resumo), snapshot]]);
+
+    resumo.rev = novaRev;
+    resumo.atualizadoEm = agora;
+    resumo.totalItens = linhas.length;
+    return resumo;
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+/** Lê o resumo gravado (JSON) devolvendo sempre a estrutura completa. */
+function _lerResumoRevisao(bruto) {
+  var vazio = {
+    novos: _resumoItens([]), alterados: _resumoItens([]), saidos: _resumoItens([]),
+    pedidoMudou: false, numeroPedido: null, primeira: false
+  };
+  if (!bruto) return vazio;
+  try {
+    var o = JSON.parse(bruto);
+    return {
+      novos: o.novos || vazio.novos,
+      alterados: o.alterados || vazio.alterados,
+      saidos: o.saidos || vazio.saidos,
+      pedidoMudou: !!o.pedidoMudou,
+      numeroPedido: o.numeroPedido == null ? null : o.numeroPedido,
+      primeira: !!o.primeira
+    };
+  } catch (e) { return vazio; }
+}
+
+/**
+ * Chamada leve que a tela faz de tempos em tempos: "o relatório mudou?".
+ * Devolve a revisão atual e o que mudou nela. O resultado fica em cache por
+ * pouco tempo para que vários usuários perguntando junto não releiam a
+ * planilha toda — o atraso máximo do aviso é o tempo desse cache.
+ */
+function verificarRevisaoRelatorio(token) {
+  exigirSessao(token);
+  var chave = 'relRevisao_' + (_unidadeAtivaId || CONFIG.UNIDADE_PADRAO);
+  var cache = CacheService.getScriptCache();
+  try {
+    var hit = cache.get(chave);
+    if (hit) return JSON.parse(hit);
+  } catch (e) {}
+  var r = _revisaoRelatorio(null);
+  r.ok = true;
+  try { cache.put(chave, JSON.stringify(r), 50); } catch (e) {}
+  return r;
 }
 
 /* ----------------------- E-mail / impressão ---------------------- */
@@ -667,19 +909,32 @@ function removerItemPendente(token, linha) {
 }
 
 /**
- * Histórico de um item na aba ESTOQUE. Busca pelo nome do item (contém,
- * sem diferenciar acento/maiúscula) e devolve as linhas como estão na aba.
- * @return {Object} { ok, cabecalho: [...], linhas: [[...]], total, truncado }
+ * Histórico de um item na aba ESTOQUE.
+ *
+ * A busca é **exata por padrão**: quem digita `10` quer o item `10`, não
+ * `100`, `1000` e `1020` (era o que acontecia quando a busca só olhava
+ * "contém"). Só quando NENHUM item bate exatamente é que cai na busca por
+ * "contém" — assim uma busca parcial continua achando o que se procura.
+ * Passe `modo = 'contem'` para forçar a busca ampla (o botão "ver todos"
+ * da tela usa isso).
+ *
+ * @return {Object} { ok, cabecalho, linhas, total, truncado, exato,
+ *                    outrosItens: [itens parecidos que ficaram de fora],
+ *                    outrosRegistros: quantos registros esses itens têm }
  */
-function consultarHistoricoItem(token, termo) {
+function consultarHistoricoItem(token, termo, modo) {
   exigirSessao(token); // qualquer usuário autenticado pode consultar
   termo = String(termo == null ? '' : termo).trim();
-  if (!termo) return { ok: true, cabecalho: [], linhas: [], total: 0, truncado: false };
+  var vazio = {
+    ok: true, cabecalho: [], linhas: [], total: 0, truncado: false,
+    exato: false, outrosItens: [], outrosRegistros: 0
+  };
+  if (!termo) return vazio;
 
   var sh = _aba(CONFIG.SHEETS.ESTOQUE);
   if (!sh) throw new Error('Aba "ESTOQUE" não encontrada.');
   var last = sh.getLastRow();
-  if (last < 2) return { ok: true, cabecalho: [], linhas: [], total: 0, truncado: false };
+  if (last < 2) return vazio;
 
   var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var header = vals.shift();
@@ -689,11 +944,30 @@ function consultarHistoricoItem(token, termo) {
   var iData = normHeader.indexOf('data');
 
   var alvo = _norm(termo);
-  var achadas = [];
+  var exatas = [];      // item IGUAL ao digitado
+  var parciais = [];    // item que só CONTÉM o digitado (100, 1000, 1020…)
+  var rotuloParcial = {}; // itemNormalizado -> como está escrito na planilha
   for (var r = 0; r < vals.length; r++) {
-    var it = _norm(vals[r][iItem]);
-    if (it && it.indexOf(alvo) !== -1) achadas.push(vals[r]);
+    var bruto = vals[r][iItem];
+    var it = _norm(bruto);
+    if (!it) continue;
+    if (it === alvo) {
+      exatas.push(vals[r]);
+    } else if (it.indexOf(alvo) !== -1) {
+      parciais.push(vals[r]);
+      if (!rotuloParcial[it]) rotuloParcial[it] = String(bruto).trim();
+    }
   }
+
+  var amplo = String(modo || '') === 'contem';
+  var exato = !amplo && exatas.length > 0;
+  var achadas = exato ? exatas : exatas.concat(parciais);
+  // Itens parecidos que a busca exata deixou de fora (a tela oferece "ver todos").
+  var outrosItens = exato
+    ? Object.keys(rotuloParcial).map(function (k) { return rotuloParcial[k]; })
+        .sort(function (a, b) { return a.localeCompare(b); })
+    : [];
+  var outrosRegistros = exato ? parciais.length : 0;
 
   // Ordena da data mais recente para a mais antiga.
   if (iData >= 0) {
@@ -716,7 +990,10 @@ function consultarHistoricoItem(token, termo) {
   });
   var linhas = achadas.map(function (row) { return row.map(_formatarCelula); });
 
-  return { ok: true, cabecalho: cabecalho, linhas: linhas, total: linhas.length, truncado: truncado };
+  return {
+    ok: true, cabecalho: cabecalho, linhas: linhas, total: linhas.length, truncado: truncado,
+    exato: exato, outrosItens: outrosItens.slice(0, 30), outrosRegistros: outrosRegistros
+  };
 }
 
 /**
