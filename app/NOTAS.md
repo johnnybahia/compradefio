@@ -3,6 +3,18 @@
 Anotações de coisas a acompanhar/melhorar (não são bugs — são decisões e
 pendências que valem manter à vista).
 
+## Numeração de embarque (ajuste pontual)
+
+Pedido: o próximo embarque confirmado deve sair como **985 no Ceará** e
+**1472 na Bahia**. Isso muda o VALOR INICIAL usado quando a unidade nunca
+confirmou nenhum embarque (`NUMERO_EMBARQUE_INICIAL_POR_UNIDADE`, em
+`Embarque.gs`) — mas como as duas unidades já confirmaram embarques antes
+(a Bahia já ia no nº 4), a Propriedade do script `NUMERO_EMBARQUE_MANUAL_<UNIDADE>`
+já existe e tem prioridade sobre esse valor inicial. **É preciso ajustar na
+mão uma vez**: tela Confirmar Embarque → link "ajustar" ao lado de "Próximo
+número de embarque nesta unidade" → digitar 985 (Ceará) ou 1472 (Bahia) →
+Salvar. Depois disso, a sequência segue sozinha (ver `definirProximoNumeroEmbarque`).
+
 ## Regra fixa: nada de valor CRU de célula na resposta ao navegador
 
 Toda função chamada pela tela (`chamar('X', ...)` em `App.html`) tem que

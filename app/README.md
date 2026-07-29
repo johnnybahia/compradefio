@@ -80,6 +80,13 @@ consumo de fio crú:
 - **Total de volumes** dos fios (e o subtotal de volumes em cada tipo de fio).
 - No consumo de fio crú, o **preço unitário da NF** de onde o fio saiu (ao
   lado de fornecedor e data). NF sem preço cadastrado aparece como `—`.
+
+A tela **Confirmar Embarque** mostra o **próximo número de embarque** desta
+unidade (com um link "ajustar" para master/almoxarifado 1 corrigirem a
+sequência na mão, sem mexer nas Propriedades do script). A **taxa de mão de
+obra** é salva assim que o campo perde o foco — não depende de a confirmação
+do embarque dar certo. Os textos explicativos da tela ficam atrás de um link
+"Como funciona" (fechado por padrão).
 - **Total de mão de obra** com a **base do cálculo** ao lado
   (`R$ x,xx/kg × N kg tingidos`), pra conferir o valor sem refazer a conta.
 - **MALOTE**, quando marcado na tela Confirmar Embarque (caixa logo abaixo da

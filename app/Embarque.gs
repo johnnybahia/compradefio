@@ -428,23 +428,59 @@ function gravarEmbarque(token, dados) {
 /**
  * Número do PRÓXIMO embarque lançado manualmente (sem PDF) — sequência
  * própria por unidade, pra não colidir com o número real de relatório de
- * transportadora usado no fluxo por PDF. Começa em 1.
+ * transportadora usado no fluxo por PDF. Sem a Propriedade do script ainda
+ * definida, cada unidade começa no ponto pedido (mesma ideia do número do
+ * Pedido de Fio — ver `NUMERO_PEDIDO_INICIAL_POR_UNIDADE`); a partir da
+ * primeira confirmação (ou de um ajuste manual, ver `definirProximoNumeroEmbarque`)
+ * quem manda é a Propriedade.
  */
+var NUMERO_EMBARQUE_INICIAL_POR_UNIDADE = {
+  CEARA: 985,
+  BAHIA: 1472
+};
+var NUMERO_EMBARQUE_INICIAL_PADRAO = 1;
+
 function _numeroEmbarqueManualAtual() {
+  var unidade = _unidadeAtivaId || CONFIG.UNIDADE_PADRAO;
   var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('NUMERO_EMBARQUE_MANUAL'));
   var n = parseInt(v, 10);
-  return (v && !isNaN(n)) ? n : 1;
+  if (v && !isNaN(n)) return n;
+  return NUMERO_EMBARQUE_INICIAL_POR_UNIDADE.hasOwnProperty(unidade)
+    ? NUMERO_EMBARQUE_INICIAL_POR_UNIDADE[unidade]
+    : NUMERO_EMBARQUE_INICIAL_PADRAO;
 }
 function _avancarNumeroEmbarqueManual() {
   PropertiesService.getScriptProperties()
     .setProperty(_propUnidade('NUMERO_EMBARQUE_MANUAL'), String(_numeroEmbarqueManualAtual() + 1));
 }
 
+/** Próximo número de embarque desta unidade, pra mostrar na tela Confirmar Embarque. */
+function obterProximoNumeroEmbarque(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  return { ok: true, numero: _numeroEmbarqueManualAtual() };
+}
+
+/**
+ * Ajusta na mão o próximo número de embarque desta unidade (não mexe nos já
+ * confirmados) — usado quando a numeração do sistema precisa alinhar com a
+ * sequência real (ex.: reiniciar/pular pra um número específico).
+ */
+function definirProximoNumeroEmbarque(token, numero) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  var n = parseInt(numero, 10);
+  if (!n || n < 1) throw new Error('Informe um número de embarque válido (maior que zero).');
+  PropertiesService.getScriptProperties().setProperty(_propUnidade('NUMERO_EMBARQUE_MANUAL'), String(n));
+  return { ok: true, numero: n };
+}
+
 /**
  * Última taxa de mão de obra (R$/kg) usada nesta unidade — memorizada a cada
- * confirmação de embarque pra pré-preencher a tela na próxima vez. Guardada
- * por unidade (ver `_propUnidade`), como os e-mails e a numeração. Devolve
- * null se nunca foi definida.
+ * confirmação de embarque E a cada edição do campo na tela (ver
+ * `salvarCustoMaoObra`), pra pré-preencher a tela Confirmar Embarque na
+ * próxima vez, mesmo que a confirmação anterior não tenha chegado a acontecer
+ * (ex.: barrada pela checagem de duplicidade). Guardada por unidade (ver
+ * `_propUnidade`), como os e-mails e a numeração. Devolve null se nunca foi
+ * definida.
  */
 function _custoMaoObraSalvo() {
   var v = PropertiesService.getScriptProperties().getProperty(_propUnidade('CUSTO_MAO_OBRA'));
@@ -460,6 +496,16 @@ function _definirCustoMaoObra(n) {
 function obterCustoMaoObra(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   return { ok: true, custoMaoObra: _custoMaoObraSalvo() };
+}
+
+/** Salva a taxa de mão de obra assim que o usuário edita o campo na tela —
+ * não espera uma confirmação de embarque acontecer (ver docstring acima). */
+function salvarCustoMaoObra(token, valor) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  var n = parseFloat(String(valor == null ? '' : valor).replace(',', '.'));
+  if (isNaN(n) || n < 0) n = 0;
+  _definirCustoMaoObra(n);
+  return { ok: true, custoMaoObra: n };
 }
 
 /**
