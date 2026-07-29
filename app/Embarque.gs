@@ -600,8 +600,9 @@ function confirmarEmbarqueManual(token, params) {
         porTipo[chaveTipo].lotes.push({
           item: item, nf: c.nf, fornecedor: c.fornecedor || '',
           dataNf: c.dataNf, peso: c.peso, saldoApos: c.saldoApos,
-          // Preço unitário da NF de onde o fio saiu (pedido dos usuários).
-          precoUnitario: c.precoUnitario
+          // Preço unitário e quantidade original da NF de onde o fio saiu
+          // (pedido dos usuários).
+          precoUnitario: c.precoUnitario, quantidadeNf: c.quantidadeNf
         });
       });
     });
@@ -712,9 +713,10 @@ function _moedaBR(v) {
  * anexo). Um bloco por tipo de fio: cabeçalho do tipo (com total tingido e o
  * total de mão de obra do grupo), a tabela de itens tingidos daquele tipo
  * (com o custo de mão de obra de cada item) e, abaixo, o consumo no estoque
- * de fio crú (item, NF, fornecedor, data da NF, PREÇO UNITÁRIO daquela NF,
- * peso consumido e saldo restante — listando TODAS as NFs usadas). No fim, o
- * total geral de mão de obra do embarque.
+ * de fio crú (item, NF, fornecedor, data da NF, quantidade ORIGINAL da nota,
+ * PREÇO UNITÁRIO dela, peso consumido e SALDO restante — listando TODAS as
+ * NFs usadas; preço e saldo saem em destaque, que é o que os usuários
+ * procuram primeiro). No fim, o total geral de mão de obra do embarque.
  * Cada item tem uma coluna "Observação" (ex.: "COMPLETO", ou o texto digitado
  * nos casos parciais), e `observacao` (geral, digitada na tela) sai no fim.
  *
@@ -740,12 +742,26 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
   function th(t) { return '<th style="' + thStyle + '">' + t + '</th>'; }
   function td(v) { return '<td style="' + tdStyle + '">' + v + '</td>'; }
 
+  // As duas colunas que os usuários leem primeiro (preço unitário da NF e
+  // saldo restante) saem em DESTAQUE: cabeçalho e célula com fundo próprio,
+  // negrito e um corpo maior que o resto da tabela.
+  var thStyleDestaque = 'border:1px solid #0B4576;padding:' + d.pad + ';background:#0B4576;' +
+    'color:#FFD98A;text-align:left;font-size:' + d.fonte + 'px;font-weight:bold';
+  function thD(t) { return '<th style="' + thStyleDestaque + '">' + t + '</th>'; }
+  function tdD(v, fundo, cor) {
+    return '<td style="' + tdStyle + ';background:' + fundo + ';color:' + cor +
+      ';font-weight:bold;font-size:' + (d.fonte + 1) + 'px;white-space:nowrap">' + v + '</td>';
+  }
+
   var thItens = ['Item', 'Volumes', 'Quantidade (kg)', 'Mão de obra (R$)', 'Observação'].map(th).join('');
-  // "Preço unit. (R$)" = preço do fio naquela NF (pedido dos usuários, pra
-  // saber a que preço entrou o fio que está sendo baixado).
-  var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Preço unit. (R$)',
-                 'Peso consumido (kg)', 'Saldo restante (kg)'].map(th).join('');
-  var COLS_LOTES = 7;
+  // Consumo de fio crú: a NF de onde saiu a baixa, com a QUANTIDADE ORIGINAL
+  // da nota, o PREÇO UNITÁRIO dela (a que preço aquele fio entrou), o quanto
+  // foi consumido agora e o SALDO que ficou. Preço e saldo em destaque —
+  // pedido dos usuários.
+  var thLotes = th('Item') + th('NF') + th('Fornecedor') + th('Data da NF') +
+    th('Qtd. da NF (kg)') + thD('Preço unit. (R$)') + th('Peso consumido (kg)') +
+    thD('Saldo restante (kg)');
+  var COLS_LOTES = 8;
   var rotuloFonte = Math.max(d.fonte - 1, 8);
 
   var totalGeral = 0;
@@ -777,8 +793,18 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
           // NF sem preço cadastrado sai como "—" (não inventa zero).
           var precoCel = (l.precoUnitario === '' || l.precoUnitario == null)
             ? '—' : _moedaBR(l.precoUnitario);
+          var qtdNfCel = (l.quantidadeNf === '' || l.quantidadeNf == null)
+            ? '—' : _numeroBR(l.quantidadeNf);
+          // Saldo zerado ou negativo vai em vermelho: a NF acabou (ou passou).
+          var saldoNum = Number(l.saldoApos);
+          var saldoCel = (l.saldoApos === '' || l.saldoApos == null || isNaN(saldoNum))
+            ? '—' : _numeroBR(saldoNum);
+          var saldoVazio = !isNaN(saldoNum) && saldoNum <= 0;
           return '<tr>' + td(l.item) + td(l.nf || '—') + td(l.fornecedor || '—') +
-            td(l.dataNf || '—') + td(precoCel) + td(l.peso) + td(l.saldoApos) + '</tr>';
+            td(l.dataNf || '—') + td(qtdNfCel) +
+            tdD(precoCel, '#EAF2FB', '#0B4576') + td(l.peso) +
+            tdD(saldoCel, saldoVazio ? '#FDECEA' : '#FFF7E0', saldoVazio ? '#B91C1C' : '#7A5B12') +
+            '</tr>';
         }).join('')
       : '<tr><td colspan="' + COLS_LOTES + '" style="' + tdStyle + ';color:#94a3b8">' +
         msgSemLotes + '</td></tr>';
