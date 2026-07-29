@@ -123,6 +123,35 @@
   }
   .topo nav button:hover { background: rgba(255,255,255,.14); }
   .topo nav button.ativo { background: #fff; color: var(--azul-esc); font-weight: 600; }
+  /* Bolinha de "tem novidade" no menu (Relatório atualizado). */
+  .topo nav button .ponto-novidade {
+    display: inline-block; width: 8px; height: 8px; margin-left: 6px;
+    border-radius: 50%; background: #E74C3C; vertical-align: middle;
+    box-shadow: 0 0 0 2px rgba(231,76,60,.25);
+    animation: pulsa-novidade 1.6s ease-in-out infinite;
+  }
+  @keyframes pulsa-novidade {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+  }
+  /* Faixa "o que mudou na última atualização", no topo do Relatório. */
+  .faixa-atualizacao {
+    border: 1px solid #BFE0C7; background: #F1F9F3; color: #24603A;
+    border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0 0 12px;
+  }
+  .faixa-atualizacao b { color: #1B4D2E; }
+  .badge-item-novo, .badge-item-alterado {
+    display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px;
+    border-radius: 999px; margin-left: 4px; vertical-align: middle;
+  }
+  .badge-item-novo { background: #E8F5EA; color: #1E7A3C; border: 1px solid #BFE0C7; }
+  .badge-item-alterado { background: #FFF4E0; color: #96601A; border: 1px solid #F0D6A8; }
+  /* Faixa que separa os blocos do Relatório (um por nº de embarque). */
+  table.dados tr.linha-grupo td {
+    font-weight: 700; font-size: 12px; color: #0B4576; letter-spacing: .03em;
+    padding: 6px 10px; border-top: 2px solid #0F5FA0;
+  }
+  table.dados tbody tr.linha-grupo:hover { background: transparent; }
   #sel-unidade {
     background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.35);
     padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
@@ -275,6 +304,8 @@
        pegada do PDF que sai por e-mail. */
     @page { margin: 8mm; }
     .topo, .usuario-box, #menu, .no-print, #ting-msg, #rel-msg, #legenda-critico, .desc { display: none !important; }
+    /* Marcações de "o que mudou" são para a tela; na folha só o pedido. */
+    .faixa-atualizacao, .badge-item-novo, .badge-item-alterado { display: none !important; }
     .so-print { display: block; color: #0B4576; margin: 0 0 8px; }
     .cabecalho-relatorio.so-print { display: flex; }
     /* Cabeçalho compacto na folha: logo e título menores, menos espaço. */

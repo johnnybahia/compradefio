@@ -498,8 +498,18 @@ function obterCustoMaoObra(token) {
  * confirmado for MENOR ou igual ao já tingido, a marcação não muda nada
  * (segue o ajuste normal, inclusive crédito de volta).
  *
+ * MALOTE (params.malote): quando o embarque leva um malote junto, o relatório
+ * avisa. Dois casos, escolhidos na tela:
+ *   - `modo: 'fios'`   → o malote segue COM os fios, na mesma nota: o PDF só
+ *                        informa que existe; nada muda nos números.
+ *   - `modo: 'volumes'`→ o malote vai em NOTA SEPARADA: o PDF ganha um campo
+ *                        próprio com a quantidade de volumes do malote, pro
+ *                        usuário emitir a nota só dele. Esses volumes NÃO
+ *                        entram no total de volumes dos fios.
+ *
  * Por ora, só o master e o almoxarifado 1 usam esta tela — ver `exigirSessao`.
- * @param {Object} params { itens: [{item, quantidade, doEstoque}], custoMaoObra }
+ * @param {Object} params { itens: [{item, quantidade, doEstoque}], custoMaoObra,
+ *                          observacao, malote: {ativo, modo, volumes} }
  * @return {Object} { ok, numero, gravados, baixados, resumo, custoMaoObra }
  */
 function confirmarEmbarqueManual(token, params) {
@@ -522,6 +532,8 @@ function confirmarEmbarqueManual(token, params) {
   // Aceita vírgula ou ponto como separador decimal; nunca negativa; vazio = 0.
   var custoMaoObra = parseFloat(String(params.custoMaoObra == null ? '' : params.custoMaoObra).replace(',', '.'));
   if (isNaN(custoMaoObra) || custoMaoObra < 0) custoMaoObra = 0;
+
+  var malote = _normalizarMalote(params.malote);
 
   var lista = _destinatariosCompra().split(/[;,]/)
     .map(function (e) { return e.trim(); })
@@ -587,7 +599,10 @@ function confirmarEmbarqueManual(token, params) {
       (consumoPorItem[_norm(item)] || []).forEach(function (c) {
         porTipo[chaveTipo].lotes.push({
           item: item, nf: c.nf, fornecedor: c.fornecedor || '',
-          dataNf: c.dataNf, peso: c.peso, saldoApos: c.saldoApos
+          dataNf: c.dataNf, peso: c.peso, saldoApos: c.saldoApos,
+          // Preço unitário e quantidade original da NF de onde o fio saiu
+          // (pedido dos usuários).
+          precoUnitario: c.precoUnitario, quantidadeNf: c.quantidadeNf
         });
       });
     });
@@ -611,7 +626,7 @@ function confirmarEmbarqueManual(token, params) {
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
-  var html = _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao);
+  var html = _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao, malote);
   var pdf = Utilities.newBlob(html, MimeType.HTML, 'confirmacao.html').getAs(MimeType.PDF)
     .setName('Confirmacao de Embarque Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
   MailApp.sendEmail({
@@ -619,8 +634,8 @@ function confirmarEmbarqueManual(token, params) {
     subject: 'Confirmação de Embarque ' + unidade + ' nº ' + numero + ' - ' + dataFmt,
     htmlBody: '<p style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">Segue em anexo a Confirmação ' +
       'de Embarque ' + unidade + ' nº <b>' + numero + '</b>, de <b>' + dataFmt + '</b> — com os itens ' +
-      'embarcados, o consumo no estoque de fio crú (por tipo de fio, com NF e fornecedor) e o custo de ' +
-      'mão de obra.</p>',
+      'embarcados, o total de volumes, o consumo no estoque de fio crú (por tipo de fio, com NF e ' +
+      'fornecedor) e o custo de mão de obra.' + _avisoMaloteEmail(malote) + '</p>',
     attachments: [pdf]
   });
   // Memoriza a taxa usada agora, pra pré-preencher a próxima confirmação
@@ -629,8 +644,51 @@ function confirmarEmbarqueManual(token, params) {
 
   return {
     ok: true, numero: numero, gravados: r.gravados, baixados: r.baixados,
-    resumo: resumo, custoMaoObra: custoMaoObra, destinatarios: lista.length
+    resumo: resumo, custoMaoObra: custoMaoObra, destinatarios: lista.length,
+    volumesTotal: _totalVolumesResumo(resumo), malote: malote
   };
+}
+
+/**
+ * Normaliza o malote informado na tela. `modo` só pode ser:
+ *   'fios'    — segue junto com os fios (mesma nota): o PDF só informa;
+ *   'volumes' — nota separada só do malote: exige a quantidade de volumes.
+ * Sem malote (ou marcado sem escolher nada), devolve { ativo: false }.
+ */
+function _normalizarMalote(m) {
+  m = m || {};
+  if (!m.ativo) return { ativo: false, modo: '', volumes: 0 };
+  var modo = String(m.modo || '').trim().toLowerCase();
+  if (modo !== 'volumes') return { ativo: true, modo: 'fios', volumes: 0 };
+  var vol = parseFloat(String(m.volumes == null ? '' : m.volumes).replace(',', '.'));
+  if (isNaN(vol) || vol <= 0) {
+    throw new Error('Malote com nota separada: informe a quantidade de volumes do malote ' +
+      '(ou marque "segue com os fios").');
+  }
+  return { ativo: true, modo: 'volumes', volumes: vol };
+}
+
+/** Soma dos volumes dos itens do embarque (não inclui o malote em nota separada). */
+function _totalVolumesResumo(resumo) {
+  return (resumo || []).reduce(function (acc, g) {
+    return acc + (g.itens || []).reduce(function (a, it) { return a + (Number(it.volumes) || 0); }, 0);
+  }, 0);
+}
+
+/** Frase curta sobre o malote pro corpo do e-mail (vazia quando não há malote). */
+function _avisoMaloteEmail(malote) {
+  if (!malote || !malote.ativo) return '';
+  return malote.modo === 'volumes'
+    ? ' <b>Atenção: este embarque leva MALOTE em nota separada — ' + _numeroBR(malote.volumes) +
+      ' volume(s)</b> (ver o campo próprio no PDF).'
+    : ' <b>Atenção: este embarque leva um MALOTE, seguindo junto com os fios.</b>';
+}
+
+/** Número no formato brasileiro, sem casas decimais desnecessárias (ex.: 3, 2,5). */
+function _numeroBR(v) {
+  var n = Number(v) || 0;
+  var s = (Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/, '');
+  return s.replace('.', ',');
 }
 
 /** Escapa texto digitado pelo usuário pra entrar com segurança no HTML do e-mail. */
@@ -655,20 +713,28 @@ function _moedaBR(v) {
  * anexo). Um bloco por tipo de fio: cabeçalho do tipo (com total tingido e o
  * total de mão de obra do grupo), a tabela de itens tingidos daquele tipo
  * (com o custo de mão de obra de cada item) e, abaixo, o consumo no estoque
- * de fio crú (item, NF, fornecedor, data da NF, peso consumido e saldo
- * restante — listando TODAS as NFs usadas). No fim, o total geral de mão de
- * obra do embarque.
+ * de fio crú (item, NF, fornecedor, data da NF, quantidade ORIGINAL da nota,
+ * PREÇO UNITÁRIO dela, peso consumido e SALDO restante — listando TODAS as
+ * NFs usadas; preço e saldo saem em destaque, que é o que os usuários
+ * procuram primeiro). No fim, o total geral de mão de obra do embarque.
  * Cada item tem uma coluna "Observação" (ex.: "COMPLETO", ou o texto digitado
  * nos casos parciais), e `observacao` (geral, digitada na tela) sai no fim.
+ *
+ * Totais do rodapé: o TOTAL DE VOLUMES dos fios e o total de mão de obra —
+ * este sempre acompanhado da BASE usada (R$/kg × kg tingidos), pra quem lê
+ * saber de onde saiu o valor. O malote, quando existe, ganha um bloco
+ * próprio (com os volumes dele, quando vai em nota separada).
+ *
  * @param {number} custoMaoObra  taxa única em R$ por kg tingido.
  * @param {string} observacao    observação geral, opcional.
+ * @param {Object} malote        { ativo, modo: 'fios'|'volumes', volumes }.
  */
-function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao) {
+function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao, malote) {
   // Densidade conforme o tamanho total do relatório (itens + NFs + chrome de
   // cada bloco), pra tentar caber numa página A4 retrato (ver `_densidadeRelatorio`).
   var linhasEstimadas = resumo.reduce(function (a, g) {
     return a + g.itens.length + Math.max(g.lotes.length, 1) + 3;
-  }, 0);
+  }, 0) + ((malote && malote.ativo) ? 3 : 0);
   var d = _densidadeRelatorio(linhasEstimadas);
   var thStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';background:#0F5FA0;' +
     'color:#fff;text-align:left;font-size:' + d.fonte + 'px';
@@ -676,14 +742,36 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
   function th(t) { return '<th style="' + thStyle + '">' + t + '</th>'; }
   function td(v) { return '<td style="' + tdStyle + '">' + v + '</td>'; }
 
+  // As duas colunas que os usuários leem primeiro (preço unitário da NF e
+  // saldo restante) saem em DESTAQUE: cabeçalho e célula com fundo próprio,
+  // negrito e um corpo maior que o resto da tabela.
+  var thStyleDestaque = 'border:1px solid #0B4576;padding:' + d.pad + ';background:#0B4576;' +
+    'color:#FFD98A;text-align:left;font-size:' + d.fonte + 'px;font-weight:bold';
+  function thD(t) { return '<th style="' + thStyleDestaque + '">' + t + '</th>'; }
+  function tdD(v, fundo, cor) {
+    return '<td style="' + tdStyle + ';background:' + fundo + ';color:' + cor +
+      ';font-weight:bold;font-size:' + (d.fonte + 1) + 'px;white-space:nowrap">' + v + '</td>';
+  }
+
   var thItens = ['Item', 'Volumes', 'Quantidade (kg)', 'Mão de obra (R$)', 'Observação'].map(th).join('');
-  var thLotes = ['Item', 'NF', 'Fornecedor', 'Data da NF', 'Peso consumido (kg)', 'Saldo restante (kg)']
-    .map(th).join('');
+  // Consumo de fio crú: a NF de onde saiu a baixa, com a QUANTIDADE ORIGINAL
+  // da nota, o PREÇO UNITÁRIO dela (a que preço aquele fio entrou), o quanto
+  // foi consumido agora e o SALDO que ficou. Preço e saldo em destaque —
+  // pedido dos usuários.
+  var thLotes = th('Item') + th('NF') + th('Fornecedor') + th('Data da NF') +
+    th('Qtd. da NF (kg)') + thD('Preço unit. (R$)') + th('Peso consumido (kg)') +
+    thD('Saldo restante (kg)');
+  var COLS_LOTES = 8;
   var rotuloFonte = Math.max(d.fonte - 1, 8);
 
   var totalGeral = 0;
+  var totalVolumes = 0;
+  var totalKgTingido = 0;
   var blocos = resumo.map(function (g) {
     totalGeral += g.maoObra || 0;
+    totalKgTingido += Number(g.totalTingido) || 0;
+    var volumesGrupo = (g.itens || []).reduce(function (a, it) { return a + (Number(it.volumes) || 0); }, 0);
+    totalVolumes += volumesGrupo;
 
     var rowsItens = g.itens.map(function (it) {
       var qtdEstoque = Number(it.qtdEstoque) || 0;
@@ -702,15 +790,30 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
       : 'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)';
     var rowsLotes = g.lotes.length
       ? g.lotes.map(function (l) {
+          // NF sem preço cadastrado sai como "—" (não inventa zero).
+          var precoCel = (l.precoUnitario === '' || l.precoUnitario == null)
+            ? '—' : _moedaBR(l.precoUnitario);
+          var qtdNfCel = (l.quantidadeNf === '' || l.quantidadeNf == null)
+            ? '—' : _numeroBR(l.quantidadeNf);
+          // Saldo zerado ou negativo vai em vermelho: a NF acabou (ou passou).
+          var saldoNum = Number(l.saldoApos);
+          var saldoCel = (l.saldoApos === '' || l.saldoApos == null || isNaN(saldoNum))
+            ? '—' : _numeroBR(saldoNum);
+          var saldoVazio = !isNaN(saldoNum) && saldoNum <= 0;
           return '<tr>' + td(l.item) + td(l.nf || '—') + td(l.fornecedor || '—') +
-            td(l.dataNf || '—') + td(l.peso) + td(l.saldoApos) + '</tr>';
+            td(l.dataNf || '—') + td(qtdNfCel) +
+            tdD(precoCel, '#EAF2FB', '#0B4576') + td(l.peso) +
+            tdD(saldoCel, saldoVazio ? '#FDECEA' : '#FFF7E0', saldoVazio ? '#B91C1C' : '#7A5B12') +
+            '</tr>';
         }).join('')
-      : '<tr><td colspan="6" style="' + tdStyle + ';color:#94a3b8">' + msgSemLotes + '</td></tr>';
+      : '<tr><td colspan="' + COLS_LOTES + '" style="' + tdStyle + ';color:#94a3b8">' +
+        msgSemLotes + '</td></tr>';
 
     var totalEstoque = Number(g.totalEstoque) || 0;
     var rotuloTotais = totalEstoque > 0
       ? g.totalTingido + ' kg tingido · ' + totalEstoque + ' kg do estoque'
       : g.totalTingido + ' kg tingido';
+    if (volumesGrupo > 0) rotuloTotais += ' · ' + _numeroBR(volumesGrupo) + ' volume(s)';
     var titulo = '<table style="border-collapse:collapse;width:100%;margin-bottom:6px"><tr>' +
       '<td style="vertical-align:middle">' +
         '<span style="color:#0B4576;font-size:' + (d.fonte + 2) + 'px;font-weight:bold">' + g.tipoFio + '</span>' +
@@ -734,10 +837,44 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     '</div>';
   }).join('');
 
+  // Rodapé de totais: volumes dos fios de um lado; mão de obra do outro,
+  // sempre mostrando a BASE do cálculo (R$/kg × kg tingidos) — foi o que o
+  // usuário pediu pra conferir o valor sem ter que refazer a conta.
+  var baseMaoObra = custoMaoObra > 0
+    ? '<span style="font-weight:normal;font-size:' + Math.max(d.fonte - 0.5, 8) + 'px">' +
+        '(base: ' + _moedaBR(custoMaoObra) + '/kg × ' + _numeroBR(totalKgTingido) + ' kg tingidos)</span>'
+    : '<span style="font-weight:normal;font-size:' + Math.max(d.fonte - 0.5, 8) + 'px">' +
+        '(sem taxa de mão de obra informada)</span>';
   var totalGeralHtml = '<table style="border-collapse:collapse;width:100%;margin-top:2px"><tr>' +
+    '<td style="padding:6px 10px;background:#0B4576;color:#fff;font-size:' + d.titulo + 'px;' +
+      'font-weight:bold;border-radius:5px 0 0 5px;white-space:nowrap">' +
+      'Total de volumes: ' + _numeroBR(totalVolumes) + '</td>' +
     '<td style="text-align:right;padding:6px 10px;background:#0B4576;color:#fff;font-size:' + d.titulo + 'px;' +
-    'font-weight:bold;border-radius:5px">Total geral de mão de obra: ' + _moedaBR(totalGeral) + '</td>' +
+      'font-weight:bold;border-radius:0 5px 5px 0">Total geral de mão de obra: ' + _moedaBR(totalGeral) +
+      ' &nbsp;' + baseMaoObra + '</td>' +
   '</tr></table>';
+
+  // Malote: bloco próprio, em destaque. Em nota separada, os volumes dele
+  // ficam num campo à parte — é a partir dele que a nota do malote é emitida
+  // (por isso NÃO entram no total de volumes dos fios, acima).
+  var maloteHtml = '';
+  if (malote && malote.ativo) {
+    var maloteTexto = malote.modo === 'volumes'
+      ? '<table style="border-collapse:collapse;margin-top:4px"><tr>' +
+          '<td style="' + tdStyle + ';background:#FEF3C7;font-weight:bold">Volumes do malote</td>' +
+          '<td style="' + tdStyle + ';font-weight:bold">' + _numeroBR(malote.volumes) + '</td>' +
+          '<td style="' + tdStyle + ';color:#92400E">nota fiscal SEPARADA, só do malote — ' +
+            'não entra no total de volumes dos fios</td>' +
+        '</tr></table>'
+      : '<p style="margin:2px 0 0;font-size:' + d.fonte + 'px">Segue <b>junto com os fios</b> ' +
+        '(mesma nota) — sem volumes separados.</p>';
+    maloteHtml =
+      '<div style="margin-top:8px;border:1px solid #F0C36D;background:#FFFBEB;border-radius:6px;padding:8px 10px">' +
+        '<p style="margin:0;font-size:' + rotuloFonte + 'px;color:#92400E;font-weight:bold;' +
+          'text-transform:uppercase;letter-spacing:.04em">MALOTE</p>' +
+        maloteTexto +
+      '</div>';
+  }
 
   // CONFIG.LOGO_URL: URL externa fixa (ver Config.gs) — sem arquivo/base64
   // embutido; se o link não carregar, o PDF só fica sem a imagem (alt).
@@ -765,6 +902,7 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     cabecalho +
     blocos +
     totalGeralHtml +
+    maloteHtml +
     observacaoHtml +
     '<p style="color:#64748b;font-size:9px;margin-top:8px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
@@ -877,7 +1015,7 @@ function listarUltimosEmbarques(token, limite) {
     var chave = _normNumero(numEmb);
     if (!chave || vistos[chave]) continue;
     vistos[chave] = true;
-    numeros.push(numEmb);
+    numeros.push(_textoCelula(numEmb)); // nunca o valor cru (ver `_textoCelula`)
   }
 
   return { ok: true, numeros: numeros };
@@ -898,11 +1036,12 @@ function listarHistoricoEmbarquesConfirmados(token, limite) {
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
-      item: r.CORES,
+      // Nada de valor cru de célula na resposta (ver `_textoCelula`).
+      item: _textoCelula(r.CORES),
       quantidade: Number(r.PESO) || 0,
-      numero: r.EMBARQUE,
+      numero: _textoCelula(r.EMBARQUE),
       data: _soData(r.DATA),
-      situacao: r['SITUAÇÃO'] == null ? '' : String(r['SITUAÇÃO']).trim()
+      situacao: _textoCelula(r['SITUAÇÃO']).trim()
     };
   }).reverse().slice(0, limite);
   return { ok: true, linhas: linhas };
@@ -1426,7 +1565,10 @@ function _atualizarPendenciasEmbarque() {
   return {
     pendentes: linhas.length,
     linhas: linhas.map(function (l) {
-      return { item: l[0], embarque: l[1], quantidade: l[2], dataEmbarque: _soData(l[3]) };
+      return {
+        item: _textoCelula(l[0]), embarque: _textoCelula(l[1]),
+        quantidade: _numeroCelula(l[2]), dataEmbarque: _soData(l[3])
+      };
     })
   };
 }
@@ -1437,11 +1579,11 @@ function listarPendenciasEmbarque(token) {
   var regs = lerRegistros(CONFIG.SHEETS.PENDENCIAS_EMBARQUE);
   var linhas = regs.map(function (r) {
     return {
-      item: r.ITEM,
-      embarque: r.EMBARQUE,
-      quantidade: r.QUANTIDADE,
+      item: _textoCelula(r.ITEM),
+      embarque: _textoCelula(r.EMBARQUE),
+      quantidade: _numeroCelula(r.QUANTIDADE),
       dataEmbarque: _soData(r.DATA_EMBARQUE),
-      observacao: r.OBSERVACAO
+      observacao: _textoCelula(r.OBSERVACAO)
     };
   });
   return { ok: true, linhas: linhas };

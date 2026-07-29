@@ -421,7 +421,7 @@ function listarUsuarios(token) {
     unidadesDisponiveis: CONFIG.UNIDADES.map(function (u) { return { id: u.id, rotulo: u.rotulo }; }),
     usuarios: registros.map(function (r) {
       return {
-        usuario: r.USUARIO, nome: r.NOME, papel: r.PAPEL,
+        usuario: _textoCelula(r.USUARIO), nome: _textoCelula(r.NOME), papel: _textoCelula(r.PAPEL),
         ativo: _usuarioAtivo(r.ATIVO),
         unidades: _unidadesDoUsuario(r),
         // true quando vale pra todas as empresas (coluna vazia) — inclui futuras.

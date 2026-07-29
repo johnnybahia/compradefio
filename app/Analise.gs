@@ -324,7 +324,26 @@ function gerarRelacaoDeCompra(token, params) {
 function obterRelacaoDeCompra(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   var registros = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
-  return { ok: true, colunas: RELACAO_COMPRA_HEADERS, linhas: registros };
+  // Nunca devolve o registro cru: valor de célula que a serialização do
+  // google.script.run não engole (erro de fórmula, data corrompida) faz a
+  // resposta INTEIRA voltar nula e o painel some sem explicação. Cada coluna
+  // vira texto, número ou data conforme o que ela é (ver `_textoCelula`).
+  var numericas = {
+    SALDO: 1, EM_VIAGEM: 1, ESTOQUE_ENCONTRADO: 1, CONSUMO_MEDIO: 1,
+    SUGERIDO: 1, EM_ABERTO: 1, A_COMPRAR: 1, VOLUMES: 1
+  };
+  var linhas = registros.map(function (r) {
+    var o = { __row: r.__row };
+    RELACAO_COMPRA_HEADERS.forEach(function (h) {
+      if (h === 'ITEM') o[h] = _itemDeCelula(r[h]);
+      else if (h === 'DATA_LIMITE') o[h] = _soData(r[h]);
+      else if (h === 'GERADO_EM') o[h] = _dataHoraCelula(r[h]);
+      else if (numericas[h]) o[h] = _numeroCelula(r[h]);
+      else o[h] = _textoCelula(r[h]);
+    });
+    return o;
+  });
+  return { ok: true, colunas: RELACAO_COMPRA_HEADERS, linhas: linhas };
 }
 
 /**

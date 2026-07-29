@@ -43,6 +43,53 @@ sua própria Propriedade do script).
   nos e-mails; se o link cair, a imagem só se oculta (`onerror`), nunca
   quebra a página. `Logo.html` é um arquivo antigo (base64), sem uso.
 
+## Aviso de "Relatório atualizado"
+
+A tela **Relatório** é a referência da lista de itens. Sempre que ela muda —
+item novo, quantidade/data alterada, baixa (embarque) ou item que saiu — todo
+mundo que estiver com o sistema aberto recebe uma **caixa de aviso com um
+único botão OK**, dizendo *o que* mudou.
+
+Como funciona (ver `_revisaoRelatorio` em `Consultas.gs`):
+
+1. A cada leitura do relatório o servidor calcula uma "impressão digital" do
+   conteúdo (item + quantidade + data limite + status + volumes + observação +
+   nº do pedido).
+2. Mudou a impressão digital → a **revisão** avança de número e fica gravado
+   *o que* mudou (itens novos, alterados e que saíram), na aba **oculta**
+   `RELATORIO_REVISAO` — uma por unidade, criada sozinha na primeira vez.
+3. O navegador de cada usuário pergunta a revisão atual a cada minuto
+   (`verificarRevisaoRelatorio`, com cache curto no servidor pra não reler a
+   planilha a cada pergunta) e também ao voltar para a aba do navegador. Se a
+   revisão for maior que a última que **aquele** usuário confirmou (guardada
+   no `localStorage`, por unidade), abre o aviso.
+4. Além da caixa: **bolinha vermelha** no menu *Relatório* e, dentro da tela,
+   uma faixa com a data da última atualização e selos **novo** / **alterado**
+   nos itens que mudaram — quem chegou depois ainda enxerga o que mudou.
+
+O primeiro acesso de cada navegador só memoriza a revisão (não avisa de
+mudança que aconteceu antes de o usuário chegar). Abrir a tela Relatório
+também confirma a revisão — quem está olhando a lista atualizada não precisa
+do aviso.
+
+## Confirmação de embarque (PDF do e-mail)
+
+O PDF anexo ao e-mail de confirmação traz, além dos itens por tipo de fio e do
+consumo de fio crú:
+
+- **Total de volumes** dos fios (e o subtotal de volumes em cada tipo de fio).
+- No consumo de fio crú, o **preço unitário da NF** de onde o fio saiu (ao
+  lado de fornecedor e data). NF sem preço cadastrado aparece como `—`.
+- **Total de mão de obra** com a **base do cálculo** ao lado
+  (`R$ x,xx/kg × N kg tingidos`), pra conferir o valor sem refazer a conta.
+- **MALOTE**, quando marcado na tela Confirmar Embarque (caixa logo abaixo da
+  observação geral):
+  - *Segue com os fios* — o PDF só informa que há malote; nada muda nos números.
+  - *Nota separada* — o PDF ganha o campo **Volumes do malote**, que é a base
+    para emitir a nota só dele. Esses volumes **não** entram no total de
+    volumes dos fios. Sem quantidade informada, a confirmação é barrada (tela
+    e servidor).
+
 ## Arquivos
 
 | Arquivo | Papel |

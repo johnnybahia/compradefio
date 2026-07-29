@@ -137,6 +137,7 @@ var CONFIG = {
     PENDENCIAS_EMBARQUE: 'PENDENCIAS EMBARQUE', // itens de embarque parcialmente lançados no estoque
     EMBARQUE_ESTORNO: 'EMBARQUE_ESTORNO', // instantâneo por embarque (consumo de crú + pendência) pra permitir cancelar
     PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // backlog vivo: acumula até dar baixa (embarque confirmado ou remoção manual)
+    RELATORIO_REVISAO: 'RELATORIO_REVISAO', // controle interno (aba oculta): revisão do Relatório, pra avisar todo mundo quando muda
     RELACAO_COMPRA: 'RELACAO_COMPRA', // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
     FIO_CRU_ENTRADAS: 'FIO_CRU_ENTRADAS', // lotes de fio crú recebidos (um por NF + tipo de fio)
     FIO_CRU_BAIXAS: 'FIO_CRU_BAIXAS',     // histórico de baixas no fio crú (tingimento consumindo os lotes)

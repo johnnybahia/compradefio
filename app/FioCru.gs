@@ -134,7 +134,7 @@ function _lerLotesFioCru() {
       return {
         linha: r.__row,
         tipoFio: r.TIPO_FIO == null ? '' : String(r.TIPO_FIO).trim(),
-        nf: r.NF,
+        nf: r.NF, // cru de propósito: é o valor que casa com as baixas/ajustes já gravados
         fornecedor: r.FORNECEDOR == null ? '' : String(r.FORNECEDOR).trim(),
         quantidade: Number(r.QUANTIDADE) || 0,
         precoUnitario: Number(r.PRECO_UNITARIO) || 0,
@@ -449,8 +449,10 @@ function _consumoCruPorItens(itens) {
     if (!acum[k]) acum[k] = {};
     if (!acum[k][chave]) {
       acum[k][chave] = {
-        chave: chave, nf: r.NF, dataNf: _soData(r.DATA_NF), peso: 0,
-        tipoFio: r.TIPO_FIO == null ? '' : String(r.TIPO_FIO).trim()
+        // Este resultado só vai pra tela/PDF (o casamento usa `chave`), então
+        // a NF já sai como texto — ver `_textoCelula`.
+        chave: chave, nf: _textoCelula(r.NF), dataNf: _soData(r.DATA_NF), peso: 0,
+        tipoFio: _textoCelula(r.TIPO_FIO).trim()
       };
     }
     acum[k][chave].peso += Number(r.QUANTIDADE) || 0;
@@ -465,6 +467,11 @@ function _consumoCruPorItens(itens) {
       lista.push({
         tipoFio: g.tipoFio, nf: g.nf, dataNf: g.dataNf, peso: g.peso,
         fornecedor: lote ? (lote.fornecedor || '') : '',
+        // Preço unitário e quantidade ORIGINAL da NF de onde saiu a baixa —
+        // vão no relatório de confirmação de embarque, pra saber a que preço
+        // (e de que nota) aquele fio entrou.
+        precoUnitario: (lote && lote.precoUnitario) ? lote.precoUnitario : '',
+        quantidadeNf: lote ? lote.quantidade : '',
         saldoApos: lote ? lote.saldo : ''
       });
     });
@@ -595,7 +602,9 @@ function listarEstoqueFioCru(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var linhas = _saldosFioCru().map(function (l) {
     return {
-      linha: l.linha, tipoFio: l.tipoFio, nf: l.nf, fornecedor: l.fornecedor,
+      // `nf` vem crua do lote (a chave de casamento usa o valor original) —
+      // aqui, indo pra tela, tem que virar texto (ver `_textoCelula`).
+      linha: l.linha, tipoFio: l.tipoFio, nf: _textoCelula(l.nf), fornecedor: l.fornecedor,
       quantidade: l.quantidade, precoUnitario: l.precoUnitario, data: _soData(l.data),
       situacao: l.situacao, saldo: l.saldo, ajustado: l.ajustado, inicioBaixa: l.inicioBaixa,
       editadoEm: l.editadoEm ? Utilities.formatDate(l.editadoEm, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '',
@@ -795,35 +804,37 @@ function ajustarSaldoFioCru(token, linha, delta, motivo) {
   return { ok: true, saldoApos: saldoApos };
 }
 
-/** Histórico de ajustes manuais de saldo (mais recente primeiro), pra tela de administração. */
+/** Histórico de ajustes manuais de saldo (mais recente primeiro), pra tela de administração.
+ * Todo campo passa por _textoCelula/_numeroCelula: valor cru de célula (data
+ * corrompida, erro de fórmula) faz a resposta inteira voltar nula. */
 function listarAjustesFioCru(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var regs = lerRegistros(CONFIG.SHEETS.FIO_CRU_AJUSTES);
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
-      dataHora: r.DATA_HORA instanceof Date
-        ? Utilities.formatDate(r.DATA_HORA, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
-        : String(r.DATA_HORA || ''),
-      tipoFio: r.TIPO_FIO, nf: r.NF, dataNf: _soData(r.DATA_NF),
-      quantidade: r.QUANTIDADE, motivo: r.MOTIVO, saldoApos: r.SALDO_NF_APOS, usuario: r.USUARIO
+      dataHora: _dataHoraCelula(r.DATA_HORA),
+      tipoFio: _textoCelula(r.TIPO_FIO), nf: _textoCelula(r.NF), dataNf: _soData(r.DATA_NF),
+      quantidade: _numeroCelula(r.QUANTIDADE), motivo: _textoCelula(r.MOTIVO),
+      saldoApos: _numeroCelula(r.SALDO_NF_APOS), usuario: _textoCelula(r.USUARIO)
     };
   }).reverse();
   return { ok: true, linhas: linhas };
 }
 
-/** Histórico de baixas do fio crú (mais recente primeiro), pra tela de administração. */
+/** Histórico de baixas do fio crú (mais recente primeiro), pra tela de administração.
+ * Mesma blindagem de `listarAjustesFioCru` — foi justamente aqui que a tela da
+ * Bahia quebrou com "o servidor não devolveu resposta". */
 function listarBaixasFioCru(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var regs = lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS);
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
-      dataHora: r.DATA_HORA instanceof Date
-        ? Utilities.formatDate(r.DATA_HORA, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
-        : String(r.DATA_HORA || ''),
-      tipoFio: r.TIPO_FIO, nf: r.NF, dataNf: _soData(r.DATA_NF), item: r.ITEM,
-      quantidade: r.QUANTIDADE, saldoApos: r.SALDO_NF_APOS, usuario: r.USUARIO
+      dataHora: _dataHoraCelula(r.DATA_HORA),
+      tipoFio: _textoCelula(r.TIPO_FIO), nf: _textoCelula(r.NF), dataNf: _soData(r.DATA_NF),
+      item: _textoCelula(r.ITEM), quantidade: _numeroCelula(r.QUANTIDADE),
+      saldoApos: _numeroCelula(r.SALDO_NF_APOS), usuario: _textoCelula(r.USUARIO)
     };
   }).reverse();
   return { ok: true, linhas: linhas };
