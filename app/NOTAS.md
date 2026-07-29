@@ -37,7 +37,7 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
 
 | Procedimento | O que faz | Dá pra desfazer hoje? |
 |---|---|---|
-| **Confirmar Embarque** | Baixa fio crú + baixa lista pendente + grava em EMBARQUES + e-mail (PDF) | ✅ **Sim** agora — botão "Cancelar embarque" (por número, no histórico): estorna o crú (baixa compensatória a partir do instantâneo `EMBARQUE_ESTORNO`), devolve os itens à pendência, marca CANCELADO e (opcional) manda e-mail de cancelamento. O e-mail original não volta. |
+| **Confirmar Embarque** | Baixa fio crú + baixa lista pendente + grava em EMBARQUES + e-mail (PDF) | ✅ **Sim** agora — botão "Cancelar embarque" (por número, no histórico): estorna o crú (baixa compensatória a partir do instantâneo `EMBARQUE_ESTORNO`), devolve os itens à pendência, marca CANCELADO e (opcional) manda e-mail de cancelamento. O e-mail original não volta. Marcando **"era embarque duplicado"**, os itens NÃO voltam à pendência (a mercadoria saiu uma vez só). |
 | **Enviar urgência** (Tingimento) | Escreve "URGENTE" na observação + e-mail | ✅ **Sim** agora — botão "limpar urgência" por item (master e Programação) tira o "URGENTE" da observação. O e-mail já enviado não volta. |
 | **Enviar Pedido de Fio** (e-mail) | Envia PDF + avança o nº do pedido | E-mail não "desenvia"; não mexe na lista pendente (nada a reverter nos dados). |
 | **Gerar compra** (Análise) | Grava/atualiza PENDENCIA_COMPRA | ✅ Dá pra remover item a item ou zerar a lista. |
@@ -49,6 +49,28 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
    `EMBARQUE_ESTORNO` gravado na confirmação. Reverte crú e pendência com
    precisão. Embarque já "chegou" não pode ser cancelado por aqui.
 2. ✅ **Limpar urgência** — `limparUrgenciaTingimento`.
+
+## Clique duplo na Confirmação de Embarque (resolvido)
+
+Aconteceu de verdade (Bahia, embarques nº 3 e nº 4): o usuário confirmou, não
+percebeu que tinha dado certo — o envio leva alguns segundos — e confirmou de
+novo. Resultado: dois números de embarque, o mesmo item contado **duas vezes
+como "em viagem"**, a mão de obra cobrada em dobro (R$ 3.136,16 × 2) e um
+segundo e-mail com o relatório errado (tudo sob "tipo de fio não
+identificado", porque os itens já tinham saído da lista pendente).
+
+Três barreiras, nesta ordem:
+
+1. **Tela** — o botão trava no primeiro clique ("Confirmando…") e o modal de
+   confirmação só aceita uma resposta (`respondido`), então repique de toque
+   não dispara duas vezes.
+2. **Trava de execução** (`_travaEmbarque`, LockService) — dois cliques quase
+   simultâneos não rodam em paralelo; o segundo espera e cai na barreira 3.
+3. **Servidor** (`_conferirEmbarqueDuplicado`) — recusa quando (a) o mesmo
+   conjunto item+quantidade foi confirmado há menos de 30 min nesta unidade,
+   ou (b) **nenhum** dos itens está mais na lista pendente. A mensagem começa
+   com `DUPLICADO:` e a tela oferece "Confirmar mesmo assim" (`confirmarDuplicado`)
+   para o caso legítimo de uma segunda remessa igual.
 
 > Observação geral: **e-mail enviado não volta.** O máximo que dá é mandar uma
 > mensagem de cancelamento/retificação. Por isso, idealmente, toda ação com

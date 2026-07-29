@@ -493,8 +493,18 @@ function confirmarModal(titulo, texto, rotuloDestaque, rotuloSecundario, callbac
       '</div>' +
     '</div>';
   document.body.appendChild(overlay);
-  overlay.querySelector('#modal-btn-destaque').onclick = function () { document.body.removeChild(overlay); callback(true); };
-  overlay.querySelector('#modal-btn-secundario').onclick = function () { document.body.removeChild(overlay); callback(false); };
+  // `respondido` evita que um clique duplo (ou repique de toque no celular)
+  // dispare o callback duas vezes — foi assim que um embarque saiu confirmado
+  // em duplicidade, com dois números e dois e-mails.
+  var respondido = false;
+  var responder = function (valor) {
+    if (respondido) return;
+    respondido = true;
+    if (overlay.parentNode) document.body.removeChild(overlay);
+    callback(valor);
+  };
+  overlay.querySelector('#modal-btn-destaque').onclick = function () { responder(true); };
+  overlay.querySelector('#modal-btn-secundario').onclick = function () { responder(false); };
 }
 
 /** Caixa de aviso com um único botão (OK) — usada no aviso de relatório
@@ -1569,16 +1579,26 @@ function viewConfirmarEmbarque(alvo) {
               '<input type="text" id="cancel-emb-num" placeholder="ex.: 5"></div>' +
             '<label style="font-weight:400;white-space:nowrap">' +
               '<input type="checkbox" id="cancel-emb-email"> avisar por e-mail</label>' +
+            '<label style="font-weight:400;white-space:nowrap" ' +
+              'title="Marque quando este número for uma confirmação REPETIDA do mesmo embarque: ' +
+              'a mercadoria saiu uma vez só, então os itens não podem voltar para a lista de compra">' +
+              '<input type="checkbox" id="cancel-emb-duplicado"> era embarque duplicado</label>' +
             '<button class="btn-principal" id="btn-cancelar-embarque" style="background:#B91C1C">Cancelar embarque</button>' +
           '</div>' +
           '<p class="desc" style="margin-top:0">Estorna o consumo de fio crú, devolve os itens à lista pendente e ' +
-          'marca o embarque como CANCELADO. O e-mail já enviado não volta.</p>' +
+          'marca o embarque como CANCELADO. O e-mail já enviado não volta. Marcando ' +
+          '<b>"era embarque duplicado"</b>, os itens <b>não</b> voltam para a lista pendente — use quando o ' +
+          'mesmo embarque foi confirmado duas vezes por engano (a mercadoria saiu só uma vez).</p>' +
           '<div id="cancel-emb-msg"></div>'
         : '') +
       '<div class="tabela-wrap" id="tabela-historico-embarque"></div>' +
     '</section>';
 
-  document.getElementById('btn-confirmar-embarque').onclick = confirmarEmbarqueSelecionado;
+  // Sem passar o evento adiante: `confirmarEmbarqueSelecionado` recebe um
+  // booleano (forçar duplicado), e um Event seria lido como `true`.
+  document.getElementById('btn-confirmar-embarque').onclick = function () {
+    confirmarEmbarqueSelecionado(false);
+  };
   var btnHist = document.getElementById('btn-historico-embarque');
   if (btnHist) btnHist.onclick = togglePainelHistoricoEmbarque;
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
@@ -1645,11 +1665,17 @@ function cancelarEmbarquePorNumero() {
   var msg = document.getElementById('cancel-emb-msg');
   var numero = (document.getElementById('cancel-emb-num').value || '').trim();
   var avisar = document.getElementById('cancel-emb-email').checked;
+  var chkDup = document.getElementById('cancel-emb-duplicado');
+  var duplicado = !!(chkDup && chkDup.checked);
   if (!numero) { msg.innerHTML = '<div class="aviso erro">Informe o número do embarque.</div>'; return; }
   confirmarModal(
     'Cancelar embarque nº ' + numero + '?',
-    'Isso vai <b>estornar o consumo de fio crú</b> desse embarque, <b>devolver os itens à lista pendente</b> ' +
-    'e marcar o embarque como CANCELADO.' + (avisar ? ' Um e-mail de cancelamento será enviado aos contatos.' : '') +
+    'Isso vai <b>estornar o consumo de fio crú</b> desse embarque e marcar o embarque como CANCELADO. ' +
+    (duplicado
+      ? 'Como está marcado <b>"era embarque duplicado"</b>, os itens <b>NÃO</b> voltam para a lista pendente ' +
+        '(a mercadoria saiu uma vez só, no embarque original).'
+      : 'Os itens <b>voltam para a lista pendente</b> de compra.') +
+    (avisar ? ' Um e-mail de cancelamento será enviado aos contatos.' : '') +
     ' O e-mail de confirmação original não pode ser desfeito.',
     'Cancelar embarque', 'Voltar',
     function (ok) {
@@ -1657,16 +1683,20 @@ function cancelarEmbarquePorNumero() {
       var btn = document.getElementById('btn-cancelar-embarque');
       btn.disabled = true;
       msg.innerHTML = '<div class="aviso"><span class="carregando">Cancelando…</span></div>';
-      chamar('cancelarEmbarque', sessao.token, numero, avisar)
+      chamar('cancelarEmbarque', sessao.token, numero, avisar, !duplicado)
         .then(function (r) {
           btn.disabled = false;
           var extra = r.semInstantaneo
             ? ' (embarque antigo, sem instantâneo de estorno — confira o fio crú manualmente)'
             : '';
-          msg.innerHTML = '<div class="aviso ok">Embarque nº ' + r.numero + ' cancelado: ' + r.itens +
-            ' item(ns) devolvido(s) à pendência, ' + r.creditosCru + ' crédito(s) no fio crú' +
+          var destino = r.devolveuPendencia
+            ? r.itens + ' item(ns) devolvido(s) à pendência'
+            : r.itens + ' item(ns) baixado(s) do histórico (duplicado — nada voltou para a pendência)';
+          msg.innerHTML = '<div class="aviso ok">Embarque nº ' + r.numero + ' cancelado: ' + destino +
+            ', ' + r.creditosCru + ' crédito(s) no fio crú' +
             (r.destinatarios ? ', e-mail para ' + r.destinatarios + ' destinatário(s)' : '') + '.' + extra + '</div>';
           document.getElementById('cancel-emb-num').value = '';
+          if (chkDup) chkDup.checked = false;
           carregarHistoricoEmbarque();
           carregarListaConfirmarEmbarque(); // a lista pendente mudou
         })
@@ -1883,8 +1913,18 @@ function renderConfirmarEmbarque() {
   aplicarRegua(wrap);
 }
 
-function confirmarEmbarqueSelecionado() {
+/* Confirmação em andamento: enquanto for true, nenhum clique novo passa. É a
+ * primeira barreira contra o clique duplo (a segunda é o servidor, que recusa
+ * confirmação repetida — ver `_conferirEmbarqueDuplicado`). */
+var confirmandoEmbarque = false;
+
+function confirmarEmbarqueSelecionado(forcarDuplicado) {
   var msg = document.getElementById('embarque-msg');
+  if (confirmandoEmbarque) {
+    msg.innerHTML = '<div class="aviso">A confirmação anterior ainda está sendo enviada — ' +
+      'aguarde o resultado antes de clicar de novo.</div>';
+    return;
+  }
   var selecionados = estadoConfirmarEmbarque.linhas.filter(function (l) {
     return l.selecionado && Number(l.quantidade) > 0;
   });
@@ -1923,18 +1963,34 @@ function confirmarEmbarqueSelecionado() {
           'o PDF traz o campo pra emitir a nota só dele.'
         : ' Vai um MALOTE junto com os fios (mesma nota) — o PDF só informa.');
 
+  var avisoForcado = forcarDuplicado
+    ? '<b style="color:#B91C1C">ATENÇÃO: o sistema já identificou esta confirmação como repetida. ' +
+      'Só siga se for mesmo um embarque NOVO — senão vai sair outro número, outro e-mail e a mão de ' +
+      'obra vai ser cobrada de novo.</b> '
+    : '';
   confirmarModal(
-    'Confirmar embarque?',
+    forcarDuplicado ? 'Confirmar mesmo assim?' : 'Confirmar embarque?',
+    avisoForcado +
     'Isso vai gravar ' + selecionados.length + ' item(ns) (total ' + num(totalKg) + ' kg) como embarcados, ' +
     'dar baixa na lista pendente de compra e no estoque de fio crú, e enviar o e-mail de confirmação ' +
     '(relatório em PDF anexo).' + linhaEstoque + linhaVolumes + linhaMaoObra + linhaMalote +
-    ' Não pode ser desfeito por aqui.',
-    'Confirmar', 'Cancelar',
+    ' Clique UMA vez e espere: o envio leva alguns segundos.',
+    forcarDuplicado ? 'Sim, é um embarque novo' : 'Confirmar', 'Cancelar',
     function (ok) {
       if (!ok) return;
       var btn = document.getElementById('btn-confirmar-embarque');
+      // Trava o botão (e qualquer clique novo) até a resposta do servidor.
+      confirmandoEmbarque = true;
       btn.disabled = true;
-      msg.innerHTML = '<div class="aviso"><span class="carregando">Confirmando e enviando e-mail…</span></div>';
+      var rotuloBtn = btn.textContent;
+      btn.textContent = 'Confirmando…';
+      msg.innerHTML = '<div class="aviso"><span class="carregando">Confirmando e enviando e-mail… ' +
+        'não feche a página nem clique de novo (leva alguns segundos).</span></div>';
+      var liberar = function () {
+        confirmandoEmbarque = false;
+        btn.disabled = false;
+        btn.textContent = rotuloBtn;
+      };
       var itens = selecionados.map(function (l) {
         return {
           item: l.item, quantidade: Number(l.quantidade), doEstoque: !!l.doEstoque,
@@ -1946,9 +2002,10 @@ function confirmarEmbarqueSelecionado() {
       var campoObs = document.getElementById('obs-embarque');
       var observacao = campoObs ? campoObs.value : '';
       chamar('confirmarEmbarqueManual', sessao.token,
-        { itens: itens, custoMaoObra: custoMaoObra, observacao: observacao, malote: malote })
+        { itens: itens, custoMaoObra: custoMaoObra, observacao: observacao, malote: malote,
+          confirmarDuplicado: !!forcarDuplicado })
         .then(function (r) {
-          btn.disabled = false;
+          liberar();
           var resumoTxt = r.resumo.map(function (g) {
             return g.tipoFio + ': ' + num(g.totalTingido) + ' kg' +
               (g.totalEstoque ? ' + ' + num(g.totalEstoque) + ' kg do estoque' : '') +
@@ -1966,9 +2023,30 @@ function confirmarEmbarqueSelecionado() {
           carregarListaConfirmarEmbarque();
         })
         .catch(function (err) {
-          btn.disabled = false;
+          liberar();
           var m = tratarErro(err);
-          if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+          if (!m) return;
+          // O servidor recusou por parecer reenvio (clique duplo). Mostra o
+          // motivo e deixa a decisão com o usuário, com um botão explícito.
+          if (m.indexOf('DUPLICADO:') !== -1) {
+            msg.innerHTML = '<div class="aviso erro">' +
+              escAttr(m.replace(/^.*DUPLICADO:\s*/, '')) +
+              '<div style="margin-top:10px">' +
+                '<button class="btn-principal" id="btn-forcar-embarque" style="background:#B91C1C">' +
+                'Confirmar mesmo assim</button>' +
+                '<button class="btn-principal" id="btn-ver-historico-dup" ' +
+                'style="background:#475569;margin-left:8px">Ver histórico de embarques</button>' +
+              '</div></div>';
+            document.getElementById('btn-forcar-embarque').onclick = function () {
+              confirmarEmbarqueSelecionado(true);
+            };
+            document.getElementById('btn-ver-historico-dup').onclick = function () {
+              var painel = document.getElementById('painel-historico-embarque');
+              if (painel) { painel.style.display = ''; carregarHistoricoEmbarque(); }
+            };
+            return;
+          }
+          msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
         });
     }
   );
