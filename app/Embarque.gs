@@ -542,6 +542,106 @@ function confirmarEmbarqueManual(token, params) {
     throw new Error('Informe pelo menos um e-mail de destino (mesma lista da tela de Tingimento) antes de confirmar.');
   }
 
+  // Trava contra CLIQUE DUPLO / reenvio (ver `_travaEmbarque` e
+  // `_conferirEmbarqueDuplicado`): duas confirmações do mesmo embarque geram
+  // dois números, cobram a mão de obra duas vezes, contam o mesmo item duas
+  // vezes como "em viagem" e mandam dois e-mails. Aconteceu de verdade
+  // (embarques nº 3 e nº 4 da Bahia).
+  var trava = _travaEmbarque();
+  try {
+    _conferirEmbarqueDuplicado(itens, !!params.confirmarDuplicado);
+    return _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, malote, lista);
+  } finally {
+    try { trava.releaseLock(); } catch (e) {}
+  }
+}
+
+/**
+ * Trava de execução da confirmação de embarque. Segura o segundo clique até o
+ * primeiro terminar — sem isso, dois cliques quase simultâneos passariam os
+ * dois pela checagem de duplicado (que ainda não teria o que comparar).
+ */
+function _travaEmbarque() {
+  var lock = LockService.getScriptLock();
+  var pegou = false;
+  try { pegou = lock.tryLock(60000); } catch (e) { pegou = false; }
+  if (!pegou) {
+    throw new Error('Já existe uma confirmação de embarque em andamento (pode ser um clique duplo). ' +
+      'Espere ela terminar e confira o histórico antes de tentar de novo.');
+  }
+  return lock;
+}
+
+/** Impressão digital do conjunto confirmado: item + quantidade, em ordem. */
+function _assinaturaEmbarque(itens) {
+  return itens.map(function (it) { return _norm(it.item) + '=' + (Number(it.quantidade) || 0); })
+    .sort().join(';');
+}
+
+/** Janela em que uma confirmação idêntica é tratada como clique duplo. */
+var EMBARQUE_JANELA_DUPLICADO_MIN = 30;
+
+/**
+ * Recusa a confirmação quando ela é, quase com certeza, um REENVIO do mesmo
+ * embarque. Dois sinais, cada um suficiente:
+ *
+ *  1. Mesmíssimo conjunto (itens + quantidades) confirmado há menos de
+ *     `EMBARQUE_JANELA_DUPLICADO_MIN` minutos nesta unidade.
+ *  2. NENHUM dos itens está mais na lista pendente (PENDENCIA_COMPRA) — a tela
+ *     só oferece itens que estão lá, então isso significa que eles já foram
+ *     baixados por uma confirmação anterior.
+ *
+ * `forcar` (a opção "confirmar mesmo assim" da tela) passa por cima dos dois —
+ * existe caso legítimo de repetir os mesmos itens (segunda remessa igual).
+ */
+function _conferirEmbarqueDuplicado(itens, forcar) {
+  if (forcar) return;
+
+  var registro = _ultimoEmbarqueConfirmado();
+  if (registro && registro.assinatura === _assinaturaEmbarque(itens)) {
+    var minutos = Math.max(0, Math.round((new Date().getTime() - (registro.quando || 0)) / 60000));
+    if (minutos <= EMBARQUE_JANELA_DUPLICADO_MIN) {
+      throw new Error('DUPLICADO: este mesmo embarque (' + itens.length + ' item(ns), mesmas quantidades) ' +
+        'já foi confirmado há ' + minutos + ' minuto(s) — nº ' + registro.numero +
+        (registro.usuario ? ', por ' + registro.usuario : '') + '. O e-mail já foi enviado. ' +
+        'Se for mesmo um embarque NOVO com os mesmos itens, use "Confirmar mesmo assim".');
+    }
+  }
+
+  var pendentes = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto).forEach(function (r) {
+    var k = _norm(_itemDeCelula(r.ITEM));
+    if (k) pendentes[k] = true;
+  });
+  var algumPendente = itens.some(function (it) { return pendentes[_norm(it.item)]; });
+  if (!algumPendente) {
+    throw new Error('DUPLICADO: nenhum destes itens está na lista pendente — eles já saíram dela, ' +
+      'o que normalmente quer dizer que este embarque já foi confirmado. Confira o histórico de ' +
+      'embarques confirmados. Se estiver certo, use "Confirmar mesmo assim".');
+  }
+}
+
+/** Última confirmação de embarque desta unidade (para detectar clique duplo). */
+function _ultimoEmbarqueConfirmado() {
+  var bruto = PropertiesService.getScriptProperties().getProperty(_propUnidade('ULTIMO_EMBARQUE_CONFIRMADO'));
+  if (!bruto) return null;
+  try { return JSON.parse(bruto); } catch (e) { return null; }
+}
+
+/** Registra a confirmação recém-feita (assinatura, número, quem e quando). */
+function _registrarUltimoEmbarqueConfirmado(itens, numero, usuario) {
+  try {
+    PropertiesService.getScriptProperties().setProperty(
+      _propUnidade('ULTIMO_EMBARQUE_CONFIRMADO'),
+      JSON.stringify({
+        assinatura: _assinaturaEmbarque(itens), numero: numero,
+        usuario: usuario || '', quando: new Date().getTime()
+      }));
+  } catch (e) { /* registro é proteção extra; não pode derrubar a confirmação */ }
+}
+
+/** Miolo da confirmação (já validada contra duplicidade — ver `confirmarEmbarqueManual`). */
+function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, malote, lista) {
   var tipoFioPorItem = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
     var k = _norm(r.ITEM);
@@ -559,7 +659,11 @@ function confirmarEmbarqueManual(token, params) {
   var deltaLotes = []; // só o que ESTA confirmação baixou/creditou (pro estorno)
   var itensPorTipo = {}; // chaveTipo -> [itens] (pra montar o consumo depois)
   itens.forEach(function (it) {
-    var tipoFio = tipoFioPorItem[_norm(it.item)] || '';
+    // Item que já saiu da lista pendente (ex.: confirmação forçada de um
+    // embarque repetido) não tem TIPO_FIO lá — cai na BASE TINGIMENTO, a mesma
+    // fonte que a tela de Tingimento usa. Antes, o relatório saía inteiro sob
+    // "(tipo de fio não identificado)".
+    var tipoFio = tipoFioPorItem[_norm(it.item)] || _lotesTingimentoDoItem(it.item).tipoFio || '';
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
     var jaTingido = tingidoAtualPorItem[_norm(it.item)] || 0;
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
@@ -623,6 +727,10 @@ function confirmarEmbarqueManual(token, params) {
   var agora = new Date();
   var r = _registrarEmbarqueEDarBaixa(itens, numero, agora, s.usuario, deltaLotes);
   _avancarNumeroEmbarqueManual(); // só agora — o registro já foi gravado
+  // Registra ANTES do e-mail: se o envio falhar e o usuário tentar de novo, o
+  // embarque já está gravado — a segunda tentativa tem que ser barrada como
+  // duplicada (ver `_conferirEmbarqueDuplicado`).
+  _registrarUltimoEmbarqueConfirmado(itens, numero, s.usuario);
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
@@ -1054,6 +1162,9 @@ function listarHistoricoEmbarquesConfirmados(token, limite) {
  *      estorno gravado na confirmação (`_registrarEstornoEmbarque`).
  *   2. Devolve as quantidades à lista pendente de compra (soma de volta numa
  *      linha aberta do item, ou recria a linha — ver `_restaurarPendenciaCompra`).
+ *      Pode ser desligado com `devolverPendencia = false`: é o caso do embarque
+ *      DUPLICADO (mesma confirmação enviada duas vezes), em que a mercadoria
+ *      saiu uma vez só e devolver os itens faria o sistema pedir compra à toa.
  *   3. Marca as linhas do embarque como CANCELADO (não some do histórico).
  *   4. Opcional: dispara um e-mail de cancelamento aos contatos da compra (o
  *      e-mail original não tem como ser "desenviado").
@@ -1062,8 +1173,15 @@ function listarHistoricoEmbarquesConfirmados(token, limite) {
  * cancelado. Embarques antigos sem instantâneo: reabre a pendência a partir
  * das linhas de EMBARQUES e avisa que o crú precisa ser conferido na mão.
  */
-function cancelarEmbarque(token, numero, avisarEmail) {
+function cancelarEmbarque(token, numero, avisarEmail, devolverPendencia) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  // Padrão: devolve os itens à lista pendente (o embarque não aconteceu).
+  // Quando o cancelamento é de um embarque DUPLICADO (o mesmo confirmado duas
+  // vezes por engano), a mercadoria foi mesmo embarcada uma vez — devolver os
+  // itens à pendência faria o sistema pedir compra de novo. Nesse caso a tela
+  // manda `devolverPendencia = false`: só apaga o embarque repetido.
+  var restaurarPendencia = (devolverPendencia === undefined || devolverPendencia === null)
+    ? true : !!devolverPendencia;
   numero = String(numero == null ? '' : numero).trim();
   if (!numero) throw new Error('Informe o número do embarque a cancelar.');
   var alvo = _normNumero(numero);
@@ -1095,7 +1213,7 @@ function cancelarEmbarque(token, numero, avisarEmail) {
   var itensRestaurar = (snap && snap.itens && snap.itens.length)
     ? snap.itens
     : linhasDoEmb.map(function (l) { return { item: l.item, quantidade: l.peso }; });
-  var restaurados = _restaurarPendenciaCompra(itensRestaurar, numero);
+  var restaurados = restaurarPendencia ? _restaurarPendenciaCompra(itensRestaurar, numero) : 0;
 
   linhasDoEmb.forEach(function (l) { sh.getRange(l.row, iSit + 1).setValue('CANCELADO'); });
   _marcarEstornoUsado(alvo);
@@ -1117,7 +1235,8 @@ function cancelarEmbarque(token, numero, avisarEmail) {
   }
   return {
     ok: true, numero: numero, itens: linhasDoEmb.length, restaurados: restaurados,
-    creditosCru: creditosCru, semInstantaneo: !snap, destinatarios: destinatarios
+    creditosCru: creditosCru, semInstantaneo: !snap, destinatarios: destinatarios,
+    devolveuPendencia: restaurarPendencia
   };
 }
 
