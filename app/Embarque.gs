@@ -980,7 +980,7 @@ function listarUltimosEmbarques(token, limite) {
     var chave = _normNumero(numEmb);
     if (!chave || vistos[chave]) continue;
     vistos[chave] = true;
-    numeros.push(numEmb);
+    numeros.push(_textoCelula(numEmb)); // nunca o valor cru (ver `_textoCelula`)
   }
 
   return { ok: true, numeros: numeros };
@@ -1001,11 +1001,12 @@ function listarHistoricoEmbarquesConfirmados(token, limite) {
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
-      item: r.CORES,
+      // Nada de valor cru de célula na resposta (ver `_textoCelula`).
+      item: _textoCelula(r.CORES),
       quantidade: Number(r.PESO) || 0,
-      numero: r.EMBARQUE,
+      numero: _textoCelula(r.EMBARQUE),
       data: _soData(r.DATA),
-      situacao: r['SITUAÇÃO'] == null ? '' : String(r['SITUAÇÃO']).trim()
+      situacao: _textoCelula(r['SITUAÇÃO']).trim()
     };
   }).reverse().slice(0, limite);
   return { ok: true, linhas: linhas };
@@ -1529,7 +1530,10 @@ function _atualizarPendenciasEmbarque() {
   return {
     pendentes: linhas.length,
     linhas: linhas.map(function (l) {
-      return { item: l[0], embarque: l[1], quantidade: l[2], dataEmbarque: _soData(l[3]) };
+      return {
+        item: _textoCelula(l[0]), embarque: _textoCelula(l[1]),
+        quantidade: _numeroCelula(l[2]), dataEmbarque: _soData(l[3])
+      };
     })
   };
 }
@@ -1540,11 +1544,11 @@ function listarPendenciasEmbarque(token) {
   var regs = lerRegistros(CONFIG.SHEETS.PENDENCIAS_EMBARQUE);
   var linhas = regs.map(function (r) {
     return {
-      item: r.ITEM,
-      embarque: r.EMBARQUE,
-      quantidade: r.QUANTIDADE,
+      item: _textoCelula(r.ITEM),
+      embarque: _textoCelula(r.EMBARQUE),
+      quantidade: _numeroCelula(r.QUANTIDADE),
       dataEmbarque: _soData(r.DATA_EMBARQUE),
-      observacao: r.OBSERVACAO
+      observacao: _textoCelula(r.OBSERVACAO)
     };
   });
   return { ok: true, linhas: linhas };

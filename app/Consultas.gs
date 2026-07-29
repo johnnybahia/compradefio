@@ -20,6 +20,20 @@ function _textoCelula(v) {
   return String(v);
 }
 
+/**
+ * Data + hora de uma célula, pra tela (dd/MM/aaaa HH:mm). Vale para as colunas
+ * de carimbo de tempo (DATA_HORA, GERADO_EM). Quando o valor não é data,
+ * devolve o texto — nunca o valor cru (ver `_textoCelula`).
+ */
+function _dataHoraCelula(v) {
+  if (v instanceof Date) {
+    return isNaN(v.getTime())
+      ? ''
+      : Utilities.formatDate(v, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+  }
+  return _textoCelula(v);
+}
+
 /** Converte um valor de célula em número; devolve '' quando não é numérico. */
 function _numeroCelula(v) {
   if (v === '' || v == null) return '';

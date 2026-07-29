@@ -15,14 +15,21 @@ function chamar(fn) {
   return new Promise(function (resolve, reject) {
     var runner = google.script.run
       .withSuccessHandler(function (resp) {
-        // Resposta vazia = a função existe mas não devolveu nada. Quase sempre
-        // é arquivo .gs desatualizado no Apps Script (ou implantação não
-        // republicada) — sem esta checagem, o erro que aparecia na tela era um
-        // "Cannot read properties of null", que não ajuda ninguém.
+        // Resposta vazia = a função existe mas não devolveu nada. Duas causas
+        // conhecidas: (1) arquivo .gs desatualizado no Apps Script/implantação
+        // não republicada; (2) a resposta levava um valor de célula que a
+        // serialização do google.script.run não engole (erro de fórmula
+        // #REF!/#N/A, data corrompida) — nesse caso a resposta INTEIRA volta
+        // nula, e é sempre numa planilha só (foi o caso da Bahia). No servidor,
+        // toda leitura que vai pra tela passa por `_textoCelula`/`_numeroCelula`
+        // justamente pra isso não acontecer. Sem esta checagem, o erro que
+        // aparecia na tela era um "Cannot read properties of null".
         if (resp === null || resp === undefined) {
           reject(new Error('O servidor não devolveu resposta em "' + fn + '". ' +
             'Confira se os arquivos .gs no Apps Script estão atualizados e publique ' +
-            'uma NOVA versão da implantação.'));
+            'uma NOVA versão da implantação. Se já estiverem, o mais provável é que ' +
+            'alguma célula desta planilha tenha um valor inválido (erro de fórmula ' +
+            'ou data corrompida) na aba lida por essa tela.'));
           return;
         }
         resolve(resp);

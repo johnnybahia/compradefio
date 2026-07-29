@@ -198,7 +198,10 @@ function compararEstoqueEntreUnidades(token) {
   var agora = new Date();
 
   var linhas = pendentes.map(function (r) {
-    var item = String(r.ITEM == null ? '' : r.ITEM).trim();
+    // _itemDeCelula: item que a planilha converteu em data volta a ser o
+    // código de verdade (ex.: 01/01/5108 → "5108/1") — e assim casa com o
+    // mesmo item na outra unidade.
+    var item = _itemDeCelula(r.ITEM).trim();
     var alvo = null, origem = '';
     var apr = aprendido[_norm(item)];
     if (apr) {
@@ -215,11 +218,12 @@ function compararEstoqueEntreUnidades(token) {
     return {
       linha: r.__row,
       item: item,
-      descricao: r.DESCRICAO == null ? '' : String(r.DESCRICAO),
-      tipoFio: r.TIPO_FIO == null ? '' : String(r.TIPO_FIO),
-      saldoAqui: r.SALDO,
+      // _textoCelula/_numeroCelula: nada de valor cru de célula na resposta.
+      descricao: _textoCelula(r.DESCRICAO),
+      tipoFio: _textoCelula(r.TIPO_FIO),
+      saldoAqui: _numeroCelula(r.SALDO),
       saldoCriticoAqui: _saldoCritico(r),
-      aComprar: r.SUGERIDO,
+      aComprar: _numeroCelula(r.SUGERIDO),
       dataLimite: _soData(r.DATA_LIMITE),
       itemOutra: alvo ? alvo.item : '',
       saldoOutra: alvo ? alvo.saldo : null,
