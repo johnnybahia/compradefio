@@ -87,6 +87,16 @@ sequência na mão, sem mexer nas Propriedades do script). A **taxa de mão de
 obra** é salva assim que o campo perde o foco — não depende de a confirmação
 do embarque dar certo. Os textos explicativos da tela ficam atrás de um link
 "Como funciona" (fechado por padrão).
+
+## Impressão do Relatório: escolher o que sai na folha
+
+Botão **"Imprimir relatório"** (aba Relatório) não imprime tudo de uma vez —
+pergunta primeiro *o que* imprimir: a **lista de itens pendentes** ou um dos
+**embarques já a caminho** (um por número, como aparecem agrupados na tela).
+A folha impressa traz só a lista escolhida, com um subtítulo dizendo qual é
+(`imprimirSelecaoRelatorio`, `abrirEscolhaImpressao` em `App.html`). Com uma
+única lista possível (ex.: nada embarcado ainda), pula a pergunta e imprime
+direto — não força escolha quando não há o que escolher.
 - **Total de mão de obra** com a **base do cálculo** ao lado
   (`R$ x,xx/kg × N kg tingidos`), pra conferir o valor sem refazer a conta.
 - **MALOTE**, quando marcado na tela Confirmar Embarque (caixa logo abaixo da
