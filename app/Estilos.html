@@ -177,6 +177,21 @@
   .painel h2 { margin: 0 0 4px; font-size: 18px; color: var(--azul-esc); }
   .painel .desc { margin: 0 0 18px; color: var(--texto-fraco); font-size: 13px; }
 
+  /* Texto explicativo longo, escondido por trás de um link — abre só quando
+     o usuário clica (ver `blocoAjuda` no App.html). Fica sempre fechado ao
+     entrar na tela. */
+  .ajuda-colapsavel { margin: 0 0 14px; }
+  .ajuda-colapsavel summary {
+    cursor: pointer; color: var(--azul); font-size: 13px; font-weight: 600;
+    list-style: none; display: inline-flex; align-items: center; gap: 5px;
+    user-select: none;
+  }
+  .ajuda-colapsavel summary::-webkit-details-marker { display: none; }
+  .ajuda-colapsavel summary::before { content: '▸'; font-size: 11px; transition: transform .15s; }
+  .ajuda-colapsavel[open] summary::before { transform: rotate(90deg); }
+  .ajuda-colapsavel summary:hover { text-decoration: underline; }
+  .ajuda-colapsavel .desc { margin: 8px 0 0; }
+
   .linha-form { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
   .linha-form .campo { margin-bottom: 0; }
   .linha-form .btn-principal { width: auto; padding: 12px 22px; margin-top: 0; }

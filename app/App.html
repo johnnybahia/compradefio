@@ -1192,6 +1192,16 @@ function escAttr(s) {
     .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Texto explicativo longo, escondido atrás de um link "Como funciona" — só
+ * abre quando o usuário clica (usa <details>, sem JS). Sempre fechado ao
+ * entrar na tela. `corpoHtml` é o texto de ajuda (pode ter <b>, listas etc). */
+function blocoAjuda(corpoHtml, rotulo) {
+  return '<details class="ajuda-colapsavel">' +
+    '<summary>' + (rotulo || 'Como funciona') + '</summary>' +
+    '<p class="desc">' + corpoHtml + '</p>' +
+  '</details>';
+}
+
 function renderTingimento(linhas) {
   var wrap = document.getElementById('tabela-ting');
   var legenda = document.getElementById('legenda-critico');
@@ -1511,9 +1521,7 @@ function viewConfirmarEmbarque(alvo) {
       '<b>editada</b>). Linhas em <span class="badge-tingido-completo">verde</span> já bateram o alvo de ' +
       'tingimento; em <span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele. O valor ' +
       'CONFIRMADO aqui é o que sai do estoque de fio crú e vai para o e-mail, mesmo que seja diferente do ' +
-      'que foi lançado antes: este é o procedimento final. A caixa <b>Do estoque</b> (à direita) indica que a ' +
-      'parte confirmada ACIMA do já tingido sai do estoque de produto pronto — sem consumir fio crú e sem ' +
-      'mão de obra nessa parte (ex.: tingiu 50, confirma 100 marcado → 50 do crú + 50 do estoque). ' +
+      'que foi lançado antes: este é o procedimento final. ' +
       'O e-mail de confirmação usa a mesma lista de ' +
       'destinatários configurada na tela de Tingimento — o PDF traz o <b>total de volumes</b> e a ' +
       '<b>base da mão de obra</b> (R$/kg × kg tingidos). Se o embarque levar <b>malote</b>, marque a caixa ' +
@@ -1524,7 +1532,18 @@ function viewConfirmarEmbarque(alvo) {
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>Confirmar Embarque</h2>' +
-      '<p class="desc">' + desc + '</p>' +
+      blocoAjuda(desc) +
+      (editavel
+        ? '<div id="bloco-numero-embarque" class="desc" style="margin:-8px 0 14px">' +
+            'Próximo número de embarque nesta unidade: <b id="prox-num-embarque">—</b> ' +
+            '<a href="#" id="link-ajustar-num-embarque">ajustar</a>' +
+            '<span id="ajustar-num-embarque-form" style="display:none;margin-left:8px">' +
+              '<input type="number" id="novo-num-embarque" min="1" step="1" ' +
+                'style="width:90px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px">' +
+              ' <button type="button" class="btn-atualizar-data" id="btn-salvar-num-embarque">Salvar</button>' +
+            '</span>' +
+          '</div>'
+        : '') +
       '<div id="embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       (editavel
@@ -1557,9 +1576,11 @@ function viewConfirmarEmbarque(alvo) {
                 '<input type="number" id="malote-volumes" min="0" step="any" placeholder="qtd." disabled ' +
                   'style="width:90px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;text-align:right">' +
               '</label>' +
-              '<p class="desc" style="margin:6px 0 0">Com volumes informados, o PDF ganha um campo próprio ' +
-              '<b>Malote / Volumes</b> — é a partir dele que a nota só do malote é emitida (esses volumes ' +
-              'não entram no total de volumes dos fios).</p>' +
+              blocoAjuda(
+                'Com volumes informados, o PDF ganha um campo próprio <b>Malote / Volumes</b> — é a partir ' +
+                'dele que a nota só do malote é emitida (esses volumes não entram no total de volumes dos fios).',
+                'O que muda no PDF'
+              ) +
             '</div>' +
           '</div>'
         : '') +
@@ -1571,8 +1592,10 @@ function viewConfirmarEmbarque(alvo) {
 
     '<section class="painel" id="painel-historico-embarque" style="display:none">' +
       '<h2>Histórico de embarques confirmados</h2>' +
-      '<p class="desc">Itens já confirmados (por aqui ou pelo PDF) — já saíram da lista de pendentes ' +
-      'acima; aqui é só pra consulta, mais recente primeiro.</p>' +
+      blocoAjuda(
+        'Itens já confirmados (por aqui ou pelo PDF) — já saíram da lista de pendentes acima; ' +
+        'aqui é só pra consulta, mais recente primeiro.'
+      ) +
       (editavel
         ? '<div class="linha-form" style="align-items:flex-end">' +
             '<div class="campo" style="max-width:170px"><label for="cancel-emb-num">Cancelar embarque nº</label>' +
@@ -1585,10 +1608,13 @@ function viewConfirmarEmbarque(alvo) {
               '<input type="checkbox" id="cancel-emb-duplicado"> era embarque duplicado</label>' +
             '<button class="btn-principal" id="btn-cancelar-embarque" style="background:#B91C1C">Cancelar embarque</button>' +
           '</div>' +
-          '<p class="desc" style="margin-top:0">Estorna o consumo de fio crú, devolve os itens à lista pendente e ' +
-          'marca o embarque como CANCELADO. O e-mail já enviado não volta. Marcando ' +
-          '<b>"era embarque duplicado"</b>, os itens <b>não</b> voltam para a lista pendente — use quando o ' +
-          'mesmo embarque foi confirmado duas vezes por engano (a mercadoria saiu só uma vez).</p>' +
+          blocoAjuda(
+            'Estorna o consumo de fio crú, devolve os itens à lista pendente e marca o embarque como ' +
+            'CANCELADO. O e-mail já enviado não volta. Marcando <b>"era embarque duplicado"</b>, os itens ' +
+            '<b>não</b> voltam para a lista pendente — use quando o mesmo embarque foi confirmado duas ' +
+            'vezes por engano (a mercadoria saiu só uma vez).',
+            'O que o cancelamento faz'
+          ) +
           '<div id="cancel-emb-msg"></div>'
         : '') +
       '<div class="tabela-wrap" id="tabela-historico-embarque"></div>' +
@@ -1607,6 +1633,57 @@ function viewConfirmarEmbarque(alvo) {
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
   carregarCustoMaoObra();
+  carregarProximoNumeroEmbarque();
+}
+
+/** Mostra o próximo número de embarque desta unidade e liga o link "ajustar"
+ * (só master/almox1 — a mesma numeração que sai na Confirmação de Embarque). */
+function carregarProximoNumeroEmbarque() {
+  var alvo = document.getElementById('prox-num-embarque');
+  if (!alvo) return; // só existe pra quem edita
+  chamar('obterProximoNumeroEmbarque', sessao.token)
+    .then(function (r) { alvo.textContent = r.numero != null ? r.numero : '—'; })
+    .catch(function () { alvo.textContent = '—'; });
+
+  var link = document.getElementById('link-ajustar-num-embarque');
+  var form = document.getElementById('ajustar-num-embarque-form');
+  var campo = document.getElementById('novo-num-embarque');
+  if (link) {
+    link.onclick = function (e) {
+      e.preventDefault();
+      form.style.display = form.style.display === 'none' ? 'inline' : 'none';
+      if (form.style.display !== 'none') { campo.value = alvo.textContent !== '—' ? alvo.textContent : ''; campo.focus(); }
+    };
+  }
+  var btn = document.getElementById('btn-salvar-num-embarque');
+  if (btn) {
+    btn.onclick = function () {
+      var v = parseInt(campo.value, 10);
+      if (!v || v < 1) { campo.focus(); return; }
+      confirmarModal(
+        'Ajustar o próximo número de embarque?',
+        'O <b>próximo</b> embarque confirmado nesta unidade vai sair com o número <b>' + v + '</b> ' +
+        '(os já confirmados não mudam). Use com cuidado — normalmente só é preciso uma vez, para ' +
+        'alinhar a numeração com a sequência real.',
+        'Salvar', 'Cancelar',
+        function (ok) {
+          if (!ok) return;
+          btn.disabled = true;
+          chamar('definirProximoNumeroEmbarque', sessao.token, v)
+            .then(function () {
+              btn.disabled = false;
+              form.style.display = 'none';
+              alvo.textContent = v;
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              var m = tratarErro(err);
+              if (m) alert(m);
+            });
+        }
+      );
+    };
+  }
 }
 
 /** Liga a caixa MALOTE: marcar abre as opções; o campo de volumes só fica
@@ -1713,13 +1790,23 @@ function cancelarEmbarquePorNumero() {
 function carregarCustoMaoObra() {
   var campo = document.getElementById('custo-mao-obra');
   if (!campo) return; // só existe pra quem edita
+  // Salva assim que o usuário sai do campo — não depende de completar uma
+  // confirmação de embarque (que pode falhar por outro motivo, ou ser
+  // barrada pela checagem de duplicidade) para o valor ficar guardado.
+  var ultimoSalvo = campo.value;
   chamar('obterCustoMaoObra', sessao.token)
     .then(function (r) {
       if (r && r.custoMaoObra != null && r.custoMaoObra !== '') {
         campo.value = String(r.custoMaoObra).replace('.', ',');
       }
+      ultimoSalvo = campo.value; // só depois de preenchido é que "nada mudou" faz sentido
     })
     .catch(function () {});
+  campo.addEventListener('blur', function () {
+    if (campo.value === ultimoSalvo) return; // nada mudou, não gasta chamada
+    ultimoSalvo = campo.value;
+    chamar('salvarCustoMaoObra', sessao.token, campo.value).catch(function () {});
+  });
 }
 
 function togglePainelHistoricoEmbarque() {
@@ -1857,10 +1944,7 @@ function renderConfirmarEmbarque() {
                 'placeholder="ex.: parcial — restante depois" value="' + escAttr(l.obs) + '" ' +
                 'style="width:100%;box-sizing:border-box;margin-top:3px;padding:4px 6px;' +
                 'border:1px solid #cbd5e1;border-radius:5px;font-size:12px">') +
-          '</td>' +
-          '<td style="text-align:center"><input type="checkbox" class="chk-grande chk-do-estoque" data-idx="' + i +
-          '" title="A parte confirmada acima do já tingido sai do estoque pronto, sem consumir fio crú"' +
-          (l.doEstoque ? ' checked' : '') + '></td>'
+          '</td>'
         : '') +
     '</tr>';
   }).join('');
@@ -1873,7 +1957,7 @@ function renderConfirmarEmbarque() {
       '<th style="text-align:center;width:5%">Volumes</th>' +
       '<th style="text-align:right;width:7%">Já tingido</th><th style="width:10%">Quantidade a confirmar</th>' +
       '<th style="width:' + (editavel
-        ? '11%">Situação</th><th style="width:16%">Observação (e-mail)</th><th style="width:5%">Do estoque'
+        ? '13%">Situação</th><th style="width:18%">Observação (e-mail)'
         : '24%">Situação') + '</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
@@ -1881,11 +1965,6 @@ function renderConfirmarEmbarque() {
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-embarcar'), function (chk) {
       chk.addEventListener('change', function () {
         estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].selecionado = chk.checked;
-      });
-    });
-    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-do-estoque'), function (chk) {
-      chk.addEventListener('change', function () {
-        estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].doEstoque = chk.checked;
       });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.vol-input'), function (inp) {
@@ -1939,11 +2018,6 @@ function confirmarEmbarqueSelecionado(forcarDuplicado) {
   var linhaMaoObra = taxa > 0
     ? ' Mão de obra: ' + moeda(taxa) + '/kg (total ' + moeda(totalKg * taxa) + ').'
     : ' Sem custo de mão de obra informado (R$ 0,00).';
-  var comDoEstoque = selecionados.filter(function (l) { return l.doEstoque; }).length;
-  var linhaEstoque = comDoEstoque
-    ? ' ' + comDoEstoque + ' item(ns) marcado(s) como "do estoque": a parte acima do já tingido sai do ' +
-      'estoque pronto, sem consumir fio crú (e sem mão de obra nessa parte).'
-    : '';
   var totalVolumes = selecionados.reduce(function (acc, l) { return acc + (Number(l.volumes) || 0); }, 0);
   var linhaVolumes = ' Total de volumes dos fios: ' + num(totalVolumes) + '.';
 
@@ -1973,7 +2047,7 @@ function confirmarEmbarqueSelecionado(forcarDuplicado) {
     avisoForcado +
     'Isso vai gravar ' + selecionados.length + ' item(ns) (total ' + num(totalKg) + ' kg) como embarcados, ' +
     'dar baixa na lista pendente de compra e no estoque de fio crú, e enviar o e-mail de confirmação ' +
-    '(relatório em PDF anexo).' + linhaEstoque + linhaVolumes + linhaMaoObra + linhaMalote +
+    '(relatório em PDF anexo).' + linhaVolumes + linhaMaoObra + linhaMalote +
     ' Clique UMA vez e espere: o envio leva alguns segundos.',
     forcarDuplicado ? 'Sim, é um embarque novo' : 'Confirmar', 'Cancelar',
     function (ok) {
