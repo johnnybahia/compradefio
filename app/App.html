@@ -534,6 +534,46 @@ function avisarModal(titulo, corpoHtml, rotuloOk, callback) {
   btn.focus();
 }
 
+/** Caixa com uma LISTA de opções clicáveis (em vez de Sim/Não) — usada pra
+ * escolher o que imprimir no Relatório. `opcoes`: [{ rotulo, subtitulo, valor }].
+ * `callback(valor)` recebe o valor escolhido, ou null se cancelou. */
+function escolherModal(titulo, corpoIntro, opcoes, callback) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px';
+  var linhasOpcoes = opcoes.map(function (o, i) {
+    return '<button type="button" class="opcao-escolha" data-i="' + i + '" style="display:block;' +
+      'width:100%;text-align:left;padding:12px 14px;margin-bottom:8px;border:1px solid #D8E0E8;' +
+      'border-radius:8px;background:#fff;cursor:pointer;font:inherit">' +
+      '<div style="font-weight:600;color:#0B4576">' + o.rotulo + '</div>' +
+      (o.subtitulo ? '<div style="font-size:12px;color:#64748b;margin-top:2px">' + o.subtitulo + '</div>' : '') +
+    '</button>';
+  }).join('');
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:480px;width:100%;' +
+      'padding:26px 26px 22px;box-shadow:0 20px 50px rgba(0,0,0,.28);max-height:80vh;overflow:auto">' +
+      '<h3 style="margin:0 0 10px;color:#0B4576;font-size:17px">' + titulo + '</h3>' +
+      (corpoIntro ? '<p style="margin:0 0 14px;color:#475569;font-size:14px">' + corpoIntro + '</p>' : '') +
+      '<div>' + linhasOpcoes + '</div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-top:4px">' +
+        '<button id="modal-btn-cancelar-escolha" style="padding:9px 16px;border:1px solid #D8E0E8;' +
+          'border-radius:8px;background:#fff;cursor:pointer;font-size:14px">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  var respondido = false;
+  var fechar = function (valor) {
+    if (respondido) return;
+    respondido = true;
+    if (overlay.parentNode) document.body.removeChild(overlay);
+    callback(valor);
+  };
+  Array.prototype.forEach.call(overlay.querySelectorAll('.opcao-escolha'), function (btn) {
+    btn.onclick = function () { fechar(opcoes[Number(btn.getAttribute('data-i'))].valor); };
+  });
+  overlay.querySelector('#modal-btn-cancelar-escolha').onclick = function () { fechar(null); };
+}
+
 /* ============================================================
    Aviso de "Relatório atualizado"
    ------------------------------------------------------------
@@ -3548,13 +3588,18 @@ function viewRelatorio(alvo) {
             '(horário de Fortaleza)</p>' +
         '</div>' +
       '</div>' +
+      // Só aparece na FOLHA impressa (ver `imprimirSelecaoRelatorio`) — diz
+      // qual lista/embarque foi escolhido pra imprimir.
+      '<p class="so-print" id="rel-impressao-subtitulo" style="font-weight:700;margin:-4px 0 10px"></p>' +
       '<p class="desc">O mesmo pedido que sai por e-mail — pra consultar direto no sistema, sem esperar. ' +
       'Linha destacada em <span style="color:#C0392B;font-weight:600">vermelho</span> tem saldo de estoque ' +
       'crítico. Primeiro vem o que <b>aguarda embarque</b>; depois o que está <b>em viagem</b>, ' +
       '<b>agrupado por nº do embarque</b> (do menor para o maior), com a data de saída, a previsão de ' +
       'chegada e o total de kg de cada um. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
       '<div class="no-print" style="margin:0 0 12px">' +
-        '<button class="btn-principal" id="btn-imprimir-relatorio">Imprimir relatório</button>' +
+        '<button class="btn-principal" id="btn-imprimir-relatorio" ' +
+          'title="Pergunta o que imprimir: a lista pendente ou um dos embarques já a caminho">' +
+          'Imprimir relatório</button>' +
         (podeEditar(['master'])
           ? '<button class="btn-principal" id="btn-config-chegada">Dias de recebimento</button>' +
             '<button class="btn-principal" id="btn-reparar-itens" ' +
@@ -3592,7 +3637,7 @@ function viewRelatorio(alvo) {
       '<div id="rel-atualizacao"></div>' +
       '<div class="tabela-wrap" id="tabela-relatorio"></div>' +
     '</section>';
-  document.getElementById('btn-imprimir-relatorio').onclick = function () { window.print(); };
+  document.getElementById('btn-imprimir-relatorio').onclick = abrirEscolhaImpressao;
   var busca = document.getElementById('rel-busca');
   busca.addEventListener('input', function () {
     estadoRelatorio.filtro = busca.value;
@@ -3782,6 +3827,97 @@ function resumoCurtoAtualizacao(rev) {
   return p.join(' · ');
 }
 
+var COLUNAS_RELATORIO = 10;
+
+/**
+ * Separa as linhas do relatório em duas partes: o que ainda AGUARDA embarque
+ * e o que está EM VIAGEM, agrupado por NÚMERO DE EMBARQUE (do menor número
+ * para o maior). Item que foi em mais de um embarque entra no grupo de cada
+ * um, com os kg daquela remessa. Puro (sem HTML) — usado tanto pra tela
+ * quanto pra montar a impressão de um grupo só (ver `abrirEscolhaImpressao`).
+ */
+function _agruparLinhasRelatorio(linhas) {
+  var aguardando = [];
+  var grupos = {}; // numero -> { numero, dataEmbarque, itens: [{linha, remessa}] }
+  linhas.forEach(function (l) {
+    var remessas = l.remessas || [];
+    if (!remessas.length) { aguardando.push(l); return; }
+    remessas.forEach(function (v) {
+      var chave = String(v.numero == null ? '' : v.numero).trim() || '—';
+      if (!grupos[chave]) grupos[chave] = { numero: chave, dataEmbarque: v.dataEmbarque || '', itens: [] };
+      if (!grupos[chave].dataEmbarque && v.dataEmbarque) grupos[chave].dataEmbarque = v.dataEmbarque;
+      grupos[chave].itens.push({ linha: l, remessa: v });
+    });
+  });
+  var ordemGrupos = Object.keys(grupos).sort(function (a, b) {
+    var na = parseFloat(String(a).replace(/[^\d.-]/g, ''));
+    var nb = parseFloat(String(b).replace(/[^\d.-]/g, ''));
+    var va = isNaN(na), vb = isNaN(nb);
+    if (va && vb) return a.localeCompare(b);
+    if (va) return 1;   // número não reconhecido vai pro fim
+    if (vb) return -1;
+    return na - nb;
+  });
+  return { aguardando: aguardando, grupos: grupos, ordemGrupos: ordemGrupos };
+}
+
+function _cabecalhoGrupoRelatorio(texto, cor) {
+  return '<tr class="linha-grupo"><td colspan="' + COLUNAS_RELATORIO + '" ' +
+    'style="background:' + cor + '">' + texto + '</td></tr>';
+}
+
+/** Uma linha (<tr>) da tabela do Relatório. `remessa` fixa a previsão mostrada
+ * a UMA remessa (dentro de um bloco de embarque); null mostra todas as do item. */
+function _linhaHtmlRelatorio(l, remessa) {
+  // Previsão: só a remessa deste bloco (fora do bloco, todas as do item).
+  var prevCel = '—';
+  var remessas = remessa ? [remessa] : (l.remessas || []);
+  if (remessas.length) {
+    prevCel = remessas.map(function (v) {
+      var dado = v.previsaoChegada
+        ? '<b style="color:#0B4576">' + v.previsaoChegada + '</b>'
+        : '<span class="sem-desc">a definir</span>';
+      return '<div title="Embarque ' + escAttr(v.numero) + ' de ' + escAttr(v.dataEmbarque || '—') + '">' +
+        dado + ' <span style="color:#64748b">· ' + num(v.quantidade) + ' kg</span></div>';
+    }).join('');
+  }
+  // Linha "embarcado": item que já saiu da lista pendente (o embarque foi
+  // lançado) mas ainda não chegou — continua aqui até ser marcado CHEGOU.
+  var embarcado = l.status === 'embarcado';
+  // Marca o que mudou na última atualização da lista (ver `mostrarUltimaAtualizacaoRelatorio`).
+  var marca = estadoRelatorio.marcas[semAcentoMinusculo(l.item || '')];
+  var selo = marca === 'novo'
+    ? ' <span class="badge-item-novo" title="Entrou na última atualização">novo</span>'
+    : (marca === 'alterado'
+        ? ' <span class="badge-item-alterado" title="Mudou na última atualização">alterado</span>'
+        : '');
+  return '<tr' + (l.saldoCritico ? ' class="destaque"' : (embarcado ? ' class="destaque-tingido-completo"' : '')) + '>' +
+    '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
+    '<td class="col-item">' + (l.item || '—') + selo +
+      (embarcado ? ' <span class="badge-tingido-completo">embarcado</span>' : '') + '</td>' +
+    '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
+    '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
+    '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
+    '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+    '<td style="text-align:center">' + (l.volumes !== '' && l.volumes != null ? l.volumes : '—') + '</td>' +
+    '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
+    '<td>' + prevCel + '</td>' +
+    '<td>' + (l.obs ? l.obs : '—') + '</td>' +
+  '</tr>';
+}
+
+/** Cabeçalho (<thead>) da tabela do Relatório — igual na tela e na impressão. */
+function _cabecalhoHtmlRelatorio() {
+  return '<thead><tr>' +
+    '<th style="width:7%">Solicitado em</th><th style="width:9%">Item</th>' +
+    '<th style="width:19%">Descrição</th><th style="width:11%">Cliente</th>' +
+    '<th style="width:10%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
+    '<th style="text-align:center;width:5%">Volumes</th>' +
+    '<th style="width:9%">Data limite</th><th style="width:10%">Previsão de chegada</th>' +
+    '<th style="width:13%">Observação</th>' +
+  '</tr></thead>';
+}
+
 function renderRelatorio() {
   var wrap = document.getElementById('tabela-relatorio');
   var todas = estadoRelatorio.linhas;
@@ -3804,82 +3940,16 @@ function renderRelatorio() {
     wrap.innerHTML = '<div class="vazio">Nenhum item encontrado para "' + escAttr(estadoRelatorio.filtro) + '".</div>';
     return;
   }
-  // Duas partes na tabela: primeiro o que ainda AGUARDA embarque; depois o que
-  // está EM VIAGEM, agrupado por NÚMERO DE EMBARQUE (um bloco por embarque,
-  // do menor número para o maior). Item que foi em mais de um embarque aparece
-  // no bloco de cada um, com os kg daquela remessa.
-  var aguardando = [];
-  var grupos = {}; // numero -> { numero, dataEmbarque, itens: [{linha, remessa}] }
-  linhas.forEach(function (l) {
-    var remessas = l.remessas || [];
-    if (!remessas.length) { aguardando.push(l); return; }
-    remessas.forEach(function (v) {
-      var chave = String(v.numero == null ? '' : v.numero).trim() || '—';
-      if (!grupos[chave]) grupos[chave] = { numero: chave, dataEmbarque: v.dataEmbarque || '', itens: [] };
-      if (!grupos[chave].dataEmbarque && v.dataEmbarque) grupos[chave].dataEmbarque = v.dataEmbarque;
-      grupos[chave].itens.push({ linha: l, remessa: v });
-    });
-  });
-  var ordemGrupos = Object.keys(grupos).sort(function (a, b) {
-    var na = parseFloat(String(a).replace(/[^\d.-]/g, ''));
-    var nb = parseFloat(String(b).replace(/[^\d.-]/g, ''));
-    var va = isNaN(na), vb = isNaN(nb);
-    if (va && vb) return a.localeCompare(b);
-    if (va) return 1;   // número não reconhecido vai pro fim
-    if (vb) return -1;
-    return na - nb;
-  });
-
-  var COLUNAS_RELATORIO = 10;
-  function cabecalhoGrupo(texto, cor) {
-    return '<tr class="linha-grupo"><td colspan="' + COLUNAS_RELATORIO + '" ' +
-      'style="background:' + cor + '">' + texto + '</td></tr>';
-  }
-  function linhaRelatorio(l, remessa) {
-    // Previsão: só a remessa deste bloco (fora do bloco, todas as do item).
-    var prevCel = '—';
-    var remessas = remessa ? [remessa] : (l.remessas || []);
-    if (remessas.length) {
-      prevCel = remessas.map(function (v) {
-        var dado = v.previsaoChegada
-          ? '<b style="color:#0B4576">' + v.previsaoChegada + '</b>'
-          : '<span class="sem-desc">a definir</span>';
-        return '<div title="Embarque ' + escAttr(v.numero) + ' de ' + escAttr(v.dataEmbarque || '—') + '">' +
-          dado + ' <span style="color:#64748b">· ' + num(v.quantidade) + ' kg</span></div>';
-      }).join('');
-    }
-    // Linha "embarcado": item que já saiu da lista pendente (o embarque foi
-    // lançado) mas ainda não chegou — continua aqui até ser marcado CHEGOU.
-    var embarcado = l.status === 'embarcado';
-    // Marca o que mudou na última atualização da lista (ver `mostrarUltimaAtualizacaoRelatorio`).
-    var marca = estadoRelatorio.marcas[semAcentoMinusculo(l.item || '')];
-    var selo = marca === 'novo'
-      ? ' <span class="badge-item-novo" title="Entrou na última atualização">novo</span>'
-      : (marca === 'alterado'
-          ? ' <span class="badge-item-alterado" title="Mudou na última atualização">alterado</span>'
-          : '');
-    return '<tr' + (l.saldoCritico ? ' class="destaque"' : (embarcado ? ' class="destaque-tingido-completo"' : '')) + '>' +
-      '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
-      '<td class="col-item">' + (l.item || '—') + selo +
-        (embarcado ? ' <span class="badge-tingido-completo">embarcado</span>' : '') + '</td>' +
-      '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
-      '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
-      '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
-      '<td style="text-align:center">' + (l.volumes !== '' && l.volumes != null ? l.volumes : '—') + '</td>' +
-      '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
-      '<td>' + prevCel + '</td>' +
-      '<td>' + (l.obs ? l.obs : '—') + '</td>' +
-    '</tr>';
-  }
+  var agrupado = _agruparLinhasRelatorio(linhas);
+  var aguardando = agrupado.aguardando, grupos = agrupado.grupos, ordemGrupos = agrupado.ordemGrupos;
 
   var body = '';
   if (aguardando.length) {
     // Só vale mostrar a divisória quando existe também algo em viagem.
     if (ordemGrupos.length) {
-      body += cabecalhoGrupo('AGUARDANDO EMBARQUE · ' + aguardando.length + ' item(ns)', '#EEF3F8');
+      body += _cabecalhoGrupoRelatorio('AGUARDANDO EMBARQUE · ' + aguardando.length + ' item(ns)', '#EEF3F8');
     }
-    body += aguardando.map(function (l) { return linhaRelatorio(l, null); }).join('');
+    body += aguardando.map(function (l) { return _linhaHtmlRelatorio(l, null); }).join('');
   }
   ordemGrupos.forEach(function (chave) {
     var g = grupos[chave];
@@ -3887,24 +3957,98 @@ function renderRelatorio() {
     var previsoes = {};
     g.itens.forEach(function (x) { if (x.remessa.previsaoChegada) previsoes[x.remessa.previsaoChegada] = true; });
     var listaPrev = Object.keys(previsoes);
-    body += cabecalhoGrupo(
+    body += _cabecalhoGrupoRelatorio(
       'EMBARQUE Nº ' + escAttr(g.numero) +
       (g.dataEmbarque ? ' · saiu em ' + escAttr(g.dataEmbarque) : '') +
       (listaPrev.length ? ' · previsão ' + escAttr(listaPrev.join(' / ')) : ' · previsão a definir') +
       ' · ' + g.itens.length + ' item(ns) · ' + num(kg) + ' kg',
       '#DDEBF7');
-    body += g.itens.map(function (x) { return linhaRelatorio(x.linha, x.remessa); }).join('');
+    body += g.itens.map(function (x) { return _linhaHtmlRelatorio(x.linha, x.remessa); }).join('');
   });
-  wrap.innerHTML =
-    '<table class="dados"><thead><tr>' +
-      '<th style="width:7%">Solicitado em</th><th style="width:9%">Item</th>' +
-      '<th style="width:19%">Descrição</th><th style="width:11%">Cliente</th>' +
-      '<th style="width:10%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
-      '<th style="text-align:center;width:5%">Volumes</th>' +
-      '<th style="width:9%">Data limite</th><th style="width:10%">Previsão de chegada</th>' +
-      '<th style="width:13%">Observação</th>' +
-    '</tr></thead><tbody>' + body + '</tbody></table>';
+  wrap.innerHTML = '<table class="dados">' + _cabecalhoHtmlRelatorio() + '<tbody>' + body + '</tbody></table>';
   aplicarRegua(wrap);
+}
+
+/**
+ * Botão "Imprimir relatório": pergunta o que sai na folha — a lista de
+ * itens PENDENTES ou um dos embarques já a caminho (agrupados como na tela).
+ * Com uma única opção disponível (ex.: nada embarcado ainda), imprime direto
+ * sem perguntar à toa. Pedido dos usuários: a impressão só deve trazer o que
+ * foi escolhido, não a lista inteira misturada.
+ */
+function abrirEscolhaImpressao() {
+  var linhas = estadoRelatorio.linhas || [];
+  if (!linhas.length) { window.print(); return; } // nada a escolher — imprime a tela vazia mesmo
+  var agrupado = _agruparLinhasRelatorio(linhas);
+  var opcoes = [];
+  if (agrupado.aguardando.length) {
+    opcoes.push({
+      rotulo: 'Lista de itens pendentes',
+      subtitulo: agrupado.aguardando.length + ' item(ns) aguardando embarque',
+      valor: { tipo: 'pendentes' }
+    });
+  }
+  agrupado.ordemGrupos.forEach(function (chave) {
+    var g = agrupado.grupos[chave];
+    var kg = g.itens.reduce(function (a, x) { return a + (Number(x.remessa.quantidade) || 0); }, 0);
+    opcoes.push({
+      rotulo: 'Embarque nº ' + escAttr(g.numero),
+      subtitulo: (g.dataEmbarque ? 'saiu em ' + escAttr(g.dataEmbarque) + ' · ' : '') +
+        g.itens.length + ' item(ns) · ' + num(kg) + ' kg',
+      valor: { tipo: 'embarque', numero: chave }
+    });
+  });
+  // Só existe uma lista possível: nada a escolher, vai direto pra impressão.
+  if (opcoes.length <= 1) {
+    imprimirSelecaoRelatorio(opcoes.length ? opcoes[0].valor : { tipo: 'pendentes' });
+    return;
+  }
+  escolherModal(
+    'O que imprimir?',
+    'A impressão traz só a lista escolhida — a pendente ou um dos embarques já a caminho.',
+    opcoes,
+    function (valor) { if (valor) imprimirSelecaoRelatorio(valor); }
+  );
+}
+
+/** Troca temporariamente a tabela na tela pela lista escolhida, imprime, e
+ * restaura a vista normal (respeitando a busca em andamento) logo depois. */
+function imprimirSelecaoRelatorio(selecao) {
+  var wrap = document.getElementById('tabela-relatorio');
+  var subtitulo = document.getElementById('rel-impressao-subtitulo');
+  var agrupado = _agruparLinhasRelatorio(estadoRelatorio.linhas || []);
+  var body = '', textoSubtitulo = '';
+
+  if (selecao.tipo === 'embarque') {
+    var g = agrupado.grupos[selecao.numero];
+    if (!g) { window.print(); return; } // sumiu entre a escolha e o clique — imprime o que já está na tela
+    var kg = g.itens.reduce(function (a, x) { return a + (Number(x.remessa.quantidade) || 0); }, 0);
+    textoSubtitulo = 'Embarque nº ' + escAttr(g.numero) +
+      (g.dataEmbarque ? ' — saiu em ' + escAttr(g.dataEmbarque) : '') +
+      ' — ' + g.itens.length + ' item(ns), ' + num(kg) + ' kg';
+    body = g.itens.map(function (x) { return _linhaHtmlRelatorio(x.linha, x.remessa); }).join('');
+  } else {
+    textoSubtitulo = 'Lista de itens pendentes — ' + agrupado.aguardando.length + ' item(ns)';
+    body = agrupado.aguardando.map(function (l) { return _linhaHtmlRelatorio(l, null); }).join('');
+  }
+
+  var conteudoNormal = wrap.innerHTML;
+  if (subtitulo) subtitulo.textContent = textoSubtitulo;
+  wrap.innerHTML = '<table class="dados">' + _cabecalhoHtmlRelatorio() + '<tbody>' + body + '</tbody></table>';
+
+  var restaurado = false;
+  var restaurar = function () {
+    if (restaurado) return;
+    restaurado = true;
+    if (subtitulo) subtitulo.textContent = '';
+    wrap.innerHTML = conteudoNormal;
+    aplicarRegua(wrap);
+    window.removeEventListener('afterprint', restaurar);
+  };
+  window.addEventListener('afterprint', restaurar);
+  window.print();
+  // Salvaguarda pra navegador sem "afterprint" confiável (raro).
+  setTimeout(restaurar, 10000);
 }
 
 /* ------------------ view: Estoque entre unidades (master) ------------- */
