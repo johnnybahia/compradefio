@@ -62,6 +62,24 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
    precisão. Embarque já "chegou" não pode ser cancelado por aqui.
 2. ✅ **Limpar urgência** — `limparUrgenciaTingimento`.
 
+## "Chegada" de embarque casando com NF errada (resolvido)
+
+A Análise de Compra confere sozinha se um embarque pendente já chegou:
+procura, na aba ESTOQUE, um lançamento cuja NF **contenha** o número do
+embarque. Era literal demais — reportado pelo usuário: embarque nº **983**
+aberto, e uma NF **15983512** (que nada tem a ver) foi marcada como
+"chegou" só porque "983" aparece no meio dela.
+
+Corrigido em `_nfCasaComEmbarque` (`Embarque.gs`): agora só casa quando a
+NF é **igual** ao número do embarque, ou **começa** por ele seguida de algo
+que não é outro dígito (cobre o usuário que digitou um texto a mais por
+engano, tipo "983-A"). "9834" ou "15983512" não casam mais — são outros
+números.
+
+**Se algum embarque já foi marcado "CHEGOU" errado por essa falha**, é preciso
+corrigir na mão: aba `EMBARQUES`, coluna SITUAÇÃO da linha afetada, apagar
+"CHEGOU" — a próxima análise volta a contar esse embarque como em viagem.
+
 ## Clique duplo na Confirmação de Embarque (resolvido)
 
 Aconteceu de verdade (Bahia, embarques nº 3 e nº 4): o usuário confirmou, não

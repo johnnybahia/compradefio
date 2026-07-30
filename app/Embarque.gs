@@ -1407,9 +1407,12 @@ function _parseDataBR(s) {
  * saldo consideraria a mesma entrada duas vezes). Por isso, antes de gerar
  * a análise, o sistema confere se algum embarque pendente (coluna SITUAÇÃO
  * sem "chegou") já foi recebido: procura, na aba ESTOQUE, um lançamento no
- * mesmo período cuja coluna NF contenha o número do embarque (coluna
- * EMBARQUE) e cujo item bata — se achar, marca "CHEGOU" na aba EMBARQUES
- * (ela deixa de ser considerada em viagem a partir daí).
+ * mesmo período cuja coluna NF seja o próprio número do embarque (coluna
+ * EMBARQUE) — ou comece por ele seguida de texto, para tolerar um erro de
+ * digitação (ver `_nfCasaComEmbarque`; NUNCA um número que só "contenha" o
+ * do embarque no meio, tipo 15983512 casando com 983) — e cujo item bata —
+ * se achar, marca "CHEGOU" na aba EMBARQUES (ela deixa de ser considerada em
+ * viagem a partir daí).
  */
 
 /** Normaliza um número (célula) para comparação de texto, sem casas decimais/zeros à esquerda. */
@@ -1422,9 +1425,28 @@ function _normNumero(v) {
 }
 
 /**
+ * Confere se a NF lançada no estoque é o mesmo nº de embarque — NÃO só
+ * "contém" (era assim antes, e casava embarque nº 983 com uma NF qualquer
+ * tipo 15983512, só porque "983" aparece no meio do número). Agora só casa:
+ *   - NF IGUAL ao número do embarque (o caso normal), ou
+ *   - NF que COMEÇA pelo número do embarque seguida de algo que não é mais
+ *     um dígito (ex.: "983-A", "983 CE") — cobre o usuário que digitou um
+ *     texto a mais por engano, sem abrir para outro número que por
+ *     coincidência tenha os mesmos dígitos no começo (ex.: "9834" é OUTRO
+ *     número, não é "983" com typo).
+ */
+function _nfCasaComEmbarque(nfNorm, numEmbNorm) {
+  if (!nfNorm || !numEmbNorm) return false;
+  if (nfNorm === numEmbNorm) return true;
+  if (nfNorm.indexOf(numEmbNorm) !== 0) return false; // precisa começar pelo número do embarque
+  return !/^\d/.test(nfNorm.slice(numEmbNorm.length)); // o que vem depois não pode ser outro dígito
+}
+
+/**
  * Confere, dentro do período informado, quais embarques pendentes já foram
- * lançados na aba ESTOQUE (NF contém o nº do embarque + item confere) e
- * marca "CHEGOU" na aba EMBARQUES. Devolve { marcados }.
+ * lançados na aba ESTOQUE (NF é o próprio nº do embarque, ou começa por ele
+ * seguida de texto — ver `_nfCasaComEmbarque` — + item confere) e marca
+ * "CHEGOU" na aba EMBARQUES. Devolve { marcados }.
  */
 function _atualizarChegadasEmbarque(inicio, fim) {
   var shEmb = _aba(CONFIG.SHEETS.EMBARQUES);
@@ -1469,7 +1491,7 @@ function _atualizarChegadasEmbarque(inicio, fim) {
     if (!nf) return;
     var itemNorm = _norm(row[iItemEst]);
     numeros.forEach(function (numEmb) {
-      if (nf.indexOf(numEmb) === -1) return; // NF precisa CONTER o nº do embarque
+      if (!_nfCasaComEmbarque(nf, numEmb)) return;
       pendentes[numEmb].forEach(function (p) {
         if (p.itemNorm === itemNorm) linhasParaMarcar[p.linha] = true;
       });
