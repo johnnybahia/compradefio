@@ -228,9 +228,13 @@ function _montarLinhasRelatorio(cfg) {
       var total = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
       // Volumes vêm registrados na própria aba EMBARQUES (o item já saiu da pendência).
       var volTotal = lista.reduce(function (a, v) { return a + (Number(v.volumes) || 0); }, 0);
+      // Data de solicitação também vem registrada na própria aba EMBARQUES —
+      // gravada lá na hora do embarque, exatamente pra não se perder aqui
+      // (ver `_registrarEmbarqueEDarBaixa`, em Embarque.gs).
+      var dataSolicitadoItem = lista.map(function (v) { return v.dataSolicitado; }).filter(Boolean)[0] || '';
       linhas.push({
         linha: 0, // não é linha de PENDENCIA_COMPRA (nada a editar aqui)
-        dataSolicitado: '',
+        dataSolicitado: dataSolicitadoItem,
         item: itemTxt,
         descricao: d.descricao || '',
         cliente: d.cliente || '',
@@ -247,13 +251,15 @@ function _montarLinhasRelatorio(cfg) {
     });
   }
 
-  // Ordem final: primeiro os itens COM data de solicitação (o pedido em si),
-  // e só depois os SEM data (os já embarcados, que não vêm da lista pendente) —
-  // pra não misturar as duas coisas na leitura. Dentro de cada grupo, pela data
-  // limite mais próxima, com quem não tem data por último (mesmo critério de
+  // Ordem final: primeiro os itens PENDENTES (o pedido em si), e só depois os
+  // JÁ EMBARCADOS — pra não misturar as duas coisas na leitura (antes disso
+  // usava "tem data de solicitação" como um substituto do status; parou de
+  // funcionar quando o embarcado passou a herdar essa data também — ver
+  // `_registrarEmbarqueEDarBaixa`). Dentro de cada grupo, pela data limite
+  // mais próxima, com quem não tem data por último (mesmo critério de
   // `_ordenarPorDataLimite`).
   linhas.sort(function (a, b) {
-    var sa = a.dataSolicitado ? 0 : 1, sb = b.dataSolicitado ? 0 : 1;
+    var sa = a.status === 'pendente' ? 0 : 1, sb = b.status === 'pendente' ? 0 : 1;
     if (sa !== sb) return sa - sb;
     var da = _parseData(a.dataLimite), db = _parseData(b.dataLimite);
     if (!da && !db) return 0;

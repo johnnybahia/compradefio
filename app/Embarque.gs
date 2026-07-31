@@ -310,7 +310,7 @@ function analisarEmbarquePdf(token, base64, nome) {
   };
 }
 
-var EMBARQUES_HEADERS = ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO', 'VOLUMES'];
+var EMBARQUES_HEADERS = ['CORES', 'PESO', 'EMBARQUE', 'DATA', 'SITUAÇÃO', 'VOLUMES', 'SOLICITADO_EM'];
 
 /**
  * Garante que a aba EMBARQUES tem todas as colunas do cabeçalho atual —
@@ -345,12 +345,23 @@ function _prepararEmbarques() {
  */
 function _registrarEmbarqueEDarBaixa(itens, doc, data, usuario, lotesCru) {
   var sh = _prepararEmbarques();
+  // Data de solicitação (GERADO_EM) vem da lista pendente — igual ao VOLUMES,
+  // fica registrada no embarque pra não se perder quando o item sair da
+  // pendência (a baixa acontece logo abaixo, depois de gravar aqui). Sem
+  // isso, o Relatório perdia essa data assim que o item era embarcado.
+  var dataSolicitadoPorItem = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (k && dataSolicitadoPorItem[k] == null) dataSolicitadoPorItem[k] = r.GERADO_EM;
+  });
   var linhas = itens.map(function (it) {
     // VOLUMES vem da lista pendente (informado no tingimento e corrigível na
     // confirmação) — fica registrado no embarque pra não se perder quando o
     // item sair da pendência.
     var vol = (it.volumes === '' || it.volumes == null) ? '' : (Number(it.volumes) || 0);
-    return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, '', vol];
+    var solicitadoEm = dataSolicitadoPorItem[_norm(it.item)];
+    return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, '', vol,
+      solicitadoEm == null ? '' : solicitadoEm];
   });
   var inicio = sh.getLastRow() + 1;
   // Coluna CORES (item) como TEXTO PURO: senão o Sheets converte códigos como
@@ -1660,6 +1671,7 @@ function _embarquesEmViagemPorItem() {
   var iData = header.indexOf('data'); if (iData < 0) iData = 3;
   var iSit = header.indexOf('situacao'); if (iSit < 0) iSit = 4;
   var iVol = header.indexOf('volumes'); // pode não existir em aba antiga
+  var iSol = header.indexOf('solicitado_em'); // idem — coluna nova
 
   var porItemEmb = {}; // item -> { nºembarque -> remessa }
   vals.forEach(function (row) {
@@ -1674,16 +1686,19 @@ function _embarquesEmViagemPorItem() {
     var qtd = parseFloat(row[iPeso]) || 0;
     var data = _parseData(row[iData]);
     var vol = (iVol >= 0) ? (parseFloat(row[iVol]) || 0) : 0;
+    var dataSolicitado = (iSol >= 0) ? _soData(row[iSol]) : '';
     if (!atual) {
       // `item` guarda o texto como está na aba EMBARQUES — usado pelo Relatório
       // pra montar a linha do item que já saiu da pendência mas não chegou.
       porItemEmb[chave][num] = {
-        item: _itemDeCelula(item), numero: row[iEmb], data: data, quantidade: qtd, volumes: vol
+        item: _itemDeCelula(item), numero: row[iEmb], data: data, quantidade: qtd, volumes: vol,
+        dataSolicitado: dataSolicitado
       };
     } else {
       atual.quantidade += qtd;
       atual.volumes += vol;
       if (data && !atual.data) atual.data = data;
+      if (dataSolicitado && !atual.dataSolicitado) atual.dataSolicitado = dataSolicitado;
     }
   });
 
