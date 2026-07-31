@@ -301,3 +301,25 @@ ESPECÍFICO que precise de um tipo PRÓPRIO (ex.: "102 lavado", que já tinha
 um caso especial cadastrado — ver `_CASOS_ESPECIAIS_TINGIMENTO`, em
 `FioCru.gs`) continua funcionando normalmente: esse caso é checado ANTES
 da reserva do poliéster e sempre vence.
+
+## "Prosseguir com a compra" quebrava com erro de nº de colunas (resolvido)
+
+Erro reportado ao clicar em "Prosseguir" na Análise de Estoque:
+`O número de colunas nos dados não corresponde ao número de colunas no
+intervalo. Os dados têm 17, mas o intervalo tem 19.`
+
+Causa: `RELACAO_COMPRA_HEADERS` (`Analise.gs`) cresceu de 17 para 19 colunas
+nesta sessão (ganhou `EMBARQUE_QTD_RASCUNHO` e `EMBARQUE_OBS_RASCUNHO`, do
+rascunho compartilhado da Confirmar Embarque), mas `gerarRelacaoDeCompra`
+— a função por trás do botão "Prosseguir" — ainda montava cada linha nova
+como um array fixo de 17 posições. O `setValues(...)` já usava
+`RELACAO_COMPRA_HEADERS.length` (19) pro tamanho do intervalo, então toda
+gravação quebrava com esse erro.
+
+Corrigido: a linha passa a incluir as duas colunas novas (vazias — o
+rascunho nasce vazio, igual já acontece em `removerItemPendente` e
+`_baixarPendenciaCompraPorEmbarque`). Adicionado `teste15.js`, que verifica
+genericamente que qualquer linha gravada em `PENDENCIA_COMPRA` tem
+exatamente o número de colunas de `RELACAO_COMPRA_HEADERS` — pra pegar essa
+classe de erro de novo se o cabeçalho crescer no futuro e algum ponto de
+gravação for esquecido.
