@@ -60,7 +60,9 @@ var FIO_CRU_CAMPOS_EDITAVEIS = ['TIPO_FIO', 'NF', 'FORNECEDOR', 'PRECO_UNITARIO'
  */
 function _ssAssociacaoFioCru() {
   var idFixo = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID_ASSOCIACAO_FIO_CRU');
-  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
+  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO),
+    'associação de fio crú (' + (idFixo ? 'SPREADSHEET_ID_ASSOCIACAO_FIO_CRU' : 'unidade padrão') +
+    ') — lida mesmo confirmando embarque/tingimento de OUTRA unidade, porque é universal');
 }
 
 /**

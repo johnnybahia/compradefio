@@ -62,6 +62,38 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
    precisão. Embarque já "chegou" não pode ser cancelado por aqui.
 2. ✅ **Limpar urgência** — `limparUrgenciaTingimento`.
 
+## "Você não tem permissão para acessar o documento solicitado" (diagnóstico + erro mais claro)
+
+Esse erro é do próprio Google Apps Script (`SpreadsheetApp.openById` recusado)
+— acontece quando a conta que roda o sistema (a que fez a implantação do Web
+App, "Executar como: eu") **perde acesso** a alguma planilha: ela foi movida
+de pasta, teve o compartilhamento removido, ou foi excluída.
+
+**Pega quem não espera:** algumas tabelas são *universais* — moram sempre na
+planilha da **unidade padrão** (Ceará), mesmo quando a ação é da **outra**
+unidade:
+
+| Tabela | Por quê é universal | Onde mora por padrão |
+|---|---|---|
+| `USUARIOS` (login) | mesma senha vale nas duas unidades | unidade padrão (ou `SPREADSHEET_ID_AUTH`) |
+| `ASSOCIACAO_FIO_CRU` | a nomenclatura de fio é a mesma nas duas empresas | unidade padrão (ou `SPREADSHEET_ID_ASSOCIACAO_FIO_CRU`) |
+| `MAPA_FIO_CRU` (aprendizado de NF) | idem | unidade padrão |
+| `EQUIVALENCIA_UNIDADES` | precisa ver as duas unidades pra comparar | unidade padrão (ou `SPREADSHEET_ID_EQUIV_UNIDADES`) |
+
+Foi exatamente isso que causou o erro **ao confirmar um embarque da Bahia**:
+`_baixarFioCru` → `_resolverTipoFioEstoque` → lê `ASSOCIACAO_FIO_CRU`, que
+mora na planilha do **Ceará** — se o acesso a ELA falhar, uma ação inteiramente
+da Bahia quebra com um erro que parece não ter nada a ver.
+
+**Corrigido:** `_ss()` (Db.gs) agora captura esse erro e relança com o nome
+da planilha que falhou (unidade ativa, ou o rótulo passado por quem chamou —
+ex.: *"associação de fio crú (unidade padrão) — lida mesmo confirmando
+embarque/tingimento de OUTRA unidade, porque é universal"*), os últimos 8
+dígitos do ID, e o que checar. A causa raiz (permissão da planilha em si) só
+se corrige no Google Drive — verifique se a conta da implantação ainda é
+**editora** das planilhas de `SPREADSHEET_ID_CEARA`/`SPREADSHEET_ID_BAHIA` e
+de qualquer uma das universais acima que estiver configurada.
+
 ## "Chegada" de embarque casando com NF errada (resolvido)
 
 A Análise de Compra confere sozinha se um embarque pendente já chegou:

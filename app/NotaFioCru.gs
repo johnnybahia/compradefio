@@ -23,7 +23,8 @@
 
 /** Planilha do aprendizado de NF (universal — unidade padrão). */
 function _ssMapaFioCru() {
-  return _ss(CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
+  return _ss(CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO),
+    'aprendizado de NF de fio crú (unidade padrão) — lido mesmo importando NF de OUTRA unidade, porque é universal');
 }
 
 /** Aprendizado: normalizado(descrição da NF) → tipo de fio do estoque. */
