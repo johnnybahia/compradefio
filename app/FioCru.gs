@@ -524,12 +524,21 @@ function obterListaFioParaTingir(token) {
   };
 }
 
-/** Tipo de fio de um item, pela lista pendente de compra (PENDENCIA_COMPRA). */
+/**
+ * Tipo de fio de um item que precisa estar na lista pendente de compra
+ * (PENDENCIA_COMPRA) — '' quando o item nem está lá (usado como checagem de
+ * existência por quem chama). O VALOR em si é o ATUAL da BASE TINGIMENTO
+ * (ver `_tipoFioAtualDoItem`), não o instantâneo gravado na análise — assim
+ * a baixa do fio crú (Quantidade Tingida) sempre usa a classificação de
+ * hoje, mesmo que o item tenha sido analisado antes de a BASE TINGIMENTO
+ * ganhar um padrão novo/mais específico.
+ */
 function _tipoFioDoItemPendente(item) {
   var itemNorm = _norm(item);
   var pendente = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA)
     .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
-  return pendente ? String(pendente.TIPO_FIO || '').trim() : '';
+  if (!pendente) return '';
+  return _tipoFioAtualDoItem(item, pendente.TIPO_FIO);
 }
 
 /**

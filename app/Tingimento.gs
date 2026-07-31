@@ -230,6 +230,23 @@ function _lotesTingimentoDoItem(item) {
   return { tipoFio: achado.tipoFio, lotes: achado.caps.slice().sort(function (a, b) { return a - b; }) };
 }
 
+/**
+ * Tipo de fio ATUAL de um item, batendo com a BASE TINGIMENTO agora — nunca
+ * o que ficou gravado em PENDENCIA_COMPRA.TIPO_FIO na hora da análise
+ * (Gerar compra). Esse valor gravado é um INSTANTÂNEO: se alguém cadastra
+ * depois um padrão novo ou mais específico na BASE TINGIMENTO (ex.:
+ * "/1 reciclado" pra separar do "/1" comum), os itens analisados ANTES
+ * dessa mudança continuam com o tipo antigo pra sempre, até serem
+ * reanalisados — foi exatamente esse desencontro que fez um item
+ * "…/1 RECICLADO" sair como "Fio Reflex 2x167/48" (devia ser "…Reciclado…")
+ * na Confirmação de Embarque, mesmo com a BASE TINGIMENTO já correta.
+ * Cai no valor gravado só quando o item não bate com nada na BASE TINGIMENTO
+ * hoje (ex.: código atípico, sem padrão cadastrado).
+ */
+function _tipoFioAtualDoItem(item, tipoFioGravado) {
+  return _lotesTingimentoDoItem(item).tipoFio || String(tipoFioGravado || '').trim();
+}
+
 /** Lotes de tingimento disponíveis pro item (pro campo de quantidade da urgência). */
 function obterLotesTingimentoItem(token, item) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.PROGRAMACAO]);

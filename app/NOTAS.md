@@ -62,6 +62,32 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
    precisão. Embarque já "chegou" não pode ser cancelado por aqui.
 2. ✅ **Limpar urgência** — `limparUrgenciaTingimento`.
 
+## Tipo de fio "congelado" desatualizando a baixa de fio crú (resolvido)
+
+Reportado: item "…/1 RECICLADO" saiu como **"Fio Reflex 2x167/48"** no PDF de
+confirmação de embarque, quando a BASE TINGIMENTO já tinha um padrão certo
+(`/1 RECICLADO` → "Fio Reflex Reciclado 2x167/48") pra ele. Testado com os
+dados reais da BASE TINGIMENTO: o casamento por padrão (mais comprido vence)
+**já dava o resultado certo** — o problema não era a planilha.
+
+**Causa:** `PENDENCIA_COMPRA.TIPO_FIO` é um **instantâneo**, gravado uma vez
+quando o item foi analisado ("Gerar compra") — nunca mais recalculado depois
+disso. Se alguém cadastra um padrão novo/mais específico na BASE TINGIMENTO
+DEPOIS que um item já tinha sido analisado, esse item fica pra sempre com o
+tipo antigo (errado) até ser reanalisado. `Confirmar Embarque` e
+`Quantidade Tingida` liam esse valor gravado — e pior no segundo caso: a
+baixa do fio crú saía do lote **errado** (do "Fio Reflex" em vez do "Fio
+Reflex Reciclado"), não só o nome no relatório.
+
+**Corrigido:** novo `_tipoFioAtualDoItem` (Tingimento.gs) — sempre prefere o
+casamento **ATUAL** contra a BASE TINGIMENTO; só cai no valor gravado em
+`PENDENCIA_COMPRA.TIPO_FIO` quando o item não bate com **nada** hoje (ex.:
+código atípico). Usado em `_confirmarEmbarqueManualInterno` (Embarque.gs) e
+`_tipoFioDoItemPendente` (FioCru.gs, usado por `registrarQuantidadeTingida`
+e `corrigirQuantidadeTingida`) — a checagem de "o item ainda está na lista
+pendente?" continua existindo, só o VALOR do tipo de fio é que passou a ser
+sempre o de hoje.
+
 ## "Você não tem permissão para acessar o documento solicitado" (diagnóstico + erro mais claro)
 
 Esse erro é do próprio Google Apps Script (`SpreadsheetApp.openById` recusado)
