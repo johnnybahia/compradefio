@@ -1328,7 +1328,7 @@ function _estornarCruEmbarque(lotes, usuario, numero) {
       -(Number(l.peso) || 0), '', (usuario || '') + ' (cancelamento embarque ' + numero + ')'];
   });
   if (!linhas.length) return 0;
-  var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
+  var sh = _prepararFioCruBaixas();
   sh.getRange(sh.getLastRow() + 1, 1, linhas.length, FIO_CRU_BAIXAS_HEADERS.length).setValues(linhas);
   return linhas.length;
 }

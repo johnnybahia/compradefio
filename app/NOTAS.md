@@ -194,3 +194,37 @@ Três barreiras, nesta ordem:
 > Observação geral: **e-mail enviado não volta.** O máximo que dá é mandar uma
 > mensagem de cancelamento/retificação. Por isso, idealmente, toda ação com
 > e-mail confirma antes (já é assim em Embarque e Urgência).
+
+## Item de FIO_CRU_BAIXAS aparecendo como data, ex. "01/01/4313" (resolvido)
+
+Reportado pelo usuário na tela "Histórico de baixas": um item com código tipo
+"4313/1" apareceu como **"01/01/4313"**. Mesma causa-raiz de outros bugs já
+documentados aqui — o Sheets converte sozinho um código "puro" desses em
+`Date` ao gravar, a menos que a coluna esteja travada em texto puro
+(`.setNumberFormat('@')`).
+
+Isso já tinha sido resolvido em `PENDENCIA_COMPRA`, mas **não** em
+`FIO_CRU_BAIXAS` — e ali o estrago é maior que estético: a coluna ITEM desse
+razão é comparada por texto em três lugares para achar as baixas de um item
+(`_ajustarBaixaFioCru` — crédito de correção, `_consumoCruPorItens` — tabela
+de consumo de fio crú no PDF de confirmação de embarque, `_tingidoPorItem` —
+"já tingido" mostrado em várias telas). Um ITEM corrompido em `Date` falha
+**silenciosamente** em todas essas comparações: a baixa continua lá, só não é
+mais encontrada por quem procura por ela.
+
+Corrigido em `FioCru.gs`:
+
+- `_lerBaixasFioCru()` — wrapper de leitura que reconstrói o ITEM (mesma
+  lógica de `_itemDeCelula`, já usada em `PENDENCIA_COMPRA`) antes de qualquer
+  uso. Substituiu a leitura direta (`lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS)`)
+  em todos os pontos que leem essa aba, incluindo `listarBaixasFioCru` (a
+  função por trás da tela do print reportado).
+- `_prepararFioCruBaixas()` — abre a aba já travando a coluna ITEM em texto
+  puro (mesmo padrão de `_prepararAbaCompra`), usada em todo ponto que grava
+  nessa aba (baixa por tingimento, correção de baixa, cancelamento de
+  embarque), para não corromper de novo daqui pra frente.
+
+**Baixas já gravadas com o ITEM corrompido continuam corrompidas na planilha**
+(a leitura reconstrói na hora de exibir/comparar, mas não reescreve a
+célula) — funciona normalmente, só não é "texto puro" se alguém abrir a
+planilha direto e olhar a célula.
