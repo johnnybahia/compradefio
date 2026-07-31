@@ -254,3 +254,28 @@ Duas causas, as duas em `Consultas.gs`:
    mensagem nunca aparecia em lugar nenhum. Corrigido: a mensagem agora
    aparece no aviso da tela (Quantidade Tingida ou Confirmar Embarque, a que
    estiver ativa) e também como dica ao passar o mouse no campo.
+
+## Relatório: manter a "Data de solicitação" nos itens já embarcados (resolvido)
+
+Pedido do usuário: no Relatório, o item que já foi embarcado (mas ainda não
+chegou) perdia a "Data de solicitação" — a coluna ficava em branco assim que
+o embarque era lançado.
+
+Causa: essa data vem de `PENDENCIA_COMPRA.GERADO_EM`, e o item **sai** de
+`PENDENCIA_COMPRA` na hora do embarque (`_baixarPendenciaCompraPorEmbarque`).
+O Relatório continua mostrando o item em viagem lendo direto de `EMBARQUES`
+(`_montarLinhasRelatorio`, ramo "faltantes"), mas essa aba nunca guardou a
+data — a linha sempre gravava `dataSolicitado: ''`.
+
+Corrigido do mesmo jeito que já resolve o problema idêntico com VOLUMES: a
+aba `EMBARQUES` ganhou uma coluna nova, `SOLICITADO_EM` (migração automática
+via `_prepararEmbarques`, não afeta abas antigas). `_registrarEmbarqueEDarBaixa`
+grava ali o `GERADO_EM` de cada item, lido em `PENDENCIA_COMPRA` **antes** da
+baixa acontecer. `_embarquesEmViagemPorItem` passa a expor essa data por
+remessa, e o Relatório usa ela em vez do texto vazio.
+
+Efeito colateral encontrado e corrigido: a ordenação do Relatório (pendente
+antes de embarcado) usava "tem data de solicitação" como um substituto do
+status — só funcionava porque, até aqui, item embarcado NUNCA tinha essa
+data. Passou a comparar `status` de verdade (`'pendente'` vs `'embarcado'`),
+já que agora as duas listas podem ter a data preenchida.
