@@ -279,3 +279,47 @@ antes de embarcado) usava "tem data de solicitação" como um substituto do
 status — só funcionava porque, até aqui, item embarcado NUNCA tinha essa
 data. Passou a comparar `status` de verdade (`'pendente'` vs `'embarcado'`),
 já que agora as duas listas podem ter a data preenchida.
+
+## "101 LAVADO" sem tipo de fio associado (resolvido)
+
+Reportado: item "101 LAVADO" (101 é código puramente numérico, igual
+poliéster) não saía com NENHUM tipo de fio — nem na tela, nem na baixa de
+fio crú.
+
+Causa: existe uma reserva pro poliéster (que, diferente dos outros tipos,
+não tem sufixo no código — ex.: "5233", "106") usada quando o código do
+item é **só números** e nenhum padrão da BASE TINGIMENTO bateu (ver
+`_lotesTingimentoDoItem`/`_criarCalculadoraTingimento`, em `Tingimento.gs`).
+Essa reserva exigia o código **puramente** numérico — "101 LAVADO" tem a
+palavra "LAVADO" a mais, então não é só-número (não cai na reserva) e não
+bate em nenhum padrão da BASE TINGIMENTO (não tem "/1", "reciclado" etc.)
+— fica sem tipo nenhum.
+
+Corrigido: a reserva do poliéster agora aceita opcionalmente o sufixo
+"lavado" (ex.: "101 lavado", "205 lavado"...). Um código numérico
+ESPECÍFICO que precise de um tipo PRÓPRIO (ex.: "102 lavado", que já tinha
+um caso especial cadastrado — ver `_CASOS_ESPECIAIS_TINGIMENTO`, em
+`FioCru.gs`) continua funcionando normalmente: esse caso é checado ANTES
+da reserva do poliéster e sempre vence.
+
+## "Prosseguir com a compra" quebrava com erro de nº de colunas (resolvido)
+
+Erro reportado ao clicar em "Prosseguir" na Análise de Estoque:
+`O número de colunas nos dados não corresponde ao número de colunas no
+intervalo. Os dados têm 17, mas o intervalo tem 19.`
+
+Causa: `RELACAO_COMPRA_HEADERS` (`Analise.gs`) cresceu de 17 para 19 colunas
+nesta sessão (ganhou `EMBARQUE_QTD_RASCUNHO` e `EMBARQUE_OBS_RASCUNHO`, do
+rascunho compartilhado da Confirmar Embarque), mas `gerarRelacaoDeCompra`
+— a função por trás do botão "Prosseguir" — ainda montava cada linha nova
+como um array fixo de 17 posições. O `setValues(...)` já usava
+`RELACAO_COMPRA_HEADERS.length` (19) pro tamanho do intervalo, então toda
+gravação quebrava com esse erro.
+
+Corrigido: a linha passa a incluir as duas colunas novas (vazias — o
+rascunho nasce vazio, igual já acontece em `removerItemPendente` e
+`_baixarPendenciaCompraPorEmbarque`). Adicionado `teste15.js`, que verifica
+genericamente que qualquer linha gravada em `PENDENCIA_COMPRA` tem
+exatamente o número de colunas de `RELACAO_COMPRA_HEADERS` — pra pegar essa
+classe de erro de novo se o cabeçalho crescer no futuro e algum ponto de
+gravação for esquecido.

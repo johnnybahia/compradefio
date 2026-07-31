@@ -144,7 +144,11 @@ function _lerBaseTingimento() {
  * O tipo de fio é achado pelo padrão (mais longo) contido no código do item —
  * exceto o poliéster, que (diferente dos outros tipos) não tem sufixo no
  * código (ex.: "5233", "106"), então é usado como padrão-reserva quando o
- * código é só números e nenhum padrão mais específico bateu.
+ * código é só números (com ou sem o sufixo "lavado" — ex.: "101 lavado" é
+ * poliéster lavado, não um tipo à parte) e nenhum padrão mais específico
+ * bateu. Um código numérico específico pode precisar de tratamento PRÓPRIO
+ * (ex.: "102 lavado" — ver `_casoEspecialTingimento`, em FioCru.gs), que
+ * sempre vence essa reserva.
  *
  * `emAberto` é o quanto desse item JÁ está pedido, aguardando envio
  * (soma do SUGERIDO das linhas ainda pendentes em PENDENCIA_COMPRA) — é
@@ -172,7 +176,7 @@ function _criarCalculadoraTingimento() {
         if (!achado || b.patternNorm.length > achado.patternNorm.length) achado = b;
       }
     });
-    if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
+    if (!achado && poliester && /^\d+( lavado)?$/.test(it)) achado = poliester;
 
     // Caso especial (ver `_casoEspecialTingimento`, em FioCru.gs): um item cujo
     // código é de um tipo que EMPRESTA a base de OUTRO tipo pra calcular o
@@ -225,7 +229,7 @@ function _lotesTingimentoDoItem(item) {
       if (!achado || b.patternNorm.length > achado.patternNorm.length) achado = b;
     }
   });
-  if (!achado && poliester && /^\d+$/.test(it)) achado = poliester;
+  if (!achado && poliester && /^\d+( lavado)?$/.test(it)) achado = poliester;
   if (!achado) return { tipoFio: '', lotes: [] };
   return { tipoFio: achado.tipoFio, lotes: achado.caps.slice().sort(function (a, b) { return a - b; }) };
 }

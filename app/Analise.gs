@@ -301,7 +301,9 @@ function gerarRelacaoDeCompra(token, params) {
       '',                       // A_COMPRAR
       'ABERTO',                 // STATUS
       agora,                    // GERADO_EM
-      ''                        // VOLUMES (o tingimento informa depois, na tela)
+      '',                       // VOLUMES (o tingimento informa depois, na tela)
+      '',                       // EMBARQUE_QTD_RASCUNHO (rascunho nasce vazio)
+      ''                        // EMBARQUE_OBS_RASCUNHO (rascunho nasce vazio)
     ];
     var linhaExistente = linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
     if (linhaExistente) {
