@@ -876,8 +876,8 @@ function _moedaBR(v) {
  * PREÇO UNITÁRIO dela, peso consumido e SALDO restante — listando TODAS as
  * NFs usadas; preço e saldo saem em destaque, que é o que os usuários
  * procuram primeiro). No fim, o total geral de mão de obra do embarque.
- * Cada item tem uma coluna "Observação" (ex.: "COMPLETO", ou o texto digitado
- * nos casos parciais), e `observacao` (geral, digitada na tela) sai no fim.
+ * Cada item mostra a mão de obra unitária (R$/kg) e o total do item; a
+ * `observacao` geral (digitada na tela) sai no fim do relatório.
  *
  * Totais do rodapé: o TOTAL DE VOLUMES dos fios e o total de mão de obra —
  * este sempre acompanhado da BASE usada (R$/kg × kg tingidos), pra quem lê
@@ -912,7 +912,7 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
       ';font-weight:bold;font-size:' + (d.fonte + 1) + 'px;white-space:nowrap">' + v + '</td>';
   }
 
-  var thItens = ['Item', 'Volumes', 'Quantidade (kg)', 'Mão de obra (R$)', 'Observação'].map(th).join('');
+  var thItens = ['Item', 'Volumes', 'Quantidade (kg)', 'Mão de obra unitária (R$/kg)', 'Mão de obra total (R$)'].map(th).join('');
   // Consumo de fio crú: a NF de onde saiu a baixa, com a QUANTIDADE ORIGINAL
   // da nota, o PREÇO UNITÁRIO dela (a que preço aquele fio entrou), o quanto
   // foi consumido agora e o SALDO que ficou. Preço e saldo em destaque —
@@ -937,11 +937,11 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
       var qtdCel = qtdEstoque > 0
         ? it.quantidade + ' <span style="color:#64748b">(' + qtdEstoque + ' do estoque, sem consumo de crú)</span>'
         : String(it.quantidade);
-      var obsCel = it.obs ? _escHtmlEmail(it.obs) : '—';
       var volCel = (it.volumes === '' || it.volumes == null) ? '—' : String(it.volumes);
       // Mão de obra só sobre o que passou pelo tingimento.
       return '<tr>' + td(it.item) + td(volCel) + td(qtdCel) +
-        td(_moedaBR((it.quantidade - qtdEstoque) * custoMaoObra)) + td(obsCel) + '</tr>';
+        td(_moedaBR(custoMaoObra) + '/kg') +
+        td(_moedaBR((it.quantidade - qtdEstoque) * custoMaoObra)) + '</tr>';
     }).join('');
 
     var msgSemLotes = (Number(g.totalEstoque) > 0 && !g.totalTingido)
@@ -1134,6 +1134,14 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         if (h === 'SUGERIDO' && novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
           return novoSugeridoPorLinha[r.__row];
         }
+        // Linha que sobrou (resíduo) de um item que ACABOU de ser confirmado:
+        // limpa o rascunho da Confirmar Embarque (quantidade/observação) —
+        // senão a próxima rodada começaria pré-preenchida com um valor da
+        // rodada anterior, que não faz mais sentido pro resíduo.
+        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO') &&
+            novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
+          return '';
+        }
         return r[h] == null ? '' : r[h];
       });
     });
@@ -1320,7 +1328,7 @@ function _estornarCruEmbarque(lotes, usuario, numero) {
       -(Number(l.peso) || 0), '', (usuario || '') + ' (cancelamento embarque ' + numero + ')'];
   });
   if (!linhas.length) return 0;
-  var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
+  var sh = _prepararFioCruBaixas();
   sh.getRange(sh.getLastRow() + 1, 1, linhas.length, FIO_CRU_BAIXAS_HEADERS.length).setValues(linhas);
   return linhas.length;
 }

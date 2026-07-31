@@ -45,6 +45,38 @@ var FIO_CRU_ENTRADAS_HEADERS = [
   'EDITADO_EM', 'EDITADO_POR'
 ];
 var FIO_CRU_BAIXAS_HEADERS = ['DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'ITEM', 'QUANTIDADE', 'SALDO_NF_APOS', 'USUARIO'];
+
+/**
+ * Lê FIO_CRU_BAIXAS já com o ITEM reconstruído (ver `_itemDeCelula`, em
+ * Consultas.gs). Um código "puro" tipo "4313/1" pode ter sido convertido em
+ * DATA pela planilha (aparece como "01/01/4313") — isso não é só um problema
+ * de exibição: sem reconstruir, QUALQUER comparação por texto contra esse
+ * item falha silenciosamente (o crédito de correção não acha a baixa
+ * anterior pra creditar de volta; `_tingidoPorItem` deixa de contar aquela
+ * baixa pro item certo — o "já tingido" mostrado na tela some sozinho; o
+ * consumo de fio crú no PDF de confirmação de embarque fica sem aquele
+ * item). Use esta função em vez de `lerRegistros` direto sempre que for ler
+ * FIO_CRU_BAIXAS.
+ */
+function _lerBaixasFioCru() {
+  return lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).map(function (r) {
+    r.ITEM = _itemDeCelula(r.ITEM);
+    return r;
+  });
+}
+
+/**
+ * Abre (criando se preciso) a aba FIO_CRU_BAIXAS com a coluna ITEM travada
+ * em TEXTO PURO — sem isso, o Sheets converte sozinho um código "puro" tipo
+ * "4313/1" em data ao gravar (mesmo problema já resolvido em PENDENCIA_COMPRA,
+ * ver `_prepararAbaCompra`). Chame antes de qualquer gravação nesta aba.
+ */
+function _prepararFioCruBaixas() {
+  var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
+  var colItem = FIO_CRU_BAIXAS_HEADERS.indexOf('ITEM') + 1; // 1-based
+  sh.getRange(1, colItem, sh.getMaxRows(), 1).setNumberFormat('@');
+  return sh;
+}
 var ASSOCIACAO_FIO_CRU_HEADERS = ['TIPO_FIO_BASE', 'TIPO_FIO_ESTOQUE'];
 var FIO_CRU_AJUSTES_HEADERS = ['DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'QUANTIDADE', 'MOTIVO', 'SALDO_NF_APOS', 'USUARIO'];
 // QUANTIDADE (valor recebido na NF) fica de fora de propósito: é histórico
@@ -155,7 +187,7 @@ function _lerLotesFioCru() {
 /** Soma de baixas já registradas por lote (chave = tipo de fio + NF). */
 function _baixasPorLoteFioCru() {
   var mapa = {};
-  lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).forEach(function (r) {
+  _lerBaixasFioCru().forEach(function (r) {
     var k = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
     if (!k) return;
     mapa[k] = (mapa[k] || 0) + (Number(r.QUANTIDADE) || 0);
@@ -355,7 +387,7 @@ function _baixarFioCru(tipoFio, quantidade, item, usuario) {
       todos.map(function (l) { return l.nf; }).indexOf(b.nf);
   });
 
-  var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
+  var sh = _prepararFioCruBaixas();
   sh.getRange(sh.getLastRow() + 1, 1, linhas.length, FIO_CRU_BAIXAS_HEADERS.length).setValues(linhas);
 
   return { ok: true, tipoFio: tipoFio, quantidade: quantidade, lotes: resultado };
@@ -388,7 +420,7 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
     return { ok: true, tipoFio: baixa.tipoFio, diferenca: diferenca, lotes: baixa.lotes };
   }
 
-  var porItem = lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS)
+  var porItem = _lerBaixasFioCru()
     .filter(function (r) { return _norm(r.ITEM) === _norm(item) && (Number(r.QUANTIDADE) || 0) > 0; })
     .sort(function (a, b) {
       var da = a.DATA_HORA instanceof Date ? a.DATA_HORA.getTime() : 0;
@@ -410,7 +442,7 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
     resultado.push({ tipoFio: r.TIPO_FIO, nf: r.NF, fornecedor: loteAtual ? (loteAtual.fornecedor || '') : '', dataNf: _soData(r.DATA_NF), quantidadeBaixada: -credito, saldoApos: saldoApos });
   }
   if (linhas.length) {
-    var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
+    var sh = _prepararFioCruBaixas();
     sh.getRange(sh.getLastRow() + 1, 1, linhas.length, FIO_CRU_BAIXAS_HEADERS.length).setValues(linhas);
   }
   return { ok: true, tipoFio: tipoFio, diferenca: diferenca, lotes: resultado };
@@ -443,7 +475,7 @@ function _consumoCruPorItens(itens) {
   _saldosFioCru().forEach(function (l) { porChaveLote[l.chave] = l; });
 
   var acum = {}; // item -> chaveLote -> { tipoFio, nf, dataNf, peso }
-  lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).forEach(function (r) {
+  _lerBaixasFioCru().forEach(function (r) {
     var k = _norm(r.ITEM);
     if (!querido[k]) return;
     var chave = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
@@ -513,7 +545,12 @@ function obterListaFioParaTingir(token) {
       total: _numeroCelula(r.SUGERIDO),
       tingido: tingidoPorItem[_norm(r.ITEM)] || 0,
       dataSolicitado: _soData(r.GERADO_EM),
-      volumes: _numeroCelula(r.VOLUMES)
+      volumes: _numeroCelula(r.VOLUMES),
+      // Rascunho compartilhado da Confirmar Embarque (ver `salvarRascunhoEmbarque`,
+      // em Consultas.gs) — sem isso, a quantidade/observação digitada por um
+      // usuário só existia no navegador dele.
+      qtdRascunho: _numeroCelula(r.EMBARQUE_QTD_RASCUNHO),
+      obsRascunho: _textoCelula(r.EMBARQUE_OBS_RASCUNHO)
     };
   });
   return {
@@ -597,7 +634,7 @@ function corrigirQuantidadeTingida(token, item, novoTotal) {
  */
 function _tingidoPorItem() {
   var mapa = {};
-  lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).forEach(function (r) {
+  _lerBaixasFioCru().forEach(function (r) {
     var k = _norm(r.ITEM);
     if (!k) return;
     mapa[k] = (mapa[k] || 0) + (Number(r.QUANTIDADE) || 0);
@@ -694,7 +731,7 @@ function listarConsumoFioCru(token, dataInicio, dataFim, agrupamento) {
 
   var grupos = {};      // "tipoFio||periodoChave" -> { tipoFio, periodoChave, quantidade }
   var totalPorTipo = {};
-  lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS).forEach(function (r) {
+  _lerBaixasFioCru().forEach(function (r) {
     var data = r.DATA_HORA instanceof Date ? r.DATA_HORA : _parseData(r.DATA_HORA);
     if (!data || data.getTime() < inicio.getTime() || data.getTime() > fim.getTime()) return;
     var tipoFio = String(r.TIPO_FIO || '').trim() || '(sem tipo)';
@@ -838,7 +875,7 @@ function listarAjustesFioCru(token) {
  * Bahia quebrou com "o servidor não devolveu resposta". */
 function listarBaixasFioCru(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
-  var regs = lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS);
+  var regs = _lerBaixasFioCru();
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,

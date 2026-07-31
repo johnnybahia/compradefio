@@ -62,6 +62,37 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
    precisão. Embarque já "chegou" não pode ser cancelado por aqui.
 2. ✅ **Limpar urgência** — `limparUrgenciaTingimento`.
 
+## Edição na Confirmar Embarque não aparecia pra outros usuários (resolvido)
+
+Reportado: quando um usuário editava algo na tela **Confirmar Embarque**
+(quantidade a confirmar, observação, marcar "completo"), a edição **não
+ficava visível** pra mais ninguém — nem pro master. Causa: só o campo
+**Volumes** era salvo na hora (`salvarVolumesItem`); os outros três campos
+existiam **só no navegador de quem digitou** — em memória, no JavaScript da
+página — e só iam pra planilha no momento do clique final em "Confirmar
+Embarque". Recarregar a página, ou qualquer outra pessoa abrindo a mesma
+tela, via só o valor original (o total já tingido), como se nada tivesse
+sido digitado.
+
+**Corrigido:** dois campos novos em `PENDENCIA_COMPRA`
+(`EMBARQUE_QTD_RASCUNHO`, `EMBARQUE_OBS_RASCUNHO`) guardam esse rascunho
+**compartilhado** — `salvarRascunhoEmbarque` (Consultas.gs) grava assim que
+o usuário sai do campo (quantidade) ou desmarca/marca "completo"/edita a
+observação, igual já acontecia com Volumes. A tela relê esses campos toda
+vez que carrega (`obterListaFioParaTingir`, FioCru.gs) e pré-preenche com o
+rascunho, se houver — senão cai no padrão de sempre (o total tingido). As
+duas colunas são limpas sozinhas quando o item é confirmado (a linha some) ou
+sobra parcial depois de um embarque (`_baixarPendenciaCompraPorEmbarque`,
+Embarque.gs — a linha continua mas o rascunho da rodada anterior não faz
+mais sentido pro resíduo).
+
+**Limite conhecido:** isso resolve "a edição sumia/não aparecia para
+ninguém" — mas não é tempo real. Se dois usuários estiverem com a tela
+aberta AO MESMO TEMPO, um só vê a edição do outro ao recarregar a tela (ou
+trocar de aba e voltar), não instantaneamente enquanto ambos olham a
+mesma tela ao mesmo tempo. Avaliar isso só vale a pena se virar problema de
+verdade na prática (duas pessoas mexendo na mesma tela ao mesmo tempo).
+
 ## Tipo de fio "congelado" desatualizando a baixa de fio crú (resolvido)
 
 Reportado: item "…/1 RECICLADO" saiu como **"Fio Reflex 2x167/48"** no PDF de
@@ -163,3 +194,63 @@ Três barreiras, nesta ordem:
 > Observação geral: **e-mail enviado não volta.** O máximo que dá é mandar uma
 > mensagem de cancelamento/retificação. Por isso, idealmente, toda ação com
 > e-mail confirma antes (já é assim em Embarque e Urgência).
+
+## Item de FIO_CRU_BAIXAS aparecendo como data, ex. "01/01/4313" (resolvido)
+
+Reportado pelo usuário na tela "Histórico de baixas": um item com código tipo
+"4313/1" apareceu como **"01/01/4313"**. Mesma causa-raiz de outros bugs já
+documentados aqui — o Sheets converte sozinho um código "puro" desses em
+`Date` ao gravar, a menos que a coluna esteja travada em texto puro
+(`.setNumberFormat('@')`).
+
+Isso já tinha sido resolvido em `PENDENCIA_COMPRA`, mas **não** em
+`FIO_CRU_BAIXAS` — e ali o estrago é maior que estético: a coluna ITEM desse
+razão é comparada por texto em três lugares para achar as baixas de um item
+(`_ajustarBaixaFioCru` — crédito de correção, `_consumoCruPorItens` — tabela
+de consumo de fio crú no PDF de confirmação de embarque, `_tingidoPorItem` —
+"já tingido" mostrado em várias telas). Um ITEM corrompido em `Date` falha
+**silenciosamente** em todas essas comparações: a baixa continua lá, só não é
+mais encontrada por quem procura por ela.
+
+Corrigido em `FioCru.gs`:
+
+- `_lerBaixasFioCru()` — wrapper de leitura que reconstrói o ITEM (mesma
+  lógica de `_itemDeCelula`, já usada em `PENDENCIA_COMPRA`) antes de qualquer
+  uso. Substituiu a leitura direta (`lerRegistros(CONFIG.SHEETS.FIO_CRU_BAIXAS)`)
+  em todos os pontos que leem essa aba, incluindo `listarBaixasFioCru` (a
+  função por trás da tela do print reportado).
+- `_prepararFioCruBaixas()` — abre a aba já travando a coluna ITEM em texto
+  puro (mesmo padrão de `_prepararAbaCompra`), usada em todo ponto que grava
+  nessa aba (baixa por tingimento, correção de baixa, cancelamento de
+  embarque), para não corromper de novo daqui pra frente.
+
+**Baixas já gravadas com o ITEM corrompido continuam corrompidas na planilha**
+(a leitura reconstrói na hora de exibir/comparar, mas não reescreve a
+célula) — funciona normalmente, só não é "texto puro" se alguém abrir a
+planilha direto e olhar a célula.
+
+## Corrigir Volumes/observação na Confirmar Embarque deixava a borda vermelha, sem dizer por quê (resolvido)
+
+Reportado: usuário corrige os volumes de um item direto na tela Confirmar
+Embarque (pra consertar um erro digitado antes, sem precisar voltar na
+Quantidade Tingida) e o campo fica com a borda vermelha — sem nenhuma
+mensagem explicando o motivo.
+
+Duas causas, as duas em `Consultas.gs`:
+
+1. `salvarVolumesItem`, `salvarCampoTingimento` e `salvarRascunhoEmbarque`
+   gravam direto em `PENDENCIA_COMPRA` sem antes garantir que a coluna
+   existe. Toda outra função que escreve nessa aba já chama
+   `_prepararAbaCompra` antes (ver `Embarque.gs`, `Analise.gs`,
+   `Migracao.gs`) — essas três eram exceção. Numa planilha mais antiga, de
+   antes de `VOLUMES`/`EMBARQUE_QTD_RASCUNHO`/`EMBARQUE_OBS_RASCUNHO`
+   entrarem no esquema (e que ainda não passou por nenhuma ação que rode a
+   migração), a gravação falhava com "Coluna não encontrada". Corrigido:
+   as três agora chamam `_prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA)`
+   antes de gravar, como as demais.
+2. Mesmo com a gravação falhando por outro motivo qualquer (sessão expirada,
+   valor inválido etc.), o campo só ficava vermelho — `salvarVolumes`
+   (`App.html`) chamava `tratarErro(err)` mas descartava o retorno, então a
+   mensagem nunca aparecia em lugar nenhum. Corrigido: a mensagem agora
+   aparece no aviso da tela (Quantidade Tingida ou Confirmar Embarque, a que
+   estiver ativa) e também como dica ao passar o mouse no campo.
