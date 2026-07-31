@@ -705,11 +705,16 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
   var deltaLotes = []; // só o que ESTA confirmação baixou/creditou (pro estorno)
   var itensPorTipo = {}; // chaveTipo -> [itens] (pra montar o consumo depois)
   itens.forEach(function (it) {
-    // Item que já saiu da lista pendente (ex.: confirmação forçada de um
-    // embarque repetido) não tem TIPO_FIO lá — cai na BASE TINGIMENTO, a mesma
-    // fonte que a tela de Tingimento usa. Antes, o relatório saía inteiro sob
-    // "(tipo de fio não identificado)".
-    var tipoFio = tipoFioPorItem[_norm(it.item)] || _lotesTingimentoDoItem(it.item).tipoFio || '';
+    // Sempre a classificação ATUAL da BASE TINGIMENTO (ver `_tipoFioAtualDoItem`)
+    // — nunca o TIPO_FIO gravado em PENDENCIA_COMPRA na hora da análise, que é
+    // um instantâneo e fica desatualizado se a BASE TINGIMENTO ganhar depois
+    // um padrão novo/mais específico (foi assim que um item "…/1 RECICLADO"
+    // saiu como "Fio Reflex 2x167/48" em vez de "…Reciclado…" na confirmação,
+    // mesmo já existindo o padrão certo na BASE TINGIMENTO). Só cai no valor
+    // gravado quando o item não bate com nada hoje — inclui o caso de item que
+    // já saiu da lista pendente (confirmação forçada de embarque repetido),
+    // que antes saía inteiro sob "(tipo de fio não identificado)".
+    var tipoFio = _tipoFioAtualDoItem(it.item, tipoFioPorItem[_norm(it.item)]);
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
     var jaTingido = tingidoAtualPorItem[_norm(it.item)] || 0;
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
