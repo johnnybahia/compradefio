@@ -53,7 +53,8 @@ function _prepararUsuarios() {
  */
 function _ssAutenticacao() {
   var idFixo = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID_AUTH');
-  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
+  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO),
+    'login/usuários (' + (idFixo ? 'SPREADSHEET_ID_AUTH' : 'unidade padrão') + ')');
 }
 
 /** Acha um registro de usuário pelo login (case-insensitive), ou undefined. */

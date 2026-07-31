@@ -78,7 +78,8 @@ function _chaveEquivItem(item) {
  */
 function _saldoPorItemUnidade(unidadeId) {
   var res = { porItem: {}, porChave: {}, lista: [] };
-  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null, _ss(CONFIG.getSpreadsheetId(unidadeId)));
+  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null,
+    _ss(CONFIG.getSpreadsheetId(unidadeId), 'estoque da unidade "' + unidadeId + '" (comparação entre unidades)'));
   if (!sh) return res;
   var last = sh.getLastRow();
   if (last < 2) return res;
@@ -130,7 +131,8 @@ function _saldoPorItemUnidade(unidadeId) {
 /** Planilha da aba global de equivalência (mesma ideia das outras universais). */
 function _ssEquivalenciaUnidades() {
   var idFixo = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID_EQUIV_UNIDADES');
-  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO));
+  return _ss(idFixo || CONFIG.getSpreadsheetId(CONFIG.UNIDADE_PADRAO),
+    'equivalência entre unidades (' + (idFixo ? 'SPREADSHEET_ID_EQUIV_UNIDADES' : 'unidade padrão') + ')');
 }
 
 /** Cabeçalho da aba: uma coluna de item por unidade (ITEM_CEARA, ITEM_BAHIA...). */

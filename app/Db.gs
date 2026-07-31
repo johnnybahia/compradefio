@@ -22,9 +22,30 @@ function _definirUnidadeAtiva(id) {
  * sessão (ou a padrão, se nenhuma foi definida ainda). Passe um ID explícito
  * para abrir uma planilha fixa independente da unidade (ex.: a aba USUARIOS,
  * que é global e não muda por unidade — ver `_ssAutenticacao` em Auth.gs).
+ *
+ * `contexto` (opcional): rótulo pro erro, quando o `Utilities`/`SpreadsheetApp`
+ * recusa o acesso ("Você não tem permissão para acessar o documento
+ * solicitado.") — sozinho, esse erro do Apps Script não diz QUAL planilha
+ * falhou, e algumas leituras são "escondidas": ex. confirmar um embarque da
+ * BAHIA lê a ASSOCIACAO_FIO_CRU, que por padrão mora na planilha do CEARÁ
+ * (é universal, compartilhada entre as unidades — ver `_ssAssociacaoFioCru`).
+ * Se essa planilha "escondida" perder acesso, o usuário vê o erro genérico
+ * numa ação que parece não ter nada a ver com a outra unidade. Passar um
+ * `contexto` aqui faz o erro já vir dizendo qual documento é.
  */
-function _ss(idOpcional) {
-  return SpreadsheetApp.openById(idOpcional || CONFIG.getSpreadsheetId(_unidadeAtivaId));
+function _ss(idOpcional, contexto) {
+  var id = idOpcional || CONFIG.getSpreadsheetId(_unidadeAtivaId);
+  try {
+    return SpreadsheetApp.openById(id);
+  } catch (e) {
+    var rotulo = contexto || ('unidade ativa "' + (_unidadeAtivaId || CONFIG.UNIDADE_PADRAO) + '"');
+    throw new Error(
+      'Sem acesso à planilha de ' + rotulo + ' (ID …' + String(id).slice(-8) + '). ' +
+      'A conta que roda o sistema (a que fez a implantação do Web App) precisa ser ' +
+      'editora dessa planilha — confira se ela ainda está compartilhada com essa conta ' +
+      '(pode ter sido removida, ou a planilha movida/excluída). Erro original: ' + e.message
+    );
+  }
 }
 
 /**
