@@ -2304,7 +2304,14 @@ function salvarVolumes(inp) {
     .catch(function (err) {
       inp.disabled = false;
       inp.style.borderColor = '#D0342C';
-      tratarErro(err);
+      // Antes o erro só deixava a borda vermelha, sem dizer o motivo — quem
+      // usa a tela ficava sem saber por que a gravação falhou. Mostra a
+      // mensagem no aviso da tela (Quantidade Tingida ou Confirmar Embarque,
+      // o que estiver ativo) e também como dica ao passar o mouse no campo.
+      var m = tratarErro(err);
+      inp.title = m || '';
+      var msgDiv = document.getElementById('qt-msg') || document.getElementById('embarque-msg');
+      if (m && msgDiv) msgDiv.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
 }
 

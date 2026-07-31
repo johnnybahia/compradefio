@@ -228,3 +228,29 @@ Corrigido em `FioCru.gs`:
 (a leitura reconstrói na hora de exibir/comparar, mas não reescreve a
 célula) — funciona normalmente, só não é "texto puro" se alguém abrir a
 planilha direto e olhar a célula.
+
+## Corrigir Volumes/observação na Confirmar Embarque deixava a borda vermelha, sem dizer por quê (resolvido)
+
+Reportado: usuário corrige os volumes de um item direto na tela Confirmar
+Embarque (pra consertar um erro digitado antes, sem precisar voltar na
+Quantidade Tingida) e o campo fica com a borda vermelha — sem nenhuma
+mensagem explicando o motivo.
+
+Duas causas, as duas em `Consultas.gs`:
+
+1. `salvarVolumesItem`, `salvarCampoTingimento` e `salvarRascunhoEmbarque`
+   gravam direto em `PENDENCIA_COMPRA` sem antes garantir que a coluna
+   existe. Toda outra função que escreve nessa aba já chama
+   `_prepararAbaCompra` antes (ver `Embarque.gs`, `Analise.gs`,
+   `Migracao.gs`) — essas três eram exceção. Numa planilha mais antiga, de
+   antes de `VOLUMES`/`EMBARQUE_QTD_RASCUNHO`/`EMBARQUE_OBS_RASCUNHO`
+   entrarem no esquema (e que ainda não passou por nenhuma ação que rode a
+   migração), a gravação falhava com "Coluna não encontrada". Corrigido:
+   as três agora chamam `_prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA)`
+   antes de gravar, como as demais.
+2. Mesmo com a gravação falhando por outro motivo qualquer (sessão expirada,
+   valor inválido etc.), o campo só ficava vermelho — `salvarVolumes`
+   (`App.html`) chamava `tratarErro(err)` mas descartava o retorno, então a
+   mensagem nunca aparecia em lugar nenhum. Corrigido: a mensagem agora
+   aparece no aviso da tela (Quantidade Tingida ou Confirmar Embarque, a que
+   estiver ativa) e também como dica ao passar o mouse no campo.

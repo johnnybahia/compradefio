@@ -878,6 +878,7 @@ function salvarVolumesItem(token, linha, volumes) {
     if (isNaN(n) || n < 0) throw new Error('Volumes inválido: informe um número (ou deixe vazio).');
     valor = n;
   }
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que a coluna VOLUMES existe (planilha antiga pode não ter)
   atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'VOLUMES', valor);
   return { ok: true, volumes: valor };
 }
@@ -909,6 +910,7 @@ function salvarRascunhoEmbarque(token, linha, campo, valor) {
     if (isNaN(n) || n < 0) throw new Error('Quantidade inválida: informe um número (ou deixe vazio).');
     v = String(n);
   }
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que a coluna do rascunho existe (planilha antiga pode não ter)
   atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, campo, v);
   return { ok: true };
 }
@@ -923,6 +925,7 @@ function salvarCampoTingimento(token, linha, campo, valor) {
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
   if (CAMPOS_TINGIMENTO_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que a coluna existe (planilha antiga pode não ter)
   atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, campo, valor == null ? '' : String(valor));
   return { ok: true };
 }
