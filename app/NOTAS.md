@@ -62,6 +62,37 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
    precisão. Embarque já "chegou" não pode ser cancelado por aqui.
 2. ✅ **Limpar urgência** — `limparUrgenciaTingimento`.
 
+## Edição na Confirmar Embarque não aparecia pra outros usuários (resolvido)
+
+Reportado: quando um usuário editava algo na tela **Confirmar Embarque**
+(quantidade a confirmar, observação, marcar "completo"), a edição **não
+ficava visível** pra mais ninguém — nem pro master. Causa: só o campo
+**Volumes** era salvo na hora (`salvarVolumesItem`); os outros três campos
+existiam **só no navegador de quem digitou** — em memória, no JavaScript da
+página — e só iam pra planilha no momento do clique final em "Confirmar
+Embarque". Recarregar a página, ou qualquer outra pessoa abrindo a mesma
+tela, via só o valor original (o total já tingido), como se nada tivesse
+sido digitado.
+
+**Corrigido:** dois campos novos em `PENDENCIA_COMPRA`
+(`EMBARQUE_QTD_RASCUNHO`, `EMBARQUE_OBS_RASCUNHO`) guardam esse rascunho
+**compartilhado** — `salvarRascunhoEmbarque` (Consultas.gs) grava assim que
+o usuário sai do campo (quantidade) ou desmarca/marca "completo"/edita a
+observação, igual já acontecia com Volumes. A tela relê esses campos toda
+vez que carrega (`obterListaFioParaTingir`, FioCru.gs) e pré-preenche com o
+rascunho, se houver — senão cai no padrão de sempre (o total tingido). As
+duas colunas são limpas sozinhas quando o item é confirmado (a linha some) ou
+sobra parcial depois de um embarque (`_baixarPendenciaCompraPorEmbarque`,
+Embarque.gs — a linha continua mas o rascunho da rodada anterior não faz
+mais sentido pro resíduo).
+
+**Limite conhecido:** isso resolve "a edição sumia/não aparecia para
+ninguém" — mas não é tempo real. Se dois usuários estiverem com a tela
+aberta AO MESMO TEMPO, um só vê a edição do outro ao recarregar a tela (ou
+trocar de aba e voltar), não instantaneamente enquanto ambos olham a
+mesma tela ao mesmo tempo. Avaliar isso só vale a pena se virar problema de
+verdade na prática (duas pessoas mexendo na mesma tela ao mesmo tempo).
+
 ## Tipo de fio "congelado" desatualizando a baixa de fio crú (resolvido)
 
 Reportado: item "…/1 RECICLADO" saiu como **"Fio Reflex 2x167/48"** no PDF de

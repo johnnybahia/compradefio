@@ -513,7 +513,12 @@ function obterListaFioParaTingir(token) {
       total: _numeroCelula(r.SUGERIDO),
       tingido: tingidoPorItem[_norm(r.ITEM)] || 0,
       dataSolicitado: _soData(r.GERADO_EM),
-      volumes: _numeroCelula(r.VOLUMES)
+      volumes: _numeroCelula(r.VOLUMES),
+      // Rascunho compartilhado da Confirmar Embarque (ver `salvarRascunhoEmbarque`,
+      // em Consultas.gs) — sem isso, a quantidade/observação digitada por um
+      // usuário só existia no navegador dele.
+      qtdRascunho: _numeroCelula(r.EMBARQUE_QTD_RASCUNHO),
+      obsRascunho: _textoCelula(r.EMBARQUE_OBS_RASCUNHO)
     };
   });
   return {

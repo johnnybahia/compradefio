@@ -52,7 +52,13 @@ var RELACAO_COMPRA_HEADERS = [
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
   'STATUS',        // em PENDENCIA_COMPRA: ABERTO (aguardando envio). Em RELACAO_COMPRA: ENVIADO.
   'GERADO_EM',     // data/hora em que este pedido foi gerado
-  'VOLUMES'        // nº de volumes/caixas do item (tingimento informa; almox 1 corrige)
+  'VOLUMES',       // nº de volumes/caixas do item (tingimento informa; almox 1 corrige)
+  'EMBARQUE_QTD_RASCUNHO', // quantidade a confirmar, digitada na tela Confirmar Embarque —
+                            // rascunho COMPARTILHADO: sem isso, a edição só existia no
+                            // navegador de quem digitou, some ao recarregar ou some pra
+                            // qualquer outro usuário (inclusive o master) olhando a mesma tela
+  'EMBARQUE_OBS_RASCUNHO'  // observação do item pra aquele embarque (mesmo rascunho compartilhado);
+                            // 'COMPLETO' quando a caixa "completo" está marcada
 ];
 
 /**
@@ -330,7 +336,7 @@ function obterRelacaoDeCompra(token) {
   // vira texto, número ou data conforme o que ela é (ver `_textoCelula`).
   var numericas = {
     SALDO: 1, EM_VIAGEM: 1, ESTOQUE_ENCONTRADO: 1, CONSUMO_MEDIO: 1,
-    SUGERIDO: 1, EM_ABERTO: 1, A_COMPRAR: 1, VOLUMES: 1
+    SUGERIDO: 1, EM_ABERTO: 1, A_COMPRAR: 1, VOLUMES: 1, EMBARQUE_QTD_RASCUNHO: 1
   };
   var linhas = registros.map(function (r) {
     var o = { __row: r.__row };

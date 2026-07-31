@@ -1902,13 +1902,21 @@ function carregarListaConfirmarEmbarque() {
           linha: l.linha, item: l.item, descricao: l.descricao, cliente: l.cliente,
           tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
           dataSolicitado: l.dataSolicitado || '',
-          quantidade: l.tingido ? String(l.tingido) : '', selecionado: false,
-          doEstoque: false, obs: '',
+          selecionado: false, doEstoque: false,
           volumes: (l.volumes === '' || l.volumes == null) ? '' : l.volumes
         };
-        // "Completo" já vem marcado quando o tingido bateu o alvo — o usuário
-        // só digita observação nos casos parciais (pode desmarcar se quiser).
-        o.completo = statusTingidoEmbarque(o) === 'completo';
+        // Quantidade a confirmar e observação: usa o RASCUNHO salvo por
+        // qualquer usuário (ver `salvarRascunhoEmbarque`) — sem isso, a
+        // edição de alguém só existia no navegador de quem digitou, e
+        // recarregar a tela (ou outro usuário abrir a mesma tela, inclusive
+        // o master) só mostrava o valor original (o total já tingido).
+        var temRascunhoQtd = l.qtdRascunho !== '' && l.qtdRascunho != null;
+        o.quantidade = temRascunhoQtd ? String(l.qtdRascunho) : (l.tingido ? String(l.tingido) : '');
+        var obsSalva = l.obsRascunho || '';
+        o.obs = obsSalva === 'COMPLETO' ? '' : obsSalva;
+        // "Completo" já vem marcado quando o tingido bateu o alvo — a menos
+        // que já exista um rascunho de observação salvo, que manda mais.
+        o.completo = obsSalva ? (obsSalva === 'COMPLETO') : statusTingidoEmbarque(o) === 'completo';
         return o;
       });
       renderConfirmarEmbarque();
@@ -2012,7 +2020,11 @@ function renderConfirmarEmbarque() {
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-obs-completo'), function (chk) {
       chk.addEventListener('change', function () {
-        estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].completo = chk.checked;
+        var l = estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))];
+        l.completo = chk.checked;
+        // Salva na hora — vira "COMPLETO" marcado, ou a observação já digitada
+        // (se desmarcado): outros usuários (e o master) enxergam sem recarregar.
+        salvarRascunhoEmbarqueCampo(l.linha, 'EMBARQUE_OBS_RASCUNHO', l.completo ? 'COMPLETO' : (l.obs || ''));
         renderConfirmarEmbarque(); // mostra/esconde o campo de texto da observação
       });
     });
@@ -2020,10 +2032,21 @@ function renderConfirmarEmbarque() {
       inp.addEventListener('input', function () {
         estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))].obs = inp.value;
       });
+      // 'change' (dispara ao sair do campo) — não manda uma chamada a cada
+      // tecla digitada, só quando o usuário termina de editar.
+      inp.addEventListener('change', function () {
+        var l = estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))];
+        salvarRascunhoEmbarqueCampo(l.linha, 'EMBARQUE_OBS_RASCUNHO', l.obs || '', inp);
+      });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.qtd-embarcar-input'), function (inp) {
       inp.addEventListener('change', function () {
-        estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))].quantidade = inp.value;
+        var l = estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))];
+        l.quantidade = inp.value;
+        // Sem passar `inp`: a tabela é recriada logo abaixo (destaque
+        // "editado"), então o campo antigo já não existe mais na tela
+        // quando a resposta do servidor chegar.
+        salvarRascunhoEmbarqueCampo(l.linha, 'EMBARQUE_QTD_RASCUNHO', l.quantidade);
         renderConfirmarEmbarque(); // recria a tabela pra reaplicar o destaque "editado"
       });
     });
@@ -2281,6 +2304,30 @@ function salvarVolumes(inp) {
     .catch(function (err) {
       inp.disabled = false;
       inp.style.borderColor = '#D0342C';
+      tratarErro(err);
+    });
+}
+
+/**
+ * Salva um campo do rascunho compartilhado da Confirmar Embarque (quantidade
+ * a confirmar ou observação — ver `salvarRascunhoEmbarque`, no servidor),
+ * assim que o usuário termina de editar. `inp` é opcional — só serve pra dar
+ * o feedback visual (borda verde/vermelha); passe null quando o campo for
+ * recriado logo em seguida (ex.: a tabela é redesenhada por causa do
+ * destaque "editado").
+ */
+function salvarRascunhoEmbarqueCampo(linha, campo, valor, inp) {
+  if (!linha) return;
+  if (inp) inp.disabled = true;
+  chamar('salvarRascunhoEmbarque', sessao.token, linha, campo, valor)
+    .then(function () {
+      if (!inp) return;
+      inp.disabled = false;
+      inp.style.borderColor = '#1E8E5A';
+      setTimeout(function () { inp.style.borderColor = '#cbd5e1'; }, 900);
+    })
+    .catch(function (err) {
+      if (inp) { inp.disabled = false; inp.style.borderColor = '#D0342C'; }
       tratarErro(err);
     });
 }

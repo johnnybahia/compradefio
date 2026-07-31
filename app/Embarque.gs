@@ -1134,6 +1134,14 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         if (h === 'SUGERIDO' && novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
           return novoSugeridoPorLinha[r.__row];
         }
+        // Linha que sobrou (resíduo) de um item que ACABOU de ser confirmado:
+        // limpa o rascunho da Confirmar Embarque (quantidade/observação) —
+        // senão a próxima rodada começaria pré-preenchida com um valor da
+        // rodada anterior, que não faz mais sentido pro resíduo.
+        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO') &&
+            novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
+          return '';
+        }
         return r[h] == null ? '' : r[h];
       });
     });

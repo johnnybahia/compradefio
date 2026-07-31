@@ -882,6 +882,37 @@ function salvarVolumesItem(token, linha, volumes) {
   return { ok: true, volumes: valor };
 }
 
+/** Campos do rascunho da Confirmar Embarque (ver `salvarRascunhoEmbarque`). */
+var CAMPOS_RASCUNHO_EMBARQUE = ['EMBARQUE_QTD_RASCUNHO', 'EMBARQUE_OBS_RASCUNHO'];
+
+/**
+ * Salva o rascunho COMPARTILHADO da tela Confirmar Embarque — a quantidade a
+ * confirmar e a observação de UM item, assim que o usuário edita (não espera
+ * o botão "Confirmar Embarque"). Antes disso, essas duas edições só
+ * existiam no navegador de quem digitou: recarregar a página, ou qualquer
+ * outro usuário olhando a mesma tela (inclusive o master), não via nada —
+ * cada um enxergava só o valor original (o total já tingido).
+ *
+ * As duas colunas somem sozinhas quando o item é confirmado/baixado (a
+ * linha sai da lista, ou — se sobrar resíduo — é limpa em
+ * `_baixarPendenciaCompraPorEmbarque`), pra não deixar rascunho de uma
+ * rodada anterior confundindo a próxima.
+ */
+function salvarRascunhoEmbarque(token, linha, campo, valor) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  if (CAMPOS_RASCUNHO_EMBARQUE.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
+  var v = String(valor == null ? '' : valor);
+  if (campo === 'EMBARQUE_QTD_RASCUNHO' && v.trim() !== '') {
+    var n = parseFloat(v.trim().replace(',', '.'));
+    if (isNaN(n) || n < 0) throw new Error('Quantidade inválida: informe um número (ou deixe vazio).');
+    v = String(n);
+  }
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, campo, v);
+  return { ok: true };
+}
+
 /** Campos editáveis no painel de tingimento. */
 var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
 
