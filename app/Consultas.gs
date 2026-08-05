@@ -1052,12 +1052,15 @@ function consultarHistoricoItem(token, termo, modo) {
 
 /**
  * Lista os itens distintos da aba ESTOQUE (para o autocomplete da consulta).
- * Usa cache de 30 min para não reler a aba a cada abertura da tela.
+ * Usa cache de 30 min para não reler a aba a cada abertura da tela — a
+ * chave leva a unidade ativa (ver `_propUnidade`), senão uma unidade
+ * "empresta" a lista de itens da outra enquanto o cache está quente.
  */
 function listarItensEstoque(token) {
   exigirSessao(token);
+  var chave = 'itensEstoque_' + (_unidadeAtivaId || CONFIG.UNIDADE_PADRAO);
   var cache = CacheService.getScriptCache();
-  var cached = cache.get('itensEstoque');
+  var cached = cache.get(chave);
   if (cached) return { ok: true, itens: JSON.parse(cached) };
 
   var sh = _aba(CONFIG.SHEETS.ESTOQUE);
@@ -1078,7 +1081,7 @@ function listarItensEstoque(token) {
     if (s) visto[s] = true;
   });
   var itens = Object.keys(visto).sort(function (a, b) { return a.localeCompare(b); });
-  try { cache.put('itensEstoque', JSON.stringify(itens), 1800); } catch (e) {}
+  try { cache.put(chave, JSON.stringify(itens), 1800); } catch (e) {}
   return { ok: true, itens: itens };
 }
 
