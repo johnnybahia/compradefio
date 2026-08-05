@@ -188,10 +188,13 @@ function listarItensParaAnalise(token, params) {
     msg += ' Atenção: ' + pendencias.pendentes + ' item(ns) de embarques parcialmente lançados ' +
       'ficaram em pendência (veja abaixo).';
   }
+  if ((chegadas.emDuvida || []).length > 0) {
+    msg += ' ' + chegadas.emDuvida.length + ' chegada(s) em dúvida — confira no painel "Chegadas a confirmar".';
+  }
   return {
     ok: true, itens: itens, novosCadastrados: novosCadastrados,
     novosItens: registro.itens || [], mensagem: msg,
-    pendencias: pendencias.linhas
+    pendencias: pendencias.linhas, chegadasEmDuvida: chegadas.emDuvida || []
   };
 }
 

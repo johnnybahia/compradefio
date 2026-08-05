@@ -1477,13 +1477,32 @@ function _nfCasaComEmbarque(nfNorm, numEmbNorm) {
  * Confere, dentro do período informado, quais embarques pendentes já foram
  * lançados na aba ESTOQUE (NF é o próprio nº do embarque, ou começa por ele
  * seguida de texto — ver `_nfCasaComEmbarque` — + item confere) e marca
- * "CHEGOU" na aba EMBARQUES. Devolve { marcados }.
+ * "CHEGOU" na aba EMBARQUES.
+ *
+ * Quando o casamento não é claro o bastante pra decidir sozinho, em vez de
+ * arriscar (marcar chegada errada) ou ignorar (deixar de contar uma chegada
+ * de verdade), a linha entra em `emDuvida` pro master decidir — mesma ideia
+ * da Associação, que também pede confirmação quando não tem certeza. Dois
+ * casos contam como dúvida:
+ *   - a NF CONTÉM o número do embarque, mas não como bloco isolado (ex.:
+ *     "983" dentro de "15983512" — o próprio caso que motivou apertar o
+ *     casamento em `_nfCasaComEmbarque`; antes era descartado direto, agora
+ *     vira pergunta em vez de "não é");
+ *   - a NF bate (bloco isolado) com MAIS DE UM número de embarque pendente
+ *     ao mesmo tempo — não dá pra saber qual dos dois é, sem chutar.
+ * Não fica memorizado: cada vez que a Análise roda, os mesmos casos em
+ * dúvida voltam a aparecer, até o master confirmar (`confirmarChegadaEmbarque`)
+ * ou o embarque ser marcado CHEGOU de outra forma.
+ *
+ * Devolve { marcados, emDuvida: [{ item, nf, dataNf, candidatos:
+ * [{ numero, linhas }] }] }.
  */
 function _atualizarChegadasEmbarque(inicio, fim) {
+  var vazio = { marcados: 0, emDuvida: [] };
   var shEmb = _aba(CONFIG.SHEETS.EMBARQUES);
-  if (!shEmb) return { marcados: 0 };
+  if (!shEmb) return vazio;
   var lastEmb = shEmb.getLastRow();
-  if (lastEmb < 2) return { marcados: 0 };
+  if (lastEmb < 2) return vazio;
 
   var valsEmb = shEmb.getRange(1, 1, lastEmb, shEmb.getLastColumn()).getValues();
   var headerEmb = valsEmb.shift().map(_norm);
@@ -1498,42 +1517,94 @@ function _atualizarChegadasEmbarque(inicio, fim) {
     var numEmb = _normNumero(row[iEmbarque]);
     if (!numEmb) return;
     if (!pendentes[numEmb]) pendentes[numEmb] = [];
-    pendentes[numEmb].push({ linha: i + 2, itemNorm: _norm(row[iItemEmb]) });
+    pendentes[numEmb].push({ linha: i + 2, itemNorm: _norm(row[iItemEmb]), item: _itemDeCelula(row[iItemEmb]) });
   });
   var numeros = Object.keys(pendentes);
-  if (!numeros.length) return { marcados: 0 };
+  if (!numeros.length) return vazio;
 
   var shEst = _aba(CONFIG.SHEETS.ESTOQUE);
-  if (!shEst) return { marcados: 0 };
+  if (!shEst) return vazio;
   var lastEst = shEst.getLastRow();
-  if (lastEst < 2) return { marcados: 0 };
+  if (lastEst < 2) return vazio;
   var valsEst = shEst.getRange(1, 1, lastEst, shEst.getLastColumn()).getValues();
   var headerEst = valsEst.shift().map(_norm);
   var iItemEst = _colPorNomes(headerEst, ['item', 'descricao']);
   var iDataEst = _colPorNomes(headerEst, ['data', 'data lancamento']);
   var iNfEst = _colPorNomes(headerEst, ['nf', 'nota fiscal/pedido']);
-  if (iItemEst < 0 || iDataEst < 0 || iNfEst < 0) return { marcados: 0 };
+  if (iItemEst < 0 || iDataEst < 0 || iNfEst < 0) return vazio;
 
   var linhasParaMarcar = {};
+  var emDuvida = [];
   valsEst.forEach(function (row) {
     var data = _parseData(row[iDataEst]);
     if (!data || data.getTime() < inicio.getTime() || data.getTime() > fim.getTime()) return;
     var nf = _normNumero(row[iNfEst]);
     if (!nf) return;
     var itemNorm = _norm(row[iItemEst]);
+
+    var estritos = [];  // bloco isolado (casamento forte, ver _nfCasaComEmbarque)
+    var embutidos = []; // só "contido em algum lugar" — não isolado
     numeros.forEach(function (numEmb) {
-      if (!_nfCasaComEmbarque(nf, numEmb)) return;
-      pendentes[numEmb].forEach(function (p) {
-        if (p.itemNorm === itemNorm) linhasParaMarcar[p.linha] = true;
-      });
+      var pend = pendentes[numEmb].filter(function (p) { return p.itemNorm === itemNorm; });
+      if (!pend.length) return;
+      if (_nfCasaComEmbarque(nf, numEmb)) estritos.push({ numero: numEmb, pend: pend });
+      else if (nf.indexOf(numEmb) !== -1) embutidos.push({ numero: numEmb, pend: pend });
     });
+
+    if (estritos.length === 1) {
+      estritos[0].pend.forEach(function (p) { linhasParaMarcar[p.linha] = true; });
+    } else if (estritos.length > 1 || embutidos.length >= 1) {
+      var fonte = estritos.length > 1 ? estritos : embutidos;
+      emDuvida.push({
+        item: fonte[0].pend[0].item,
+        nf: _textoCelula(row[iNfEst]),
+        dataNf: _soData(row[iDataEst]),
+        candidatos: fonte.map(function (c) {
+          return { numero: c.numero, linhas: c.pend.map(function (p) { return p.linha; }) };
+        })
+      });
+    }
   });
 
   var linhas = Object.keys(linhasParaMarcar);
   linhas.forEach(function (linha) {
     shEmb.getRange(parseInt(linha, 10), iSituacao + 1).setValue('CHEGOU');
   });
-  return { marcados: linhas.length };
+  return { marcados: linhas.length, emDuvida: emDuvida };
+}
+
+/**
+ * O master confirma, no painel "Chegadas a confirmar" (ver `_atualizarChegadasEmbarque`),
+ * que uma NF em dúvida é de fato um certo embarque — marca "CHEGOU" nas
+ * linhas informadas de EMBARQUES. Confere de novo (na hora) que cada linha
+ * ainda é do embarque indicado, pra não marcar errado se a lista mudou
+ * entre a Análise carregar e o master responder (ex.: outro usuário já
+ * confirmou/cancelou aquele embarque nesse meio-tempo).
+ * @param {Array<number>} linhas       linhas de EMBARQUES a marcar.
+ * @param {string|number} numeroEmbarque  nº do embarque escolhido pelo master.
+ */
+function confirmarChegadaEmbarque(token, linhas, numeroEmbarque) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  linhas = (linhas || []).map(function (l) { return parseInt(l, 10); }).filter(function (l) { return l >= 2; });
+  if (!linhas.length) throw new Error('Nenhuma linha informada.');
+  var numNorm = _normNumero(numeroEmbarque);
+  if (!numNorm) throw new Error('Número de embarque inválido.');
+
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES);
+  if (!sh) throw new Error('Aba EMBARQUES não encontrada.');
+  var header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(_norm);
+  var iEmbarque = header.indexOf('embarque'); if (iEmbarque < 0) iEmbarque = 2;
+  var iSituacao = header.indexOf('situacao'); if (iSituacao < 0) iSituacao = 4;
+
+  var marcados = 0;
+  linhas.forEach(function (linha) {
+    var valorEmb = _normNumero(sh.getRange(linha, iEmbarque + 1).getValue());
+    if (valorEmb !== numNorm) return; // mudou de embarque nesse meio-tempo — não arrisca
+    sh.getRange(linha, iSituacao + 1).setValue('CHEGOU');
+    marcados++;
+  });
+  if (!marcados) throw new Error('Essa chegada não está mais em aberto — a lista pode ter mudado, recarregue a tela.');
+  return { ok: true, marcados: marcados };
 }
 
 /**
