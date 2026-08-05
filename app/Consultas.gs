@@ -889,6 +889,24 @@ function salvarVolumesItem(token, linha, volumes) {
   return { ok: true, volumes: valor };
 }
 
+/**
+ * Marca (ou desmarca) um item como PRONTO PARA EMBARQUE — ação exclusiva do
+ * Tingimento (ou master), feita na tela Quantidade Tingida. Antes disso, o
+ * item não aparece pra expedição na tela Confirmar Embarque (ver o filtro em
+ * `carregarListaConfirmarEmbarque`, no cliente, sobre a leitura de
+ * `obterListaFioParaTingir`) — a expedição só deve poder confirmar o que o
+ * Tingimento já deu como pronto, nunca antes, senão arrisca confirmar um
+ * embarque que ainda não terminou de tingir.
+ */
+function definirProntoEmbarque(token, linha, pronto) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que a coluna PRONTO_EMBARQUE existe (planilha antiga pode não ter)
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'PRONTO_EMBARQUE', pronto ? 'SIM' : '');
+  return { ok: true, pronto: !!pronto };
+}
+
 /** Campos do rascunho da Confirmar Embarque (ver `salvarRascunhoEmbarque`). */
 var CAMPOS_RASCUNHO_EMBARQUE = ['EMBARQUE_QTD_RASCUNHO', 'EMBARQUE_OBS_RASCUNHO'];
 

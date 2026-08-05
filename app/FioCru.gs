@@ -522,7 +522,7 @@ function _consumoCruPorItens(itens) {
  * pedido junto e o quanto já foi lançado como tingido — o processo de baixa
  * do fio crú começa por aqui. Pensada pra, no futuro, ser um trabalho de um
  * grupo de usuários à parte (por ora só o master usa — ver `exigirSessao`).
- * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido}] }
+ * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido,prontoEmbarque}] }
  */
 function obterListaFioParaTingir(token) {
   // Lida por várias telas com direitos diferentes: Quantidade Tingida e
@@ -543,14 +543,23 @@ function obterListaFioParaTingir(token) {
       tipoFio: _textoCelula(r.TIPO_FIO),
       maquinas: _textoCelula(r.MAQUINAS),
       total: _numeroCelula(r.SUGERIDO),
-      tingido: tingidoPorItem[_norm(r.ITEM)] || 0,
+      // Total histórico do item MENOS o que já tinha sido embarcado antes de
+      // sobrar este saldo (TINGIDO_BASELINE — ver `_baixarPendenciaCompraPorEmbarque`,
+      // em Embarque.gs) — assim, o saldo que sobra de uma confirmação parcial
+      // aparece com "Já tingido" zerado, como se fosse uma quantidade nova do
+      // mesmo item, em vez de repetir o que já foi confirmado antes.
+      tingido: Math.max(0, (tingidoPorItem[_norm(r.ITEM)] || 0) - (_numeroCelula(r.TINGIDO_BASELINE) || 0)),
       dataSolicitado: _soData(r.GERADO_EM),
       volumes: _numeroCelula(r.VOLUMES),
       // Rascunho compartilhado da Confirmar Embarque (ver `salvarRascunhoEmbarque`,
       // em Consultas.gs) — sem isso, a quantidade/observação digitada por um
       // usuário só existia no navegador dele.
       qtdRascunho: _numeroCelula(r.EMBARQUE_QTD_RASCUNHO),
-      obsRascunho: _textoCelula(r.EMBARQUE_OBS_RASCUNHO)
+      obsRascunho: _textoCelula(r.EMBARQUE_OBS_RASCUNHO),
+      // Só o Tingimento marca isso (tela Quantidade Tingida) — enquanto
+      // false, a expedição não vê o item em Confirmar Embarque (ver filtro
+      // em `carregarListaConfirmarEmbarque`, no App.html).
+      prontoEmbarque: _textoCelula(r.PRONTO_EMBARQUE) === 'SIM'
     };
   });
   return {
@@ -576,6 +585,22 @@ function _tipoFioDoItemPendente(item) {
     .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
   if (!pendente) return '';
   return _tipoFioAtualDoItem(item, pendente.TIPO_FIO);
+}
+
+/**
+ * TINGIDO_BASELINE do item na lista pendente — 0 quando o item nem está lá,
+ * ou quando a linha nunca sobrou de uma confirmação parcial de embarque (ver
+ * `_baixarPendenciaCompraPorEmbarque`, em Embarque.gs). Usado pra converter
+ * o "Já tingido" que o usuário VÊ (já descontado esse baseline — ver
+ * `obterListaFioParaTingir`) de volta pro total histórico ABSOLUTO que
+ * `_ajustarBaixaFioCru` espera.
+ */
+function _baselineTingidoDoItemPendente(item) {
+  var itemNorm = _norm(item);
+  var pendente = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA)
+    .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
+  if (!pendente) return 0;
+  return Number(pendente.TINGIDO_BASELINE) || 0;
 }
 
 /**
@@ -609,6 +634,13 @@ function registrarQuantidadeTingida(token, params) {
  * (ex.: um teste, ou valor digitado errado) e precisa ser desfeito/ajustado.
  * Ajusta a baixa no fio crú pela DIFERENÇA (credita de volta, LIFO, se o
  * novo total for menor — ver `_ajustarBaixaFioCru`), nunca duplica.
+ *
+ * `novoTotal` vem da TELA, que mostra o "Já tingido" já descontado do
+ * TINGIDO_BASELINE do item (ver `obterListaFioParaTingir`) — se este item é
+ * o saldo residual de um embarque parcial anterior, o valor que o usuário vê
+ * (e corrige) é só o que foi tingido PRA ESTE saldo, não o histórico
+ * completo. `_ajustarBaixaFioCru`, porém, trabalha com o total histórico
+ * ABSOLUTO — por isso somamos o baseline de volta antes de chamá-lo.
  */
 function corrigirQuantidadeTingida(token, item, novoTotal) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
@@ -622,7 +654,8 @@ function corrigirQuantidadeTingida(token, item, novoTotal) {
     throw new Error('Não achei o tipo de fio do item "' + item + '" na lista pendente — confira se ele ainda está lá.');
   }
 
-  var ajuste = _ajustarBaixaFioCru(tipoFio, item, novoTotal, s.usuario);
+  var baseline = _baselineTingidoDoItemPendente(item);
+  var ajuste = _ajustarBaixaFioCru(tipoFio, item, baseline + novoTotal, s.usuario);
   if (!ajuste.ok) throw new Error(ajuste.mensagem || 'Não foi possível corrigir.');
   return { ok: true, tipoFio: ajuste.tipoFio, diferenca: ajuste.diferenca, lotes: ajuste.lotes, tingido: novoTotal };
 }
