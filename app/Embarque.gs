@@ -731,19 +731,27 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     // (ver `obterListaFioParaTingir`, em FioCru.gs) — se este item é o saldo
     // residual de um embarque parcial anterior, tanto o "já tingido" quanto a
     // quantidade confirmada aqui só contam o que é NOVO pra este saldo, não o
-    // histórico completo do item. `jaTingido` abaixo segue a mesma régua, pra
-    // comparar maçã com maçã; `_ajustarBaixaFioCru`, porém, trabalha com o
-    // total histórico ABSOLUTO — por isso somamos o baseline de volta só na
-    // hora de chamá-lo.
+    // histórico completo do item.
     var baseline = _baselineTingidoDoItemPendente(it.item);
     var jaTingido = Math.max(0, (tingidoAtualPorItem[_norm(it.item)] || 0) - baseline);
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
     // senão não há sobra nenhuma pra tirar do estoque pronto.
     var qtdEstoque = (it.doEstoque && it.quantidade > jaTingido) ? (it.quantidade - jaTingido) : 0;
-    if (qtdEstoque > 0) {
+    // Existe saldo RETIDO (tingido mas não liberado) quando o Tingimento
+    // liberou menos do que já tinha tingido — ex.: tingiu 200kg, liberou só
+    // 100kg pra embarcar agora. Nesse caso, editar a quantidade aqui NÃO pode
+    // mexer no fio crú: os 100kg retidos continuam legitimamente consumidos
+    // (só ainda não embarcaram), então tratar `it.quantidade` como o novo
+    // total tingido creditaria de volta material que nunca deixou de ser
+    // usado. Só quando NADA está retido (liberou tudo que tinha tingido) é
+    // que um valor diferente aqui ainda significa "o total tingido lançado
+    // antes estava errado, corrija" — o comportamento antigo desta tela.
+    var liberadoAntes = _liberadoDoItemPendente(it.item);
+    var existeRetido = liberadoAntes + 0.01 < jaTingido;
+    if (qtdEstoque > 0 || existeRetido) {
       // Não mexe no fio crú: o que já estava baixado (jaTingido) permanece
-      // como o consumo do crú; a sobra é estoque pronto. Nenhuma linha nova
-      // no razão de baixas.
+      // como o consumo do crú; a sobra (do estoque, ou retida) não passa
+      // pelo ajuste. Nenhuma linha nova no razão de baixas.
     } else {
       var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, baseline + it.quantidade, s.usuario);
       (ajuste.lotes || []).forEach(function (l) {
@@ -1125,13 +1133,9 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
   var EPS = 0.01;
   var novoSugeridoPorLinha = {}; // __row -> novo valor
   var baselinePorLinha = {};     // __row -> novo TINGIDO_BASELINE (ver abaixo)
+  var liberadoPorLinha = {};     // __row -> novo PRONTO_EMBARQUE (quantidade ainda liberada, ver abaixo)
   var removidas = {};            // __row -> true
   var baixados = 0;
-  // Tingido acumulado de cada item NESTE momento — vira o novo "ponto zero"
-  // (TINGIDO_BASELINE) da linha que sobra, pra ela não continuar mostrando
-  // o que já foi embarcado como se ainda estivesse pendente (ver comentário
-  // abaixo, e `obterListaFioParaTingir`/`corrigirQuantidadeTingida`, em FioCru.gs).
-  var tingidoPorItemAgora = _tingidoPorItem();
 
   Object.keys(porItem).forEach(function (k) {
     var lista = _ordenarPorDataLimite(porItem[k]);
@@ -1148,7 +1152,17 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         removidas[r.__row] = true;
       } else {
         novoSugeridoPorLinha[r.__row] = novoValor;
-        baselinePorLinha[r.__row] = tingidoPorItemAgora[k] || 0;
+        // TINGIDO_BASELINE avança exatamente pelo `desconto` (o que ESTA
+        // confirmação embarcou desta linha) — nunca pro total tingido
+        // inteiro. Se sobrar tingido RETIDO (não liberado), ele precisa
+        // continuar aparecendo como "Já tingido" da próxima vez — só o que
+        // já embarcou é que deve sumir.
+        baselinePorLinha[r.__row] = (Number(r.TINGIDO_BASELINE) || 0) + desconto;
+        // PRONTO_EMBARQUE (liberado) reduz pelo mesmo `desconto` — some
+        // sozinho quando batia exatamente o que tinha sido liberado; se
+        // sobrar liberado (ex.: confirmaram menos do que foi liberado),
+        // continua liberado pro que faltar.
+        liberadoPorLinha[r.__row] = Math.max(0, (Number(r.PRONTO_EMBARQUE) || 0) - desconto);
       }
     });
   });
@@ -1164,23 +1178,24 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         // Linha que sobrou (resíduo) de um item que ACABOU de ser confirmado:
         // limpa o rascunho da Confirmar Embarque (quantidade/observação) —
         // senão a próxima rodada começaria pré-preenchida com um valor da
-        // rodada anterior, que não faz mais sentido pro resíduo. Limpa
-        // também PRONTO_EMBARQUE: o resíduo é um saldo NOVO, ainda não
-        // confirmado pelo Tingimento como pronto — senão ele reapareceria
-        // direto pra expedição em Confirmar Embarque, sem ninguém ter
-        // revisado esse novo saldo. E limpa VOLUMES: os volumes informados
-        // eram do que JÁ FOI embarcado, não fazem sentido pro saldo que sobrou.
-        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO' ||
-             h === 'PRONTO_EMBARQUE' || h === 'VOLUMES') &&
+        // rodada anterior, que não faz mais sentido pro resíduo. E limpa
+        // VOLUMES: os volumes informados eram do lote que JÁ FOI embarcado,
+        // não fazem sentido pro que sobrou (o Tingimento informa de novo os
+        // volumes na próxima liberação).
+        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO' || h === 'VOLUMES') &&
             novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
           return '';
         }
         // TINGIDO_BASELINE: marca "até aqui já foi embarcado" — o "Já
         // tingido" mostrado pro usuário (ver `obterListaFioParaTingir`) passa
-        // a contar só o que for tingido A PARTIR de agora pra este saldo,
-        // como se fosse um item novo (mesmo sendo a mesma linha).
+        // a contar só o que ainda não embarcou pra este saldo.
         if (h === 'TINGIDO_BASELINE' && baselinePorLinha.hasOwnProperty(r.__row)) {
           return baselinePorLinha[r.__row];
+        }
+        // PRONTO_EMBARQUE: reduz pelo que acabou de embarcar — ver comentário
+        // acima, na hora de calcular `liberadoPorLinha`.
+        if (h === 'PRONTO_EMBARQUE' && liberadoPorLinha.hasOwnProperty(r.__row)) {
+          return liberadoPorLinha[r.__row] || '';
         }
         return r[h] == null ? '' : r[h];
       });

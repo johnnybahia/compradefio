@@ -522,7 +522,7 @@ function _consumoCruPorItens(itens) {
  * pedido junto e o quanto já foi lançado como tingido — o processo de baixa
  * do fio crú começa por aqui. Pensada pra, no futuro, ser um trabalho de um
  * grupo de usuários à parte (por ora só o master usa — ver `exigirSessao`).
- * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido,prontoEmbarque}] }
+ * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido,liberado}] }
  */
 function obterListaFioParaTingir(token) {
   // Lida por várias telas com direitos diferentes: Quantidade Tingida e
@@ -556,10 +556,12 @@ function obterListaFioParaTingir(token) {
       // usuário só existia no navegador dele.
       qtdRascunho: _numeroCelula(r.EMBARQUE_QTD_RASCUNHO),
       obsRascunho: _textoCelula(r.EMBARQUE_OBS_RASCUNHO),
-      // Só o Tingimento marca isso (tela Quantidade Tingida) — enquanto
-      // false, a expedição não vê o item em Confirmar Embarque (ver filtro
-      // em `carregarListaConfirmarEmbarque`, no App.html).
-      prontoEmbarque: _textoCelula(r.PRONTO_EMBARQUE) === 'SIM'
+      // Quantidade que o Tingimento liberou pra expedição (tela Quantidade
+      // Tingida, ação "Liberar p/ embarque") — pode ser MENOR que "tingido"
+      // acima, quando parte do que foi tingido ainda está retida (não
+      // pronta). Enquanto 0, a expedição não vê o item em Confirmar
+      // Embarque (ver filtro em `carregarListaConfirmarEmbarque`, no App.html).
+      liberado: _numeroCelula(r.PRONTO_EMBARQUE) || 0
     };
   });
   return {
@@ -601,6 +603,24 @@ function _baselineTingidoDoItemPendente(item) {
     .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
   if (!pendente) return 0;
   return Number(pendente.TINGIDO_BASELINE) || 0;
+}
+
+/**
+ * PRONTO_EMBARQUE (quantidade liberada pro embarque) do item na lista
+ * pendente — 0 quando o item nem está lá, ou quando nada foi liberado ainda.
+ * Usado em `_confirmarEmbarqueManualInterno` pra saber se existe saldo
+ * RETIDO (tingido mas não liberado): só quando NÃO existe retido é que
+ * editar a quantidade em Confirmar Embarque ainda vale como correção do
+ * total tingido (ver `_ajustarBaixaFioCru`) — com saldo retido, mexer no
+ * fio crú a partir da quantidade confirmada creditaria de volta material
+ * que continua legitimamente consumido (só não embarcou ainda).
+ */
+function _liberadoDoItemPendente(item) {
+  var itemNorm = _norm(item);
+  var pendente = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA)
+    .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
+  if (!pendente) return 0;
+  return Number(pendente.PRONTO_EMBARQUE) || 0;
 }
 
 /**
