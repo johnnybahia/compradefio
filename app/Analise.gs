@@ -57,8 +57,14 @@ var RELACAO_COMPRA_HEADERS = [
                             // rascunho COMPARTILHADO: sem isso, a edição só existia no
                             // navegador de quem digitou, some ao recarregar ou some pra
                             // qualquer outro usuário (inclusive o master) olhando a mesma tela
-  'EMBARQUE_OBS_RASCUNHO'  // observação do item pra aquele embarque (mesmo rascunho compartilhado);
+  'EMBARQUE_OBS_RASCUNHO', // observação do item pra aquele embarque (mesmo rascunho compartilhado);
                             // 'COMPLETO' quando a caixa "completo" está marcada
+  'PRONTO_EMBARQUE'        // 'SIM' quando o Tingimento marca o item como pronto pra embarque
+                            // (tela Quantidade Tingida) — enquanto vazio, o item não aparece
+                            // pra expedição em Confirmar Embarque: ela só pode confirmar o que
+                            // o Tingimento já deu como pronto, nunca antes disso (ver
+                            // `definirProntoEmbarque`, em Consultas.gs, e o filtro em
+                            // `carregarListaConfirmarEmbarque`, no cliente).
 ];
 
 /**
@@ -306,7 +312,8 @@ function gerarRelacaoDeCompra(token, params) {
       agora,                    // GERADO_EM
       '',                       // VOLUMES (o tingimento informa depois, na tela)
       '',                       // EMBARQUE_QTD_RASCUNHO (rascunho nasce vazio)
-      ''                        // EMBARQUE_OBS_RASCUNHO (rascunho nasce vazio)
+      '',                       // EMBARQUE_OBS_RASCUNHO (rascunho nasce vazio)
+      ''                        // PRONTO_EMBARQUE (nasce vazio — ainda não confirmado pelo Tingimento)
     ];
     var linhaExistente = linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
     if (linhaExistente) {

@@ -522,7 +522,7 @@ function _consumoCruPorItens(itens) {
  * pedido junto e o quanto já foi lançado como tingido — o processo de baixa
  * do fio crú começa por aqui. Pensada pra, no futuro, ser um trabalho de um
  * grupo de usuários à parte (por ora só o master usa — ver `exigirSessao`).
- * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido}] }
+ * @return {Object} { ok, numeroPedido, dataPedido, linhas:[{linha,item,descricao,cliente,tipoFio,maquinas,total,tingido,prontoEmbarque}] }
  */
 function obterListaFioParaTingir(token) {
   // Lida por várias telas com direitos diferentes: Quantidade Tingida e
@@ -550,7 +550,11 @@ function obterListaFioParaTingir(token) {
       // em Consultas.gs) — sem isso, a quantidade/observação digitada por um
       // usuário só existia no navegador dele.
       qtdRascunho: _numeroCelula(r.EMBARQUE_QTD_RASCUNHO),
-      obsRascunho: _textoCelula(r.EMBARQUE_OBS_RASCUNHO)
+      obsRascunho: _textoCelula(r.EMBARQUE_OBS_RASCUNHO),
+      // Só o Tingimento marca isso (tela Quantidade Tingida) — enquanto
+      // false, a expedição não vê o item em Confirmar Embarque (ver filtro
+      // em `carregarListaConfirmarEmbarque`, no App.html).
+      prontoEmbarque: _textoCelula(r.PRONTO_EMBARQUE) === 'SIM'
     };
   });
   return {

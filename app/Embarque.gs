@@ -1148,8 +1148,12 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         // Linha que sobrou (resíduo) de um item que ACABOU de ser confirmado:
         // limpa o rascunho da Confirmar Embarque (quantidade/observação) —
         // senão a próxima rodada começaria pré-preenchida com um valor da
-        // rodada anterior, que não faz mais sentido pro resíduo.
-        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO') &&
+        // rodada anterior, que não faz mais sentido pro resíduo. Limpa
+        // também PRONTO_EMBARQUE: o resíduo é um saldo NOVO, ainda não
+        // confirmado pelo Tingimento como pronto — senão ele reapareceria
+        // direto pra expedição em Confirmar Embarque, sem ninguém ter
+        // revisado esse novo saldo.
+        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO' || h === 'PRONTO_EMBARQUE') &&
             novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
           return '';
         }
