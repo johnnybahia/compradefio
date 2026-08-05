@@ -159,11 +159,21 @@ embarque. Era literal demais — reportado pelo usuário: embarque nº **983**
 aberto, e uma NF **15983512** (que nada tem a ver) foi marcada como
 "chegou" só porque "983" aparece no meio dela.
 
-Corrigido em `_nfCasaComEmbarque` (`Embarque.gs`): agora só casa quando a
-NF é **igual** ao número do embarque, ou **começa** por ele seguida de algo
-que não é outro dígito (cobre o usuário que digitou um texto a mais por
-engano, tipo "983-A"). "9834" ou "15983512" não casam mais — são outros
-números.
+Corrigido em `_nfCasaComEmbarque` (`Embarque.gs`): agora só casa quando o
+número do embarque aparece na NF como um **bloco de dígitos separado** —
+ladeado por início/fim de texto ou por algo que não é dígito (espaço,
+traço...) — nunca embutido dentro de outro número maior. Cobre três casos:
+NF **igual** ao número do embarque; NF que **começa** por ele seguida de
+algo que não é outro dígito (typo do tipo "983-A"); e NF **composta por
+partes separadas por espaço**, tipo "91735 983 06", onde o número do
+embarque é uma das partes, em qualquer posição (não precisa ser a
+primeira). "9834" ou "15983512" continuam não casando — são outros
+números, mesmo com os mesmos dígitos embutidos.
+
+(Ajuste posterior: a versão inicial só casava quando o número do embarque
+vinha logo no INÍCIO da NF — não reconhecia o caso de NF composta com
+espaço, tipo "91735 983 06", onde "983" está no meio. Generalizado pra
+checar bloco de dígitos separado em qualquer posição.)
 
 **Se algum embarque já foi marcado "CHEGOU" errado por essa falha**, é preciso
 corrigir na mão: aba `EMBARQUES`, coluna SITUAÇÃO da linha afetada, apagar

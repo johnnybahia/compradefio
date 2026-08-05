@@ -1451,19 +1451,26 @@ function _normNumero(v) {
 /**
  * Confere se a NF lançada no estoque é o mesmo nº de embarque — NÃO só
  * "contém" (era assim antes, e casava embarque nº 983 com uma NF qualquer
- * tipo 15983512, só porque "983" aparece no meio do número). Agora só casa:
- *   - NF IGUAL ao número do embarque (o caso normal), ou
- *   - NF que COMEÇA pelo número do embarque seguida de algo que não é mais
- *     um dígito (ex.: "983-A", "983 CE") — cobre o usuário que digitou um
- *     texto a mais por engano, sem abrir para outro número que por
- *     coincidência tenha os mesmos dígitos no começo (ex.: "9834" é OUTRO
- *     número, não é "983" com typo).
+ * tipo 15983512, só porque "983" aparece no meio do número maior). Casa
+ * quando o número do embarque aparece na NF como um BLOCO DE DÍGITOS
+ * SEPARADO — ladeado por início/fim de texto ou por algo que não é dígito
+ * (espaço, traço...) — nunca embutido dentro de outro número maior:
+ *   - NF IGUAL ao número do embarque (ex.: "983"), ou
+ *   - NF que COMEÇA por ele seguido de algo que não é mais um dígito (ex.:
+ *     "983-A", "983 CE" — cobre o usuário que digitou um texto a mais por
+ *     engano), ou
+ *   - NF composta por partes separadas (ex.: "91735 983 06" — a NF real do
+ *     malote/lote, onde o número do embarque é UMA das partes, não o
+ *     começo da NF inteira).
+ * Em todos os casos, "9834" continua sendo OUTRO número (não é "983" com
+ * texto a mais), e "15983512" continua não casando (o "983" ali é parte de
+ * um número maior, não um bloco separado).
  */
 function _nfCasaComEmbarque(nfNorm, numEmbNorm) {
   if (!nfNorm || !numEmbNorm) return false;
   if (nfNorm === numEmbNorm) return true;
-  if (nfNorm.indexOf(numEmbNorm) !== 0) return false; // precisa começar pelo número do embarque
-  return !/^\d/.test(nfNorm.slice(numEmbNorm.length)); // o que vem depois não pode ser outro dígito
+  var escapado = numEmbNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(^|\\D)' + escapado + '(\\D|$)').test(nfNorm);
 }
 
 /**
