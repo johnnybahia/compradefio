@@ -236,7 +236,7 @@ function trocarUnidadeAtiva(unidadeId) {
     // Zera os dados carregados da unidade anterior antes de reabrir — cada
     // unidade tem seu próprio estoque/pedidos, não faz sentido misturar.
     estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '', novosItens: [], chegadasEmDuvida: [] };
-    estadoTingimento = { linhas: [] };
+    estadoTingimento = { linhas: [], kgBaseParcial: '' };
     pedidoInfo = { numero: null, data: null };
     abrirApp();
   }).catch(function (err) {
@@ -1156,7 +1156,7 @@ function excluirRelacao() {
 var pedidoInfo = { numero: null, data: null };
 // Lista carregada da PENDENCIA_COMPRA (já vem ordenada por data limite do servidor);
 // mantida aqui para reordenar na hora quando o usuário edita uma data, sem recarregar a tela.
-var estadoTingimento = { linhas: [] };
+var estadoTingimento = { linhas: [], kgBaseParcial: '' };
 
 function viewTingimento(alvo) {
   // Master/Tingimento editam (obs, data, e-mail do Pedido de Fio). Programação
@@ -1193,6 +1193,13 @@ function viewTingimento(alvo) {
             '<button class="btn-principal" id="btn-enviar-email">Enviar por e-mail</button>'
           : '') +
         (priorizar ? '<button class="btn-principal" id="btn-enviar-urgencia" style="background:#B91C1C">Enviar urgência</button>' : '') +
+        (editavelTing
+          ? '<div class="campo" style="max-width:210px">' +
+              '<label for="ting-kg-base">Destacar total pendente ≤ (kg)</label>' +
+              '<input type="number" id="ting-kg-base" value="' + escAttr(estadoTingimento.kgBaseParcial || '') +
+                '" step="any" min="0" placeholder="ex.: 5" style="max-width:130px">' +
+            '</div>'
+          : '') +
       '</div>' +
       '<div id="ting-msg"></div>' +
       '<div class="cabecalho-relatorio so-print">' +
@@ -1205,6 +1212,11 @@ function viewTingimento(alvo) {
       '<p class="legenda-critico no-print" id="legenda-critico" style="display:none">' +
         'Linhas destacadas: saldo de estoque negativo ou zero (aviso só na tela, ' +
         'não sai na impressão nem no e-mail).</p>' +
+      (editavelTing
+        ? '<p class="legenda-abastecido no-print" id="legenda-saldo-baixo" style="display:none;color:#7C3AED">' +
+            'Linhas roxas: total pendente igual ou abaixo do valor informado acima — candidatas a ' +
+            '<b>remover</b> (✕) se o saldo for baixo demais pra valer a pena esperar.</p>'
+        : '') +
       '<div class="tabela-wrap" id="tabela-ting"></div>' +
     '</section>';
 
@@ -1222,6 +1234,10 @@ function viewTingimento(alvo) {
       pedidoInfo.numero = (this.value !== '' && !isNaN(n)) ? n : null;
       var elNum = document.getElementById('rel-numero');
       if (elNum) elNum.textContent = pedidoInfo.numero != null ? pedidoInfo.numero : '—';
+    });
+    document.getElementById('ting-kg-base').addEventListener('input', function () {
+      estadoTingimento.kgBaseParcial = document.getElementById('ting-kg-base').value;
+      reaplicarDestaqueTingimento();
     });
     chamar('obterDestinatarios', sessao.token)
       .then(function (r) { document.getElementById('emails-compra').value = r.emails || ''; })
@@ -1334,7 +1350,7 @@ function renderTingimento(linhas) {
   var editavelTing = podeEditar(['master', 'tingimento']);
   var priorizar = podeEditar(['master', 'programacao']);
 
-  var body = linhas.map(function (l) {
+  var body = linhas.map(function (l, i) {
     var dataCel = editavelTing
       ? '<input type="date" class="data-input" data-linha="' + l.linha + '" value="' + brParaISO(l.dataLimite) + '">'
       : (l.dataLimite || '—');
@@ -1359,7 +1375,8 @@ function renderTingimento(linhas) {
           : '') +
       '</td>';
     }
-    return '<tr' + (l.saldoCritico ? ' class="destaque"' : '') + (l.prioridade ? ' style="box-shadow:inset 4px 0 0 0 #B91C1C"' : '') + '>' +
+    return '<tr data-idx="' + i + '"' + (l.saldoCritico ? ' class="destaque"' : '') +
+      (l.prioridade ? ' style="box-shadow:inset 4px 0 0 0 #B91C1C"' : '') + '>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td>' + (l.item || '—') + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
@@ -1432,6 +1449,29 @@ function renderTingimento(linhas) {
       btn.addEventListener('click', function () { limparUrgenciaItem(Number(btn.getAttribute('data-linha'))); });
     });
   }
+  reaplicarDestaqueTingimento();
+}
+
+/** Realça (roxo) as linhas do Tingimento cujo TOTAL pendente está abaixo do
+ * valor digitado em "Destacar total pendente ≤ (kg)" — sem recriar a
+ * tabela, pra não perder o que a pessoa estiver editando nos campos de
+ * observação/data limite. Pedido do usuário: ajuda a achar de cara os
+ * resíduos com saldo baixo demais pra valer a pena esperar, pra excluir
+ * (ver `removerLinhaTingimento`). */
+function reaplicarDestaqueTingimento() {
+  var campo = document.getElementById('ting-kg-base');
+  var legenda = document.getElementById('legenda-saldo-baixo');
+  var base = campo ? parseFloat(campo.value) : NaN;
+  var linhas = document.querySelectorAll('#tabela-ting tbody tr');
+  var achou = false;
+  Array.prototype.forEach.call(linhas, function (tr) {
+    var l = estadoTingimento.linhas[Number(tr.getAttribute('data-idx'))];
+    var total = l ? Number(l.total) : NaN;
+    var baixo = !isNaN(base) && !isNaN(total) && total <= base;
+    tr.classList.toggle('destaque-saldo-baixo', baixo);
+    if (baixo) achou = true;
+  });
+  if (legenda) legenda.style.display = achou ? '' : 'none';
 }
 
 /** Tira o "URGENTE" da observação de um item (desfaz a urgência marcada por

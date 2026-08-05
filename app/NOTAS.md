@@ -410,3 +410,23 @@ projeto → Propriedades do script.
 Testado com `teste18.js` (cache isolado por unidade + confirma que o
 cache "de verdade" funciona pra reduzir releitura da aba dentro da MESMA
 unidade) e regressão completa (`teste.js`–`teste17.js`).
+
+## Destacar itens com saldo baixo na aba Tingimento
+
+Pedido do usuário: achar de cara, na aba Tingimento, os itens com saldo
+pendente baixo demais pra valer a pena esperar — pra excluir esses direto
+(ver `removerLinhaTingimento`), sem precisar ler a coluna Total linha por
+linha.
+
+Novo campo **"Destacar total pendente ≤ (kg)"** na barra de ferramentas
+(só pra quem edita — master/tingimento): item com Total (kg) igual ou
+abaixo do valor digitado fica **roxo**. Mesmo padrão já usado na Análise
+de Estoque ("Destacar saldo ≤ (kg)"), mas implementado sem recriar a
+tabela a cada tecla digitada (`reaplicarDestaqueTingimento`, só troca a
+classe CSS das linhas) — recriar destruiria o que a pessoa estivesse
+digitando nos campos de observação/data limite de outras linhas na hora.
+Cor nova (roxo, `.destaque-saldo-baixo`) pra não confundir com o vermelho
+já usado ali pra saldo crítico de ESTOQUE (métrica diferente). Não sai na
+impressão/e-mail — é só um filtro visual de trabalho.
+
+Testado com `teste20.js` e regressão completa (`teste.js`–`teste18.js`).
