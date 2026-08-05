@@ -159,11 +159,21 @@ embarque. Era literal demais — reportado pelo usuário: embarque nº **983**
 aberto, e uma NF **15983512** (que nada tem a ver) foi marcada como
 "chegou" só porque "983" aparece no meio dela.
 
-Corrigido em `_nfCasaComEmbarque` (`Embarque.gs`): agora só casa quando a
-NF é **igual** ao número do embarque, ou **começa** por ele seguida de algo
-que não é outro dígito (cobre o usuário que digitou um texto a mais por
-engano, tipo "983-A"). "9834" ou "15983512" não casam mais — são outros
-números.
+Corrigido em `_nfCasaComEmbarque` (`Embarque.gs`): agora só casa quando o
+número do embarque aparece na NF como um **bloco de dígitos separado** —
+ladeado por início/fim de texto ou por algo que não é dígito (espaço,
+traço...) — nunca embutido dentro de outro número maior. Cobre três casos:
+NF **igual** ao número do embarque; NF que **começa** por ele seguida de
+algo que não é outro dígito (typo do tipo "983-A"); e NF **composta por
+partes separadas por espaço**, tipo "91735 983 06", onde o número do
+embarque é uma das partes, em qualquer posição (não precisa ser a
+primeira). "9834" ou "15983512" continuam não casando — são outros
+números, mesmo com os mesmos dígitos embutidos.
+
+(Ajuste posterior: a versão inicial só casava quando o número do embarque
+vinha logo no INÍCIO da NF — não reconhecia o caso de NF composta com
+espaço, tipo "91735 983 06", onde "983" está no meio. Generalizado pra
+checar bloco de dígitos separado em qualquer posição.)
 
 **Se algum embarque já foi marcado "CHEGOU" errado por essa falha**, é preciso
 corrigir na mão: aba `EMBARQUES`, coluna SITUAÇÃO da linha afetada, apagar
@@ -323,3 +333,49 @@ genericamente que qualquer linha gravada em `PENDENCIA_COMPRA` tem
 exatamente o número de colunas de `RELACAO_COMPRA_HEADERS` — pra pegar essa
 classe de erro de novo se o cabeçalho crescer no futuro e algum ponto de
 gravação for esquecido.
+
+## "Chegadas a confirmar" — pergunta quando o casamento NF↔embarque não é claro
+
+Pedido do usuário, olhando um caso onde a NF tinha o número do embarque no
+meio de um texto composto (ex.: "91735 983 06", separado por espaço): "na
+dúvida, abre uma janela perguntando... assim como faz com a Associação."
+
+Até aqui, `_atualizarChegadasEmbarque` só decidia sozinho: ou o casamento
+(bloco de dígitos isolado — ver a entrada acima, "'Chegada' de embarque
+casando com NF errada") batia e marcava CHEGOU, ou não batia e o caso era
+simplesmente ignorado — mesmo quando havia um sinal razoável (número
+presente, só não isolado) que merecia uma segunda opinião.
+
+Agora, dois casos que ANTES eram descartados direto viram uma dúvida em vez
+de uma decisão silenciosa:
+- o número do embarque aparece na NF, mas **embutido** dentro de um número
+  maior (não é um bloco isolado — ex.: "983" dentro de "15983512");
+- a NF bate (bloco isolado) com **mais de um** embarque pendente ao mesmo
+  tempo — não dá pra saber qual dos dois é.
+
+Mesma ideia do painel "Itens novos cadastrados na Associação" (pergunta
+quando não tem certeza), mas **sem memorizar a resposta** — pedido explícito
+do usuário: "Nenhum desses" só tira da tela naquele momento; se o embarque
+continuar em aberto, a mesma dúvida volta a aparecer na próxima vez que a
+Análise rodar, até alguém confirmar ou o embarque chegar de outro jeito.
+
+Implementado:
+- `_atualizarChegadasEmbarque` (`Embarque.gs`) devolve também `emDuvida:
+  [{ item, nf, dataNf, candidatos: [{ numero, linhas }] }]`, sem marcar essas
+  linhas sozinho.
+- `confirmarChegadaEmbarque` (`Embarque.gs`) — novo endpoint: o master
+  escolhe um candidato e confirma; confere DE NOVO, na hora, que a linha
+  ainda é daquele embarque (evita marcar errado se a lista mudou entre a
+  Análise carregar e o master responder).
+- `listarItensParaAnalise` (`Analise.gs`) repassa `chegadasEmDuvida` na
+  resposta.
+- Painel novo "Chegadas a confirmar" (`App.html`, `renderChegadasDuvida`) —
+  mesmo padrão visual/estrutural do painel da Associação: uma linha por
+  dúvida, um `<select>` com os candidatos, botões "É este" / "Nenhum
+  desses".
+
+Testado com `teste16.js` (servidor: casamento claro continua automático;
+os dois gatilhos de dúvida; confirmação: marca certo, recusa se a linha
+mudou de embarque) e `teste17.js` (cliente: painel aparece só quando há
+dúvida, "Nenhum desses" não chama o servidor, "É este" manda o candidato
+certo escolhido no `<select>`) — e regressão completa (`teste.js`–`teste15.js`).

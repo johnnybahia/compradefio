@@ -235,7 +235,7 @@ function trocarUnidadeAtiva(unidadeId) {
     localStorage.setItem(TOKEN_KEY, r.token);
     // Zera os dados carregados da unidade anterior antes de reabrir — cada
     // unidade tem seu próprio estoque/pedidos, não faz sentido misturar.
-    estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '', novosItens: [] };
+    estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '', novosItens: [], chegadasEmDuvida: [] };
     estadoTingimento = { linhas: [] };
     pedidoInfo = { numero: null, data: null };
     abrirApp();
@@ -271,7 +271,7 @@ function ymd(d) {
 }
 
 // Estado da análise, preservado enquanto a sessão estiver aberta.
-var estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '', novosItens: [] };
+var estadoAnalise = { dataInicio: null, dataFim: null, kgBase: '20', itens: [], mensagem: '', novosItens: [], chegadasEmDuvida: [] };
 
 function viewAnalise(alvo) {
   var hoje = new Date();
@@ -319,6 +319,14 @@ function viewAnalise(alvo) {
       'cadastrou um nome padrão sozinho (um palpite). Confira; se algum estiver errado, ' +
       'corrija o texto e clique em Salvar — a correção vale para sempre, não precisa repetir.</p>' +
       '<div class="tabela-wrap" id="tabela-novos-associacao"></div>' +
+    '</section>' +
+    '<section class="painel" id="painel-chegadas-duvida" style="display:none">' +
+      '<h2>Chegadas a confirmar</h2>' +
+      '<p class="desc">NF lançada no estoque que PODE ser de um embarque pendente, mas o ' +
+      'sistema não teve certeza (número parecido, ou o mesmo texto batendo com mais de um ' +
+      'embarque em aberto) — confirme ou descarte. Não fica marcado: se ignorar, volta a ' +
+      'aparecer na próxima vez que a análise rodar, até alguém decidir.</p>' +
+      '<div class="tabela-wrap" id="tabela-chegadas-duvida"></div>' +
     '</section>' +
     '<section class="painel" id="painel-lista" style="display:none">' +
       '<h2>Itens do período</h2>' +
@@ -379,6 +387,7 @@ function viewAnalise(alvo) {
     renderLista(estadoAnalise.itens);
   }
   renderNovosAssociacao(estadoAnalise.novosItens);
+  renderChegadasDuvida(estadoAnalise.chegadasEmDuvida);
   carregarUltimaRelacao();
   carregarPendencias();
 }
@@ -470,6 +479,74 @@ function salvarCorrecaoAssociacao(btn) {
       btn.disabled = false;
       var m = tratarErro(err);
       msgEl.innerHTML = '<span style="color:var(--erro)">' + (m || 'Erro ao salvar.') + '</span>';
+    });
+}
+
+/**
+ * "Chegadas a confirmar" — NF do estoque que talvez seja de um embarque
+ * pendente, mas o casamento não foi certo o bastante pra decidir sozinho
+ * (ver `_atualizarChegadasEmbarque`, em Embarque.gs): número embutido em
+ * outro maior, ou batendo com mais de um embarque em aberto ao mesmo tempo.
+ * Mesma ideia da Associação (pergunta quando não tem certeza), mas SEM
+ * memorizar a resposta — "não é nenhum desses" só tira da tela agora; se
+ * continuar em aberto, volta a aparecer na próxima análise.
+ */
+function renderChegadasDuvida(itens) {
+  var painel = document.getElementById('painel-chegadas-duvida');
+  var wrap = document.getElementById('tabela-chegadas-duvida');
+  if (!painel || !wrap) return;
+  if (!itens || !itens.length) { painel.style.display = 'none'; return; }
+  painel.style.display = '';
+  var body = itens.map(function (it, i) {
+    var opcoes = it.candidatos.map(function (c, ci) {
+      return '<option value="' + ci + '">Embarque nº ' + escAttr(c.numero) + '</option>';
+    }).join('');
+    return '<tr>' +
+      '<td>' + escAttr(it.item) + '</td>' +
+      '<td>' + escAttr(it.nf) + '</td>' +
+      '<td>' + (it.dataNf ? escAttr(it.dataNf) : '—') + '</td>' +
+      '<td><select class="sel-chegada-duvida" data-idx="' + i + '">' + opcoes + '</select></td>' +
+      '<td style="white-space:nowrap">' +
+        '<button class="btn-principal btn-confirmar-chegada" type="button" data-idx="' + i + '">É este</button> ' +
+        '<button class="btn-sair btn-descartar-chegada" type="button" data-idx="' + i + '">Nenhum desses</button>' +
+      '</td>' +
+      '<td><span id="msg-chegada-duvida-' + i + '" style="font-size:13px"></span></td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:14%">Item</th><th style="width:16%">NF</th><th style="width:10%">Data</th>' +
+      '<th style="width:20%">Qual embarque?</th><th style="width:16%"></th><th></th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-confirmar-chegada'), function (btn) {
+    btn.onclick = function () { confirmarChegadaDuvida(btn); };
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.btn-descartar-chegada'), function (btn) {
+    btn.onclick = function () {
+      var idx = Number(btn.getAttribute('data-idx'));
+      estadoAnalise.chegadasEmDuvida.splice(idx, 1);
+      renderChegadasDuvida(estadoAnalise.chegadasEmDuvida);
+    };
+  });
+}
+
+function confirmarChegadaDuvida(btn) {
+  var idx = Number(btn.getAttribute('data-idx'));
+  var it = estadoAnalise.chegadasEmDuvida[idx];
+  var sel = document.querySelector('.sel-chegada-duvida[data-idx="' + idx + '"]');
+  var candidato = it.candidatos[Number(sel.value)];
+  var msgEl = document.getElementById('msg-chegada-duvida-' + idx);
+
+  btn.disabled = true;
+  chamar('confirmarChegadaEmbarque', sessao.token, candidato.linhas, candidato.numero)
+    .then(function () {
+      estadoAnalise.chegadasEmDuvida.splice(idx, 1);
+      renderChegadasDuvida(estadoAnalise.chegadasEmDuvida);
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      var m = tratarErro(err);
+      if (msgEl) msgEl.innerHTML = '<span style="color:var(--erro)">' + (m || 'Erro ao confirmar.') + '</span>';
     });
 }
 
@@ -733,9 +810,11 @@ function prosseguirAnalisarEstoque(dataInicio, dataFim, btn, msg) {
       estadoAnalise.itens = r.itens || [];
       estadoAnalise.mensagem = r.mensagem || '';
       estadoAnalise.novosItens = r.novosItens || [];
+      estadoAnalise.chegadasEmDuvida = r.chegadasEmDuvida || [];
       msg.innerHTML = '<div class="aviso ok">' + r.mensagem + '</div>';
       renderLista(estadoAnalise.itens);
       renderNovosAssociacao(estadoAnalise.novosItens);
+      renderChegadasDuvida(estadoAnalise.chegadasEmDuvida);
       renderPendencias(r.pendencias);
     })
     .catch(function (err) {
