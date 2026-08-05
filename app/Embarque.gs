@@ -727,7 +727,16 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     // que antes saía inteiro sob "(tipo de fio não identificado)".
     var tipoFio = _tipoFioAtualDoItem(it.item, tipoFioPorItem[_norm(it.item)]);
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
-    var jaTingido = tingidoAtualPorItem[_norm(it.item)] || 0;
+    // `it.quantidade` vem da tela já descontado do TINGIDO_BASELINE do item
+    // (ver `obterListaFioParaTingir`, em FioCru.gs) — se este item é o saldo
+    // residual de um embarque parcial anterior, tanto o "já tingido" quanto a
+    // quantidade confirmada aqui só contam o que é NOVO pra este saldo, não o
+    // histórico completo do item. `jaTingido` abaixo segue a mesma régua, pra
+    // comparar maçã com maçã; `_ajustarBaixaFioCru`, porém, trabalha com o
+    // total histórico ABSOLUTO — por isso somamos o baseline de volta só na
+    // hora de chamá-lo.
+    var baseline = _baselineTingidoDoItemPendente(it.item);
+    var jaTingido = Math.max(0, (tingidoAtualPorItem[_norm(it.item)] || 0) - baseline);
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
     // senão não há sobra nenhuma pra tirar do estoque pronto.
     var qtdEstoque = (it.doEstoque && it.quantidade > jaTingido) ? (it.quantidade - jaTingido) : 0;
@@ -736,7 +745,7 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
       // como o consumo do crú; a sobra é estoque pronto. Nenhuma linha nova
       // no razão de baixas.
     } else {
-      var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, it.quantidade, s.usuario);
+      var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, baseline + it.quantidade, s.usuario);
       (ajuste.lotes || []).forEach(function (l) {
         deltaLotes.push({
           // tipo de fio REAL da linha de baixa (pode diferir do tipo do item por
@@ -1115,8 +1124,14 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
 
   var EPS = 0.01;
   var novoSugeridoPorLinha = {}; // __row -> novo valor
+  var baselinePorLinha = {};     // __row -> novo TINGIDO_BASELINE (ver abaixo)
   var removidas = {};            // __row -> true
   var baixados = 0;
+  // Tingido acumulado de cada item NESTE momento — vira o novo "ponto zero"
+  // (TINGIDO_BASELINE) da linha que sobra, pra ela não continuar mostrando
+  // o que já foi embarcado como se ainda estivesse pendente (ver comentário
+  // abaixo, e `obterListaFioParaTingir`/`corrigirQuantidadeTingida`, em FioCru.gs).
+  var tingidoPorItemAgora = _tingidoPorItem();
 
   Object.keys(porItem).forEach(function (k) {
     var lista = _ordenarPorDataLimite(porItem[k]);
@@ -1133,6 +1148,7 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         removidas[r.__row] = true;
       } else {
         novoSugeridoPorLinha[r.__row] = novoValor;
+        baselinePorLinha[r.__row] = tingidoPorItemAgora[k] || 0;
       }
     });
   });
@@ -1152,10 +1168,19 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         // também PRONTO_EMBARQUE: o resíduo é um saldo NOVO, ainda não
         // confirmado pelo Tingimento como pronto — senão ele reapareceria
         // direto pra expedição em Confirmar Embarque, sem ninguém ter
-        // revisado esse novo saldo.
-        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO' || h === 'PRONTO_EMBARQUE') &&
+        // revisado esse novo saldo. E limpa VOLUMES: os volumes informados
+        // eram do que JÁ FOI embarcado, não fazem sentido pro saldo que sobrou.
+        if ((h === 'EMBARQUE_QTD_RASCUNHO' || h === 'EMBARQUE_OBS_RASCUNHO' ||
+             h === 'PRONTO_EMBARQUE' || h === 'VOLUMES') &&
             novoSugeridoPorLinha.hasOwnProperty(r.__row)) {
           return '';
+        }
+        // TINGIDO_BASELINE: marca "até aqui já foi embarcado" — o "Já
+        // tingido" mostrado pro usuário (ver `obterListaFioParaTingir`) passa
+        // a contar só o que for tingido A PARTIR de agora pra este saldo,
+        // como se fosse um item novo (mesmo sendo a mesma linha).
+        if (h === 'TINGIDO_BASELINE' && baselinePorLinha.hasOwnProperty(r.__row)) {
+          return baselinePorLinha[r.__row];
         }
         return r[h] == null ? '' : r[h];
       });

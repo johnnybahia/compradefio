@@ -59,12 +59,21 @@ var RELACAO_COMPRA_HEADERS = [
                             // qualquer outro usuário (inclusive o master) olhando a mesma tela
   'EMBARQUE_OBS_RASCUNHO', // observação do item pra aquele embarque (mesmo rascunho compartilhado);
                             // 'COMPLETO' quando a caixa "completo" está marcada
-  'PRONTO_EMBARQUE'        // 'SIM' quando o Tingimento marca o item como pronto pra embarque
+  'PRONTO_EMBARQUE',       // 'SIM' quando o Tingimento marca o item como pronto pra embarque
                             // (tela Quantidade Tingida) — enquanto vazio, o item não aparece
                             // pra expedição em Confirmar Embarque: ela só pode confirmar o que
                             // o Tingimento já deu como pronto, nunca antes disso (ver
                             // `definirProntoEmbarque`, em Consultas.gs, e o filtro em
                             // `carregarListaConfirmarEmbarque`, no cliente).
+  'TINGIDO_BASELINE'       // quanto do histórico de tingido do item já estava contado ANTES
+                            // deste saldo residual nascer — gravado quando sobra saldo de uma
+                            // confirmação parcial de embarque (ver `_baixarPendenciaCompraPorEmbarque`,
+                            // em Embarque.gs). O "Já tingido" mostrado pro usuário é sempre o
+                            // total histórico MENOS este valor — assim, a parte que sobrou depois
+                            // de um embarque parcial aparece zerada (volumes e tingido), como se
+                            // fosse uma quantidade nova, do mesmo item, em vez de repetir os
+                            // números do que já foi embarcado (ver `obterListaFioParaTingir`,
+                            // em FioCru.gs).
 ];
 
 /**
@@ -313,7 +322,8 @@ function gerarRelacaoDeCompra(token, params) {
       '',                       // VOLUMES (o tingimento informa depois, na tela)
       '',                       // EMBARQUE_QTD_RASCUNHO (rascunho nasce vazio)
       '',                       // EMBARQUE_OBS_RASCUNHO (rascunho nasce vazio)
-      ''                        // PRONTO_EMBARQUE (nasce vazio — ainda não confirmado pelo Tingimento)
+      '',                       // PRONTO_EMBARQUE (nasce vazio — ainda não confirmado pelo Tingimento)
+      ''                        // TINGIDO_BASELINE (nasce vazio — linha nova, sem saldo residual)
     ];
     var linhaExistente = linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
     if (linhaExistente) {

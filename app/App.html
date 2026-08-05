@@ -2388,8 +2388,10 @@ function viewQuantidadeTingida(alvo) {
       'lançado e dá baixa no fio crú daquele tipo de fio. Errou um lançamento (ou foi só um teste)? Use o ' +
       'botão <b>✎</b> ao lado do "Já tingido" pra corrigir o total pro valor certo. Quando o item estiver ' +
       'pronto pra sair (tingido no todo ou em parte que você decida liberar), marque <b>"Pronto p/ ' +
-      'embarque"</b> — só aí ele aparece pra expedição confirmar, na tela Confirmar Embarque. Use as setas ' +
-      '↑/↓ (ou clique numa linha) para navegar item por item.'
+      'embarque"</b> — só aí ele aparece pra expedição confirmar, na tela Confirmar Embarque. Se sobrar ' +
+      'saldo (embarcou só uma parte), o item continua aqui com "Já tingido" e "Volumes" ZERADOS — como se ' +
+      'fosse uma quantidade nova do mesmo item — pra você lançar o restante sem confundir com o que já ' +
+      'saiu. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.'
     : 'Somente consulta — quem lança a quantidade tingida é o papel Tingimento.';
   alvo.innerHTML =
     '<section class="painel">' +
