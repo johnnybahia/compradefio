@@ -264,6 +264,11 @@
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   table.dados tbody tr.destaque-tingido-parcial:hover { background: #FBE4CE; }
+  table.dados tbody tr.destaque-saldo-baixo {
+    background: #F3E8FF;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.dados tbody tr.destaque-saldo-baixo:hover { background: #EAD9FB; }
   .qtd-input-grande {
     width: 90px; padding: 7px 8px; font-size: 14px; font-weight: 600;
     border: 1px solid var(--borda); border-radius: 6px; text-align: right;
@@ -349,11 +354,13 @@
       background: #eef2f6 !important; color: #0B4576 !important;
       position: static !important; top: auto !important;
     }
-    /* O destaque de saldo crítico (vermelho) e o cursor da régua são só pra
+    /* O destaque de saldo crítico (vermelho), o de saldo baixo/parcial
+       (roxo, pra achar candidato a excluir) e o cursor da régua são só pra
        conferência na tela — não saem na folha impressa. */
     #tabela-ting tr.destaque, #tabela-relatorio tr.destaque { background: none !important; }
     #tabela-ting tr.destaque td:nth-child(5) { color: inherit !important; font-weight: normal !important; }
     #tabela-relatorio tr.destaque td { color: inherit !important; font-weight: normal !important; }
+    #tabela-ting tr.destaque-saldo-baixo { background: none !important; }
     table.dados tbody tr.regua-atual { background: none !important; box-shadow: none !important; }
   }
 </style>

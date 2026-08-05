@@ -379,3 +379,54 @@ os dois gatilhos de dúvida; confirmação: marca certo, recusa se a linha
 mudou de embarque) e `teste17.js` (cliente: painel aparece só quando há
 dúvida, "Nenhum desses" não chama o servidor, "É este" manda o candidato
 certo escolhido no `<select>`) — e regressão completa (`teste.js`–`teste15.js`).
+
+## Cache de itens do estoque não isolado por unidade (resolvido)
+
+Reportado: usuário da BAHIA (unidade certa no login, conferida) vendo o
+Relatório com embarques de Bahia e Ceará misturados. Investigando, auditei
+todas as funções expostas ao cliente (mais de 60): todas chamam
+`exigirSessao` logo no início, que redefine `_unidadeAtivaId` a cada
+chamada a partir do token de quem pediu — sem vazamento por aí, cada
+requisição resolve a própria unidade do zero. Achei um caso real de
+vazamento entre unidades, mas em outro lugar: `listarItensEstoque`
+(`Consultas.gs`, autocomplete da tela "Consultar Histórico do Item") usava
+uma chave de cache FIXA (`'itensEstoque'`) por 30 minutos — se o Ceará
+pedisse primeiro, a Bahia "herdava" a lista de itens do Ceará (e
+vice-versa) enquanto esse cache estivesse quente.
+
+Corrigido: a chave agora leva a unidade ativa (`'itensEstoque_' + unidade`,
+mesmo padrão já usado em `verificarRevisaoRelatorio`/`_propUnidade`) — cada
+unidade tem seu próprio cache, sem interferir uma na outra.
+
+**Isso NÃO explica sozinho o relatório mostrando embarques misturados**
+(o `_montarLinhasRelatorio`/`obterRelatorioCompraAtual` não usa cache) —
+a suspeita mais forte pra ESSE sintoma específico é as Propriedades do
+script `SPREADSHEET_ID_CEARA` e `SPREADSHEET_ID_BAHIA` apontarem pro MESMO
+arquivo por engano (aí as duas "unidades" seriam, na prática, a mesma
+planilha — todo mundo veria tudo misturado, sempre, não só ao trocar de
+unidade). Verificar em: Extensões → Apps Script → Configurações do
+projeto → Propriedades do script.
+
+Testado com `teste18.js` (cache isolado por unidade + confirma que o
+cache "de verdade" funciona pra reduzir releitura da aba dentro da MESMA
+unidade) e regressão completa (`teste.js`–`teste17.js`).
+
+## Destacar itens com saldo baixo na aba Tingimento
+
+Pedido do usuário: achar de cara, na aba Tingimento, os itens com saldo
+pendente baixo demais pra valer a pena esperar — pra excluir esses direto
+(ver `removerLinhaTingimento`), sem precisar ler a coluna Total linha por
+linha.
+
+Novo campo **"Destacar total pendente ≤ (kg)"** na barra de ferramentas
+(só pra quem edita — master/tingimento): item com Total (kg) igual ou
+abaixo do valor digitado fica **roxo**. Mesmo padrão já usado na Análise
+de Estoque ("Destacar saldo ≤ (kg)"), mas implementado sem recriar a
+tabela a cada tecla digitada (`reaplicarDestaqueTingimento`, só troca a
+classe CSS das linhas) — recriar destruiria o que a pessoa estivesse
+digitando nos campos de observação/data limite de outras linhas na hora.
+Cor nova (roxo, `.destaque-saldo-baixo`) pra não confundir com o vermelho
+já usado ali pra saldo crítico de ESTOQUE (métrica diferente). Não sai na
+impressão/e-mail — é só um filtro visual de trabalho.
+
+Testado com `teste20.js` e regressão completa (`teste.js`–`teste18.js`).
