@@ -1710,14 +1710,6 @@ function viewConfirmarEmbarque(alvo) {
             '</span>' +
           '</div>'
         : '') +
-      (editavel
-        ? '<div style="margin:-6px 0 14px">' +
-            '<button type="button" class="btn-principal" id="btn-lancar-item-manual" style="background:#475569">' +
-              '+ Lançar itens manualmente</button> ' +
-            '<span class="desc" style="margin:0">Pro caso do Tingimento ter combinado por papel/telefone e não ' +
-              'ter lançado no sistema.</span>' +
-          '</div>'
-        : '') +
       '<div id="embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       (editavel
@@ -1794,21 +1786,27 @@ function viewConfirmarEmbarque(alvo) {
       '<div class="tabela-wrap" id="tabela-historico-embarque"></div>' +
     '</section>' +
 
-    '<section class="painel" id="painel-lancar-manual" style="display:none">' +
-      '<h2>Lançar itens manualmente</h2>' +
-      blocoAjuda(
-        'Pra quando o Tingimento combinou por papel/telefone e não lançou no sistema. Preencha peso e ' +
-        'volumes do item (deixe em branco o que não for lançar agora) e clique em <b>Lançar</b> naquela ' +
-        'linha — registra o tingido, dá baixa no fio crú e já libera pra você marcar "Embarcar" na lista ' +
-        'principal, lá em cima.'
-      ) +
-      '<div class="campo" style="max-width:320px;margin-bottom:10px">' +
-        '<label for="lm-filtro">Filtrar por item ou descrição</label>' +
-        '<input type="text" id="lm-filtro" placeholder="deixe em branco pra ver todos" autocomplete="off">' +
-      '</div>' +
-      '<div id="lm-msg"></div>' +
-      '<div class="tabela-wrap" id="tabela-lancar-manual"></div>' +
-    '</section>';
+    // Sempre visível (não fica atrás de botão nenhum): a expedição precisa
+    // enxergar de cara todos os itens em aberto, pra lançar na mão o que o
+    // Tingimento não passou pelo sistema. Só pra quem edita — quem só
+    // consulta não lança nada.
+    (editavel
+      ? '<section class="painel" id="painel-lancar-manual">' +
+          '<h2>Lançar itens manualmente</h2>' +
+          blocoAjuda(
+            'Todos os itens em aberto, pra quando o Tingimento combinou por papel/telefone e não lançou no ' +
+            'sistema. Preencha peso e volumes do item (deixe em branco o que não for lançar agora) e clique ' +
+            'em <b>Lançar</b> naquela linha — registra o tingido, dá baixa no fio crú e já libera pra você ' +
+            'marcar "Embarcar" na lista principal, lá em cima.'
+          ) +
+          '<div class="campo" style="max-width:320px;margin-bottom:10px">' +
+            '<label for="lm-filtro">Filtrar por item ou descrição</label>' +
+            '<input type="text" id="lm-filtro" placeholder="deixe em branco pra ver todos" autocomplete="off">' +
+          '</div>' +
+          '<div id="lm-msg"></div>' +
+          '<div class="tabela-wrap" id="tabela-lancar-manual"></div>' +
+        '</section>'
+      : '');
 
   // Sem passar o evento adiante: `confirmarEmbarqueSelecionado` recebe um
   // booleano (forçar duplicado), e um Event seria lido como `true`.
@@ -1819,8 +1817,6 @@ function viewConfirmarEmbarque(alvo) {
   if (btnHist) btnHist.onclick = togglePainelHistoricoEmbarque;
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
   if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
-  var btnLancarManual = document.getElementById('btn-lancar-item-manual');
-  if (btnLancarManual) btnLancarManual.onclick = togglePainelLancarManual;
   var filtroLancarManual = document.getElementById('lm-filtro');
   if (filtroLancarManual) filtroLancarManual.addEventListener('input', renderTabelaLancarManual);
   ligarControlesMalote();
@@ -2088,11 +2084,10 @@ function carregarListaConfirmarEmbarque() {
         return o;
       });
       renderConfirmarEmbarque();
-      // Se o painel "Lançar itens manualmente" estiver aberto, atualiza ele
-      // também — senão continuaria mostrando "Já tingido"/"liberado" velhos
-      // depois de um lançamento (ver `lancarItemManualDaLinha`).
-      var painelManual = document.getElementById('painel-lancar-manual');
-      if (painelManual && painelManual.style.display !== 'none') renderTabelaLancarManual();
+      // A tabela "Lançar itens manualmente" sai da mesma leitura — redesenha
+      // junto, senão ficaria mostrando "Já tingido"/"liberado" velhos depois
+      // de um lançamento (ver `lancarItemManualDaLinha`).
+      renderTabelaLancarManual();
     })
     .catch(function (err) {
       var m = tratarErro(err);
@@ -2100,33 +2095,24 @@ function carregarListaConfirmarEmbarque() {
     });
 }
 
-/**
- * Painel "Lançar itens manualmente" — pra quando o Tingimento combinou por
- * papel/telefone e não passou pelo sistema. Mostra TODOS os itens pendentes
- * de uma vez (não só os já liberados — ver `estadoConfirmarEmbarque.todasLinhas`,
- * montado em `carregarListaConfirmarEmbarque`), cada um com peso e volumes
- * em branco (o usuário pediu que não viesse preenchido) — sem precisar
- * buscar item por item antes de poder digitar. Clicar em "Lançar" naquela
- * linha já registra o tingido e libera pra embarque numa ação só
- * (`lancarItemManualEmbarque`), igual ao lançamento manual de antes.
- */
-function togglePainelLancarManual() {
-  var painel = document.getElementById('painel-lancar-manual');
-  var abrir = painel.style.display === 'none';
-  painel.style.display = abrir ? '' : 'none';
-  if (abrir) {
-    document.getElementById('lm-filtro').value = '';
-    renderTabelaLancarManual();
-  }
-}
-
 /** Linhas atualmente mostradas na tabela "Lançar itens manualmente" (já
  * filtradas) — os cliques usam `data-idx` contra este array, mesmo padrão
  * das outras tabelas da tela (ver `renderQuantidadeTingida`). */
 var _linhasLancarManual = [];
 
+/**
+ * Tabela "Lançar itens manualmente" — pra quando o Tingimento combinou por
+ * papel/telefone e não passou pelo sistema. Fica SEMPRE visível na tela
+ * (não atrás de botão): mostra TODOS os itens pendentes de uma vez — não só
+ * os já liberados, por isso lê `estadoConfirmarEmbarque.todasLinhas`, montado
+ * em `carregarListaConfirmarEmbarque` —, cada um com peso e volumes em
+ * branco (o usuário pediu que não viesse preenchido). Clicar em "Lançar"
+ * naquela linha registra o tingido e libera pra embarque numa ação só
+ * (`lancarItemManualEmbarque`).
+ */
 function renderTabelaLancarManual() {
   var wrap = document.getElementById('tabela-lancar-manual');
+  if (!wrap) return; // painel só existe pra quem edita (ver `viewConfirmarEmbarque`)
   var todas = estadoConfirmarEmbarque.todasLinhas || [];
   var termo = (document.getElementById('lm-filtro').value || '').trim().toLowerCase();
   _linhasLancarManual = !termo ? todas : todas.filter(function (it) {
