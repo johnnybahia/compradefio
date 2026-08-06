@@ -737,15 +737,19 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
     // senão não há sobra nenhuma pra tirar do estoque pronto.
     var qtdEstoque = (it.doEstoque && it.quantidade > jaTingido) ? (it.quantidade - jaTingido) : 0;
-    // Existe saldo RETIDO (tingido mas não liberado) quando o Tingimento
-    // liberou menos do que já tinha tingido — ex.: tingiu 200kg, liberou só
-    // 100kg pra embarcar agora. Nesse caso, editar a quantidade aqui NÃO pode
-    // mexer no fio crú: os 100kg retidos continuam legitimamente consumidos
-    // (só ainda não embarcaram), então tratar `it.quantidade` como o novo
-    // total tingido creditaria de volta material que nunca deixou de ser
-    // usado. Só quando NADA está retido (liberou tudo que tinha tingido) é
-    // que um valor diferente aqui ainda significa "o total tingido lançado
-    // antes estava errado, corrija" — o comportamento antigo desta tela.
+    // Sobra tingido que NÃO passa pelo ajuste do fio crú: acontece quando já
+    // existe tingido lançado no item além do que foi liberado. Esse material
+    // já foi baixado do crú quando o tingimento foi lançado — tratar
+    // `it.quantidade` como o novo total creditaria de volta fio que nunca
+    // deixou de ser consumido. Cobre os dois cenários:
+    //   - fluxo em duas etapas: o Tingimento tingiu 200kg e liberou só 100kg
+    //     (os outros 100kg estão retidos, ainda vão embarcar depois);
+    //   - fluxo atual, com a Quantidade Tingida pausada (ver
+    //     `TINGIMENTO_PAUSADO`, no App.html): a expedição lança tudo aqui, e
+    //     os itens que ficaram com tingido lançado ANTES da pausa já tiveram
+    //     a baixa feita lá.
+    // Sem nada nessa situação (o caso normal hoje: `jaTingido` = 0), o ajuste
+    // roda e é ESTA confirmação que dá a baixa no fio crú.
     var liberadoAntes = _liberadoDoItemPendente(it.item);
     var existeRetido = liberadoAntes + 0.01 < jaTingido;
     if (qtdEstoque > 0 || existeRetido) {
