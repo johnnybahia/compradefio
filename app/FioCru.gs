@@ -532,6 +532,18 @@ function obterListaFioParaTingir(token) {
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   var tingidoPorItem = _tingidoPorItem();
   var linhas = regs.map(function (r) {
+    // "Já tingido" desta rodada: total histórico do item MENOS o que já foi
+    // embarcado antes (TINGIDO_BASELINE — ver `_baixarPendenciaCompraPorEmbarque`,
+    // em Embarque.gs) — assim, o saldo que sobra de uma confirmação parcial
+    // aparece zerado, como se fosse uma quantidade nova do mesmo item, em vez
+    // de repetir o que já foi confirmado antes.
+    var tingido = Math.max(0, (tingidoPorItem[_norm(r.ITEM)] || 0) - (_numeroCelula(r.TINGIDO_BASELINE) || 0));
+    // PRONTO_EMBARQUE hoje guarda a QUANTIDADE liberada. Nas primeiras versões
+    // guardava o texto 'SIM' (era um simples liga/desliga, que valia pelo total
+    // tingido) — lido como número, 'SIM' viraria 0 e o item SUMIRIA da tela
+    // Confirmar Embarque sem explicação. Converte na leitura, com o mesmo
+    // sentido de antes: 'SIM' = tudo que está tingido está liberado.
+    var liberado = _norm(r.PRONTO_EMBARQUE) === 'sim' ? tingido : (_numeroCelula(r.PRONTO_EMBARQUE) || 0);
     return {
       linha: r.__row,
       // _textoCelula/_numeroCelula (Consultas.gs): nunca manda valor cru de
@@ -543,12 +555,7 @@ function obterListaFioParaTingir(token) {
       tipoFio: _textoCelula(r.TIPO_FIO),
       maquinas: _textoCelula(r.MAQUINAS),
       total: _numeroCelula(r.SUGERIDO),
-      // Total histórico do item MENOS o que já tinha sido embarcado antes de
-      // sobrar este saldo (TINGIDO_BASELINE — ver `_baixarPendenciaCompraPorEmbarque`,
-      // em Embarque.gs) — assim, o saldo que sobra de uma confirmação parcial
-      // aparece com "Já tingido" zerado, como se fosse uma quantidade nova do
-      // mesmo item, em vez de repetir o que já foi confirmado antes.
-      tingido: Math.max(0, (tingidoPorItem[_norm(r.ITEM)] || 0) - (_numeroCelula(r.TINGIDO_BASELINE) || 0)),
+      tingido: tingido,
       dataSolicitado: _soData(r.GERADO_EM),
       volumes: _numeroCelula(r.VOLUMES),
       // Rascunho compartilhado da Confirmar Embarque (ver `salvarRascunhoEmbarque`,
@@ -561,7 +568,7 @@ function obterListaFioParaTingir(token) {
       // acima, quando parte do que foi tingido ainda está retida (não
       // pronta). Enquanto 0, a expedição não vê o item em Confirmar
       // Embarque (ver filtro em `carregarListaConfirmarEmbarque`, no App.html).
-      liberado: _numeroCelula(r.PRONTO_EMBARQUE) || 0
+      liberado: liberado
     };
   });
   return {
