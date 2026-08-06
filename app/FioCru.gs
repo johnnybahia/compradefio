@@ -649,6 +649,57 @@ function registrarQuantidadeTingida(token, params) {
 }
 
 /**
+ * Lança manualmente, PELA EXPEDIÇÃO (tela Confirmar Embarque, botão "+
+ * Lançar item manualmente"), um item que o Tingimento não passou pelo
+ * sistema — combinou por papel/telefone, por exemplo. Faz numa ação só as
+ * duas coisas que normalmente aconteceriam na Quantidade Tingida:
+ *   1. registra o peso como tingido (mesma baixa no fio crú de sempre —
+ *      ver `registrarQuantidadeTingida`);
+ *   2. já LIBERA esse peso, com os volumes informados, pra aparecer em
+ *      Confirmar Embarque — soma ao que já estivesse liberado/aos volumes
+ *      já informados (não substitui), porque cada lançamento manual é um
+ *      lote físico novo chegando, não uma correção do que já tinha.
+ * @param {Object} params { item, peso, volumes }
+ */
+function lancarItemManualEmbarque(token, params) {
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  params = params || {};
+  var item = String(params.item || '').trim();
+  if (!item) throw new Error('Informe o item.');
+  var peso = Number(params.peso);
+  if (isNaN(peso) || peso <= 0) throw new Error('Peso inválido.');
+
+  var tipoFio = _tipoFioDoItemPendente(item);
+  if (!tipoFio) {
+    throw new Error('Não achei o tipo de fio do item "' + item + '" na lista pendente — confira se ele ainda está lá.');
+  }
+  var baixa = _baixarFioCru(tipoFio, peso, item, s.usuario);
+  if (!baixa.ok) throw new Error(baixa.mensagem);
+
+  var linha = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(function (r) { return _norm(r.ITEM) === _norm(item); })[0];
+  if (!linha) throw new Error('Item não encontrado na lista pendente — confira se ele ainda está lá.');
+
+  var liberadoAntes = Number(linha.PRONTO_EMBARQUE) || 0;
+  var novoLiberado = liberadoAntes + peso;
+
+  var novoVolumes = (linha.VOLUMES === '' || linha.VOLUMES == null) ? '' : (Number(linha.VOLUMES) || 0);
+  var volTxt = String(params.volumes == null ? '' : params.volumes).trim();
+  if (volTxt !== '') {
+    var v = parseFloat(volTxt.replace(',', '.'));
+    if (isNaN(v) || v < 0) throw new Error('Volumes inválido: informe um número (ou deixe vazio).');
+    novoVolumes = (Number(novoVolumes) || 0) + v;
+  }
+
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha.__row, 'PRONTO_EMBARQUE', novoLiberado);
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha.__row, 'VOLUMES', novoVolumes);
+
+  return {
+    ok: true, tipoFio: baixa.tipoFio, peso: peso, liberado: novoLiberado, volumes: novoVolumes, lotes: baixa.lotes
+  };
+}
+
+/**
  * Corrige o total tingido já lançado de UM item pra um novo valor absoluto —
  * usado quando um lançamento na tela "Quantidade Tingida" foi feito errado
  * (ex.: um teste, ou valor digitado errado) e precisa ser desfeito/ajustado.

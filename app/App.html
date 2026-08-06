@@ -1710,6 +1710,14 @@ function viewConfirmarEmbarque(alvo) {
             '</span>' +
           '</div>'
         : '') +
+      (editavel
+        ? '<div style="margin:-6px 0 14px">' +
+            '<button type="button" class="btn-principal" id="btn-lancar-item-manual" style="background:#475569">' +
+              '+ Lançar item manualmente</button> ' +
+            '<span class="desc" style="margin:0">Pro caso do Tingimento ter combinado por papel/telefone e não ' +
+              'ter lançado no sistema — busca o item, informa peso e volumes, e ele já sai liberado aqui.</span>' +
+          '</div>'
+        : '') +
       '<div id="embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       (editavel
@@ -1795,6 +1803,8 @@ function viewConfirmarEmbarque(alvo) {
   if (btnHist) btnHist.onclick = togglePainelHistoricoEmbarque;
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
   if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
+  var btnLancarManual = document.getElementById('btn-lancar-item-manual');
+  if (btnLancarManual) btnLancarManual.onclick = abrirModalLancarItemManual;
   ligarControlesMalote();
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
@@ -2024,6 +2034,10 @@ function carregarListaConfirmarEmbarque() {
     .then(function (r) {
       msg.innerHTML = '';
       var todas = r.linhas || [];
+      // Guarda a lista INTEIRA (sem o filtro de liberado) — é nela que o
+      // modal "Lançar item manualmente" busca (ver `abrirModalLancarItemManual`):
+      // a expedição precisa achar itens que o Tingimento nem tocou ainda.
+      estadoConfirmarEmbarque.todasLinhas = todas;
       // Só o que o Tingimento já LIBEROU (quantidade > 0, tela Quantidade
       // Tingida, ação "Liberar p/ embarque") aparece pra expedição — antes
       // disso ela nem fica sabendo do item, pra não correr o risco de
@@ -2061,6 +2075,145 @@ function carregarListaConfirmarEmbarque() {
       var m = tratarErro(err);
       if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });
+}
+
+/**
+ * Modal "Lançar item manualmente" — pra quando o Tingimento combinou por
+ * papel/telefone e não passou pelo sistema. Busca entre TODOS os itens
+ * pendentes (não só os já liberados — ver `estadoConfirmarEmbarque.todasLinhas`,
+ * montado em `carregarListaConfirmarEmbarque`), deixa informar peso e
+ * volumes, e cada "Adicionar" já registra o tingido e libera pra embarque
+ * numa ação só (`lancarItemManualEmbarque`). Fica aberto pra lançar vários
+ * itens em sequência — só recarrega a lista de Confirmar Embarque ao fechar.
+ */
+function abrirModalLancarItemManual() {
+  var todas = estadoConfirmarEmbarque.todasLinhas || [];
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
+    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;' +
+      'padding:22px 24px;box-shadow:0 20px 50px rgba(0,0,0,.28);max-height:88vh;overflow-y:auto;box-sizing:border-box">' +
+      '<h3 style="margin:0 0 4px;color:#0B4576;font-size:17px">Lançar item manualmente</h3>' +
+      '<p style="margin:0 0 12px;color:#475569;font-size:13px">Busque o item, informe o peso tingido e os ' +
+        'volumes desse lote — ele já sai liberado, pronto pra marcar "Embarcar" na lista de trás. Pode lançar ' +
+        'vários itens seguidos, sem fechar esta janela.</p>' +
+      '<input id="lm-busca" type="text" placeholder="Digite o item ou a descrição" autocomplete="off" ' +
+        'style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box">' +
+      '<div id="lm-lista" style="margin-top:10px;max-height:200px;overflow-y:auto;border:1px solid #eef2f6;border-radius:8px"></div>' +
+      '<div id="lm-form" style="display:none;margin-top:14px;padding:12px;background:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0">' +
+        '<div id="lm-selecionado" style="font-size:13px;color:#0B4576;font-weight:600;margin-bottom:8px"></div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">' +
+          '<div><label style="display:block;font-size:12px;color:#334155;margin-bottom:3px">Peso tingido (kg)</label>' +
+            '<input type="number" id="lm-peso" min="0" step="any" ' +
+              'style="width:100px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box"></div>' +
+          '<div><label style="display:block;font-size:12px;color:#334155;margin-bottom:3px">Volumes</label>' +
+            '<input type="number" id="lm-volumes" min="0" step="any" ' +
+              'style="width:80px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box"></div>' +
+          '<button type="button" class="btn-principal" id="lm-adicionar">Adicionar</button>' +
+        '</div>' +
+        '<div id="lm-form-msg" style="margin-top:8px;font-size:13px"></div>' +
+      '</div>' +
+      '<div id="lm-adicionados" style="margin-top:12px"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">' +
+        '<button type="button" class="btn-principal" id="lm-fechar" style="background:#475569">Concluir</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  var busca = overlay.querySelector('#lm-busca');
+  var lista = overlay.querySelector('#lm-lista');
+  var form = overlay.querySelector('#lm-form');
+  var selecionadoEl = overlay.querySelector('#lm-selecionado');
+  var pesoInp = overlay.querySelector('#lm-peso');
+  var volInp = overlay.querySelector('#lm-volumes');
+  var formMsg = overlay.querySelector('#lm-form-msg');
+  var adicionadosEl = overlay.querySelector('#lm-adicionados');
+  var btnAdicionar = overlay.querySelector('#lm-adicionar');
+  var itemAtual = null;
+  var adicionados = []; // [{item, peso, liberado}] só pra conferência nesta sessão do modal
+  var houveAdicao = false;
+
+  function fechar() {
+    if (overlay.parentNode) document.body.removeChild(overlay);
+    if (houveAdicao) carregarListaConfirmarEmbarque(); // mostra os itens recém liberados
+  }
+
+  function renderLista() {
+    var termo = busca.value.trim().toLowerCase();
+    if (!termo) {
+      lista.innerHTML = '<div style="padding:12px;color:#94a3b8;font-size:13px">Digite pra buscar.</div>';
+      return;
+    }
+    var achou = todas.filter(function (it) {
+      return String(it.item).toLowerCase().indexOf(termo) === 0 ||
+        String(it.descricao || '').toLowerCase().indexOf(termo) !== -1;
+    });
+    var mostra = achou.slice(0, 50);
+    if (!mostra.length) {
+      lista.innerHTML = '<div style="padding:12px;color:#94a3b8;font-size:13px">Nenhum item encontrado.</div>';
+      return;
+    }
+    lista.innerHTML = mostra.map(function (it) {
+      return '<div class="lm-opt" data-item="' + escAttr(it.item) + '" ' +
+        'style="padding:8px 11px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px">' +
+        '<b>' + escAttr(it.item) + '</b> — ' + escAttr(it.descricao || '') +
+        '<span style="color:#64748b"> · alvo ' + num(it.total) + 'kg · já tingido ' + num(it.tingido) + 'kg</span></div>';
+    }).join('') + (achou.length > mostra.length
+      ? '<div style="padding:8px 11px;color:#94a3b8;font-size:12px">…refine a busca (' + achou.length + ' itens)</div>'
+      : '');
+    Array.prototype.forEach.call(lista.querySelectorAll('.lm-opt'), function (o) {
+      o.onclick = function () {
+        var itemCod = o.getAttribute('data-item');
+        itemAtual = todas.filter(function (it) { return it.item === itemCod; })[0];
+        if (!itemAtual) return;
+        selecionadoEl.textContent = itemAtual.item + ' — ' + (itemAtual.descricao || '');
+        form.style.display = '';
+        pesoInp.value = ''; volInp.value = ''; formMsg.innerHTML = '';
+        pesoInp.focus();
+      };
+    });
+  }
+
+  btnAdicionar.onclick = function () {
+    if (!itemAtual) return;
+    var peso = Number(pesoInp.value);
+    if (pesoInp.value === '' || isNaN(peso) || peso <= 0) {
+      formMsg.innerHTML = '<span style="color:#D0342C">Informe um peso válido (maior que zero).</span>';
+      return;
+    }
+    btnAdicionar.disabled = true;
+    chamar('lancarItemManualEmbarque', sessao.token, { item: itemAtual.item, peso: peso, volumes: volInp.value })
+      .then(function (r) {
+        btnAdicionar.disabled = false;
+        houveAdicao = true;
+        adicionados.unshift({ item: itemAtual.item, peso: peso, liberado: r.liberado });
+        adicionadosEl.innerHTML = '<div style="font-size:12px;color:#475569;margin-bottom:4px">Lançados nesta janela:</div>' +
+          adicionados.map(function (a) {
+            return '<div style="font-size:13px;color:#1E8E5A">✓ ' + escAttr(a.item) + ': +' + num(a.peso) +
+              'kg tingido (liberado total: ' + num(a.liberado) + 'kg)</div>';
+          }).join('');
+        // Mantém a lista local em dia, pra "já tingido" não ficar desatualizado
+        // se o usuário buscar o mesmo item de novo nesta sessão.
+        itemAtual.tingido = (itemAtual.tingido || 0) + peso;
+        form.style.display = 'none';
+        itemAtual = null;
+        busca.value = '';
+        lista.innerHTML = '';
+        busca.focus();
+      })
+      .catch(function (err) {
+        btnAdicionar.disabled = false;
+        var m = tratarErro(err);
+        if (m) formMsg.innerHTML = '<span style="color:#D0342C">' + escAttr(m) + '</span>';
+      });
+  };
+
+  busca.addEventListener('input', renderLista);
+  overlay.querySelector('#lm-fechar').onclick = fechar;
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) fechar(); });
+  renderLista();
+  busca.focus();
 }
 
 /** 'completo' (tingido cobriu o alvo), 'parcial' (já tem algo tingido, mas
