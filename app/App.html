@@ -1713,9 +1713,9 @@ function viewConfirmarEmbarque(alvo) {
       (editavel
         ? '<div style="margin:-6px 0 14px">' +
             '<button type="button" class="btn-principal" id="btn-lancar-item-manual" style="background:#475569">' +
-              '+ Lançar item manualmente</button> ' +
+              '+ Lançar itens manualmente</button> ' +
             '<span class="desc" style="margin:0">Pro caso do Tingimento ter combinado por papel/telefone e não ' +
-              'ter lançado no sistema — busca o item, informa peso e volumes, e ele já sai liberado aqui.</span>' +
+              'ter lançado no sistema.</span>' +
           '</div>'
         : '') +
       '<div id="embarque-msg"></div>' +
@@ -1792,6 +1792,22 @@ function viewConfirmarEmbarque(alvo) {
           '<div id="cancel-emb-msg"></div>'
         : '') +
       '<div class="tabela-wrap" id="tabela-historico-embarque"></div>' +
+    '</section>' +
+
+    '<section class="painel" id="painel-lancar-manual" style="display:none">' +
+      '<h2>Lançar itens manualmente</h2>' +
+      blocoAjuda(
+        'Pra quando o Tingimento combinou por papel/telefone e não lançou no sistema. Preencha peso e ' +
+        'volumes do item (deixe em branco o que não for lançar agora) e clique em <b>Lançar</b> naquela ' +
+        'linha — registra o tingido, dá baixa no fio crú e já libera pra você marcar "Embarcar" na lista ' +
+        'principal, lá em cima.'
+      ) +
+      '<div class="campo" style="max-width:320px;margin-bottom:10px">' +
+        '<label for="lm-filtro">Filtrar por item ou descrição</label>' +
+        '<input type="text" id="lm-filtro" placeholder="deixe em branco pra ver todos" autocomplete="off">' +
+      '</div>' +
+      '<div id="lm-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-lancar-manual"></div>' +
     '</section>';
 
   // Sem passar o evento adiante: `confirmarEmbarqueSelecionado` recebe um
@@ -1804,7 +1820,9 @@ function viewConfirmarEmbarque(alvo) {
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
   if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
   var btnLancarManual = document.getElementById('btn-lancar-item-manual');
-  if (btnLancarManual) btnLancarManual.onclick = abrirModalLancarItemManual;
+  if (btnLancarManual) btnLancarManual.onclick = togglePainelLancarManual;
+  var filtroLancarManual = document.getElementById('lm-filtro');
+  if (filtroLancarManual) filtroLancarManual.addEventListener('input', renderTabelaLancarManual);
   ligarControlesMalote();
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
@@ -2030,12 +2048,12 @@ function renderHistoricoEmbarque(linhas) {
 function carregarListaConfirmarEmbarque() {
   var msg = document.getElementById('embarque-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
-  chamar('obterListaFioParaTingir', sessao.token)
+  return chamar('obterListaFioParaTingir', sessao.token)
     .then(function (r) {
       msg.innerHTML = '';
       var todas = r.linhas || [];
       // Guarda a lista INTEIRA (sem o filtro de liberado) — é nela que o
-      // modal "Lançar item manualmente" busca (ver `abrirModalLancarItemManual`):
+      // painel "Lançar itens manualmente" lista (ver `renderTabelaLancarManual`):
       // a expedição precisa achar itens que o Tingimento nem tocou ainda.
       estadoConfirmarEmbarque.todasLinhas = todas;
       // Só o que o Tingimento já LIBEROU (quantidade > 0, tela Quantidade
@@ -2070,6 +2088,11 @@ function carregarListaConfirmarEmbarque() {
         return o;
       });
       renderConfirmarEmbarque();
+      // Se o painel "Lançar itens manualmente" estiver aberto, atualiza ele
+      // também — senão continuaria mostrando "Já tingido"/"liberado" velhos
+      // depois de um lançamento (ver `lancarItemManualDaLinha`).
+      var painelManual = document.getElementById('painel-lancar-manual');
+      if (painelManual && painelManual.style.display !== 'none') renderTabelaLancarManual();
     })
     .catch(function (err) {
       var m = tratarErro(err);
@@ -2078,142 +2101,110 @@ function carregarListaConfirmarEmbarque() {
 }
 
 /**
- * Modal "Lançar item manualmente" — pra quando o Tingimento combinou por
- * papel/telefone e não passou pelo sistema. Busca entre TODOS os itens
- * pendentes (não só os já liberados — ver `estadoConfirmarEmbarque.todasLinhas`,
- * montado em `carregarListaConfirmarEmbarque`), deixa informar peso e
- * volumes, e cada "Adicionar" já registra o tingido e libera pra embarque
- * numa ação só (`lancarItemManualEmbarque`). Fica aberto pra lançar vários
- * itens em sequência — só recarrega a lista de Confirmar Embarque ao fechar.
+ * Painel "Lançar itens manualmente" — pra quando o Tingimento combinou por
+ * papel/telefone e não passou pelo sistema. Mostra TODOS os itens pendentes
+ * de uma vez (não só os já liberados — ver `estadoConfirmarEmbarque.todasLinhas`,
+ * montado em `carregarListaConfirmarEmbarque`), cada um com peso e volumes
+ * em branco (o usuário pediu que não viesse preenchido) — sem precisar
+ * buscar item por item antes de poder digitar. Clicar em "Lançar" naquela
+ * linha já registra o tingido e libera pra embarque numa ação só
+ * (`lancarItemManualEmbarque`), igual ao lançamento manual de antes.
  */
-function abrirModalLancarItemManual() {
+function togglePainelLancarManual() {
+  var painel = document.getElementById('painel-lancar-manual');
+  var abrir = painel.style.display === 'none';
+  painel.style.display = abrir ? '' : 'none';
+  if (abrir) {
+    document.getElementById('lm-filtro').value = '';
+    renderTabelaLancarManual();
+  }
+}
+
+/** Linhas atualmente mostradas na tabela "Lançar itens manualmente" (já
+ * filtradas) — os cliques usam `data-idx` contra este array, mesmo padrão
+ * das outras tabelas da tela (ver `renderQuantidadeTingida`). */
+var _linhasLancarManual = [];
+
+function renderTabelaLancarManual() {
+  var wrap = document.getElementById('tabela-lancar-manual');
   var todas = estadoConfirmarEmbarque.todasLinhas || [];
-  var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,33,.45);' +
-    'display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px';
-  overlay.innerHTML =
-    '<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;' +
-      'padding:22px 24px;box-shadow:0 20px 50px rgba(0,0,0,.28);max-height:88vh;overflow-y:auto;box-sizing:border-box">' +
-      '<h3 style="margin:0 0 4px;color:#0B4576;font-size:17px">Lançar item manualmente</h3>' +
-      '<p style="margin:0 0 12px;color:#475569;font-size:13px">Busque o item, informe o peso tingido e os ' +
-        'volumes desse lote — ele já sai liberado, pronto pra marcar "Embarcar" na lista de trás. Pode lançar ' +
-        'vários itens seguidos, sem fechar esta janela.</p>' +
-      '<input id="lm-busca" type="text" placeholder="Digite o item ou a descrição" autocomplete="off" ' +
-        'style="width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box">' +
-      '<div id="lm-lista" style="margin-top:10px;max-height:200px;overflow-y:auto;border:1px solid #eef2f6;border-radius:8px"></div>' +
-      '<div id="lm-form" style="display:none;margin-top:14px;padding:12px;background:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0">' +
-        '<div id="lm-selecionado" style="font-size:13px;color:#0B4576;font-weight:600;margin-bottom:8px"></div>' +
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">' +
-          '<div><label style="display:block;font-size:12px;color:#334155;margin-bottom:3px">Peso tingido (kg)</label>' +
-            '<input type="number" id="lm-peso" min="0" step="any" ' +
-              'style="width:100px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box"></div>' +
-          '<div><label style="display:block;font-size:12px;color:#334155;margin-bottom:3px">Volumes</label>' +
-            '<input type="number" id="lm-volumes" min="0" step="any" ' +
-              'style="width:80px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box"></div>' +
-          '<button type="button" class="btn-principal" id="lm-adicionar">Adicionar</button>' +
-        '</div>' +
-        '<div id="lm-form-msg" style="margin-top:8px;font-size:13px"></div>' +
-      '</div>' +
-      '<div id="lm-adicionados" style="margin-top:12px"></div>' +
-      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">' +
-        '<button type="button" class="btn-principal" id="lm-fechar" style="background:#475569">Concluir</button>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(overlay);
-
-  var busca = overlay.querySelector('#lm-busca');
-  var lista = overlay.querySelector('#lm-lista');
-  var form = overlay.querySelector('#lm-form');
-  var selecionadoEl = overlay.querySelector('#lm-selecionado');
-  var pesoInp = overlay.querySelector('#lm-peso');
-  var volInp = overlay.querySelector('#lm-volumes');
-  var formMsg = overlay.querySelector('#lm-form-msg');
-  var adicionadosEl = overlay.querySelector('#lm-adicionados');
-  var btnAdicionar = overlay.querySelector('#lm-adicionar');
-  var itemAtual = null;
-  var adicionados = []; // [{item, peso, liberado}] só pra conferência nesta sessão do modal
-  var houveAdicao = false;
-
-  function fechar() {
-    if (overlay.parentNode) document.body.removeChild(overlay);
-    if (houveAdicao) carregarListaConfirmarEmbarque(); // mostra os itens recém liberados
+  var termo = (document.getElementById('lm-filtro').value || '').trim().toLowerCase();
+  _linhasLancarManual = !termo ? todas : todas.filter(function (it) {
+    return String(it.item).toLowerCase().indexOf(termo) === 0 ||
+      String(it.descricao || '').toLowerCase().indexOf(termo) !== -1;
+  });
+  if (!_linhasLancarManual.length) {
+    wrap.innerHTML = '<div class="vazio">' + (todas.length ? 'Nenhum item bate com o filtro.' : 'Nenhum item pendente.') + '</div>';
+    return;
   }
+  var body = _linhasLancarManual.map(function (l, i) {
+    return '<tr>' +
+      '<td class="col-item">' + (l.item || '—') + '</td>' +
+      '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
+      '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
+      '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
+      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.tingido) + ' kg' +
+        (l.liberado > 0 ? '<br><span style="font-size:11px;color:#1E8E5A">liberado: ' + num(l.liberado) + 'kg</span>' : '') +
+      '</td>' +
+      '<td style="text-align:center">' +
+        '<input type="number" class="lm-peso-input" data-idx="' + i + '" min="0" step="any" ' +
+          'placeholder="kg" style="width:64px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">' +
+      '</td>' +
+      '<td style="text-align:center">' +
+        '<input type="number" class="lm-vol-input" data-idx="' + i + '" min="0" step="any" ' +
+          'placeholder="vol." style="width:56px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">' +
+      '</td>' +
+      '<td style="text-align:center">' +
+        '<button type="button" class="btn-atualizar-data lm-btn-lancar" data-idx="' + i + '">Lançar</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:10%">Item</th><th style="width:20%">Descrição</th>' +
+      '<th style="width:12%">Cliente</th><th style="width:12%">Tipo de fio</th>' +
+      '<th style="text-align:right;width:8%">Total (kg)</th><th style="text-align:right;width:12%">Já tingido</th>' +
+      '<th style="width:8%">Peso</th><th style="width:8%">Volumes</th><th style="width:10%">Lançar</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
 
-  function renderLista() {
-    var termo = busca.value.trim().toLowerCase();
-    if (!termo) {
-      lista.innerHTML = '<div style="padding:12px;color:#94a3b8;font-size:13px">Digite pra buscar.</div>';
-      return;
-    }
-    var achou = todas.filter(function (it) {
-      return String(it.item).toLowerCase().indexOf(termo) === 0 ||
-        String(it.descricao || '').toLowerCase().indexOf(termo) !== -1;
-    });
-    var mostra = achou.slice(0, 50);
-    if (!mostra.length) {
-      lista.innerHTML = '<div style="padding:12px;color:#94a3b8;font-size:13px">Nenhum item encontrado.</div>';
-      return;
-    }
-    lista.innerHTML = mostra.map(function (it) {
-      return '<div class="lm-opt" data-item="' + escAttr(it.item) + '" ' +
-        'style="padding:8px 11px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px">' +
-        '<b>' + escAttr(it.item) + '</b> — ' + escAttr(it.descricao || '') +
-        '<span style="color:#64748b"> · alvo ' + num(it.total) + 'kg · já tingido ' + num(it.tingido) + 'kg</span></div>';
-    }).join('') + (achou.length > mostra.length
-      ? '<div style="padding:8px 11px;color:#94a3b8;font-size:12px">…refine a busca (' + achou.length + ' itens)</div>'
-      : '');
-    Array.prototype.forEach.call(lista.querySelectorAll('.lm-opt'), function (o) {
-      o.onclick = function () {
-        var itemCod = o.getAttribute('data-item');
-        itemAtual = todas.filter(function (it) { return it.item === itemCod; })[0];
-        if (!itemAtual) return;
-        selecionadoEl.textContent = itemAtual.item + ' — ' + (itemAtual.descricao || '');
-        form.style.display = '';
-        pesoInp.value = ''; volInp.value = ''; formMsg.innerHTML = '';
-        pesoInp.focus();
-      };
-    });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.lm-btn-lancar'), function (btn) {
+    btn.addEventListener('click', function () { lancarItemManualDaLinha(btn); });
+  });
+}
+
+/** Lança o item de UMA linha da tabela "Lançar itens manualmente" — ver
+ * `lancarItemManualEmbarque`. Deixa os campos em branco depois (o usuário
+ * pode lançar mais um lote do mesmo item na sequência, se precisar). */
+function lancarItemManualDaLinha(btn) {
+  var wrap = document.getElementById('tabela-lancar-manual');
+  var msg = document.getElementById('lm-msg');
+  var idx = Number(btn.getAttribute('data-idx'));
+  var alvo = _linhasLancarManual[idx];
+  if (!alvo) return;
+  var pesoInp = wrap.querySelector('.lm-peso-input[data-idx="' + idx + '"]');
+  var volInp = wrap.querySelector('.lm-vol-input[data-idx="' + idx + '"]');
+  var peso = pesoInp ? Number(pesoInp.value) : NaN;
+  if (!pesoInp || pesoInp.value === '' || isNaN(peso) || peso <= 0) {
+    if (pesoInp) pesoInp.style.borderColor = '#D0342C';
+    return;
   }
-
-  btnAdicionar.onclick = function () {
-    if (!itemAtual) return;
-    var peso = Number(pesoInp.value);
-    if (pesoInp.value === '' || isNaN(peso) || peso <= 0) {
-      formMsg.innerHTML = '<span style="color:#D0342C">Informe um peso válido (maior que zero).</span>';
-      return;
-    }
-    btnAdicionar.disabled = true;
-    chamar('lancarItemManualEmbarque', sessao.token, { item: itemAtual.item, peso: peso, volumes: volInp.value })
-      .then(function (r) {
-        btnAdicionar.disabled = false;
-        houveAdicao = true;
-        adicionados.unshift({ item: itemAtual.item, peso: peso, liberado: r.liberado });
-        adicionadosEl.innerHTML = '<div style="font-size:12px;color:#475569;margin-bottom:4px">Lançados nesta janela:</div>' +
-          adicionados.map(function (a) {
-            return '<div style="font-size:13px;color:#1E8E5A">✓ ' + escAttr(a.item) + ': +' + num(a.peso) +
-              'kg tingido (liberado total: ' + num(a.liberado) + 'kg)</div>';
-          }).join('');
-        // Mantém a lista local em dia, pra "já tingido" não ficar desatualizado
-        // se o usuário buscar o mesmo item de novo nesta sessão.
-        itemAtual.tingido = (itemAtual.tingido || 0) + peso;
-        form.style.display = 'none';
-        itemAtual = null;
-        busca.value = '';
-        lista.innerHTML = '';
-        busca.focus();
-      })
-      .catch(function (err) {
-        btnAdicionar.disabled = false;
-        var m = tratarErro(err);
-        if (m) formMsg.innerHTML = '<span style="color:#D0342C">' + escAttr(m) + '</span>';
-      });
-  };
-
-  busca.addEventListener('input', renderLista);
-  overlay.querySelector('#lm-fechar').onclick = fechar;
-  overlay.addEventListener('click', function (e) { if (e.target === overlay) fechar(); });
-  renderLista();
-  busca.focus();
+  var item = alvo.item;
+  btn.disabled = true; pesoInp.disabled = true; if (volInp) volInp.disabled = true;
+  chamar('lancarItemManualEmbarque', sessao.token, { item: item, peso: peso, volumes: volInp ? volInp.value : '' })
+    .then(function (r) {
+      msg.innerHTML = '<div class="aviso ok">"' + item + '": +' + num(peso) + 'kg tingido, liberado ' +
+        num(r.liberado) + 'kg no total — já aparece na lista principal, acima.</div>';
+      // Recarrega da PLANILHA (não só atualiza local) — atualiza a lista
+      // principal e, junto (ver `carregarListaConfirmarEmbarque`), esta
+      // mesma tabela, já com os campos de peso/volumes em branco de novo.
+      carregarListaConfirmarEmbarque();
+    })
+    .catch(function (err) {
+      btn.disabled = false; pesoInp.disabled = false; if (volInp) volInp.disabled = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
 }
 
 /** 'completo' (tingido cobriu o alvo), 'parcial' (já tem algo tingido, mas
