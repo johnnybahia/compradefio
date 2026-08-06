@@ -1675,21 +1675,24 @@ function viewConfirmarEmbarque(alvo) {
   // o botão de histórico (comportamento que já existia).
   var soVer = sessao.papel === 'programacao';
   var desc = editavel
-    ? 'Só aparecem aqui os itens que o Tingimento já marcou como <b>"Pronto p/ embarque"</b> na tela ' +
-      'Quantidade Tingida — antes disso o item nem fica visível aqui, pra não correr o risco de confirmar ' +
-      'um embarque que ainda não terminou de tingir. Marque os itens que vão embarcar agora. A quantidade ' +
-      'já vem preenchida com o total tingido lançado até aqui — edite se precisar corrigir (a linha fica ' +
-      'marcada como ' +
-      '<b>editada</b>). Linhas em <span class="badge-tingido-completo">verde</span> já bateram o alvo de ' +
-      'tingimento; em <span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele. O valor ' +
-      'CONFIRMADO aqui é o que sai do estoque de fio crú e vai para o e-mail, mesmo que seja diferente do ' +
-      'que foi lançado antes: este é o procedimento final. ' +
+    ? 'Só aparecem aqui os itens que o Tingimento já <b>liberou</b> (ação "Liberar p/ embarque", na tela ' +
+      'Quantidade Tingida) — antes disso o item nem fica visível aqui, pra não correr o risco de confirmar ' +
+      'um embarque que ainda não terminou de tingir. Só a quantidade LIBERADA aparece — se o Tingimento ' +
+      'reteve parte do que tingiu (ainda não está pronta), essa parte nem entra aqui. Marque os itens que ' +
+      'vão embarcar agora. A quantidade já vem preenchida com o que foi liberado — edite se precisar ' +
+      'embarcar menos (a linha fica marcada como <b>editada</b>). Linhas em ' +
+      '<span class="badge-tingido-completo">verde</span> já bateram o alvo de tingimento; em ' +
+      '<span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele. O valor CONFIRMADO aqui ' +
+      'é o que vai pro relatório/e-mail e sai da lista pendente — mas só corrige o estoque de fio crú se ' +
+      'NÃO houver nada retido daquele item (Tingimento liberou tudo que tinha tingido); havendo saldo ' +
+      'retido, o fio crú não é tocado aqui (ele já foi consumido corretamente lá na Quantidade Tingida) — ' +
+      'pra corrigir um valor de tingido errado, use o botão <b>✎</b> na Quantidade Tingida. ' +
       'O e-mail de confirmação usa a mesma lista de ' +
       'destinatários configurada na tela de Tingimento — o PDF traz o <b>total de volumes</b> e a ' +
-      '<b>base da mão de obra</b> (R$/kg × kg tingidos). Se o embarque levar <b>malote</b>, marque a caixa ' +
-      'abaixo da observação. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.'
-    : 'Somente consulta — quem confirma o embarque é o almoxarifado 1, e só depois que o Tingimento marca ' +
-      'o item como "Pronto p/ embarque". Linhas em ' +
+      '<b>base da mão de obra</b> (R$/kg × kg confirmados). Se o embarque levar <b>malote</b>, marque a ' +
+      'caixa abaixo da observação. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.'
+    : 'Somente consulta — quem confirma o embarque é o almoxarifado 1, e só depois que o Tingimento libera ' +
+      'uma quantidade em "Liberar p/ embarque". Linhas em ' +
       '<span class="badge-tingido-completo">verde</span> já bateram o alvo de tingimento; em ' +
       '<span class="badge-tingido-parcial">laranja</span>, só tingiram parte dele.';
   alvo.innerHTML =
@@ -2021,16 +2024,19 @@ function carregarListaConfirmarEmbarque() {
     .then(function (r) {
       msg.innerHTML = '';
       var todas = r.linhas || [];
-      // Só o que o Tingimento já marcou como PRONTO (tela Quantidade Tingida)
-      // aparece pra expedição — antes disso ela nem fica sabendo do item, pra
-      // não correr o risco de confirmar um embarque que ainda não terminou de
-      // tingir (ver `prontoEmbarque`, em FioCru.gs, e `chk-pronto-embarque`,
-      // na Quantidade Tingida).
+      // Só o que o Tingimento já LIBEROU (quantidade > 0, tela Quantidade
+      // Tingida, ação "Liberar p/ embarque") aparece pra expedição — antes
+      // disso ela nem fica sabendo do item, pra não correr o risco de
+      // confirmar um embarque que ainda não terminou de tingir. E o que
+      // aparece é só o LIBERADO, não o total tingido — pode haver saldo
+      // tingido RETIDO (ainda não liberado) que a expedição nem enxerga
+      // (ver `liberado`, em FioCru.gs, e a ação "Liberar", na Quantidade
+      // Tingida).
       estadoConfirmarEmbarque.totalPendentes = todas.length;
-      estadoConfirmarEmbarque.linhas = todas.filter(function (l) { return l.prontoEmbarque; }).map(function (l) {
+      estadoConfirmarEmbarque.linhas = todas.filter(function (l) { return (l.liberado || 0) > 0; }).map(function (l) {
         var o = {
           linha: l.linha, item: l.item, descricao: l.descricao, cliente: l.cliente,
-          tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
+          tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.liberado || 0,
           dataSolicitado: l.dataSolicitado || '',
           selecionado: false, doEstoque: false,
           volumes: (l.volumes === '' || l.volumes == null) ? '' : l.volumes
@@ -2039,9 +2045,9 @@ function carregarListaConfirmarEmbarque() {
         // qualquer usuário (ver `salvarRascunhoEmbarque`) — sem isso, a
         // edição de alguém só existia no navegador de quem digitou, e
         // recarregar a tela (ou outro usuário abrir a mesma tela, inclusive
-        // o master) só mostrava o valor original (o total já tingido).
+        // o master) só mostrava o valor original (o liberado pelo Tingimento).
         var temRascunhoQtd = l.qtdRascunho !== '' && l.qtdRascunho != null;
-        o.quantidade = temRascunhoQtd ? String(l.qtdRascunho) : (l.tingido ? String(l.tingido) : '');
+        o.quantidade = temRascunhoQtd ? String(l.qtdRascunho) : (o.tingido ? String(o.tingido) : '');
         var obsSalva = l.obsRascunho || '';
         o.obs = obsSalva === 'COMPLETO' ? '' : obsSalva;
         // "Completo" já vem marcado quando o tingido bateu o alvo — a menos
@@ -2078,8 +2084,8 @@ function renderConfirmarEmbarque() {
     // Distingue "não há nada pendente" de "há pendência, mas o Tingimento
     // ainda não liberou nenhuma" — sem isso pareceria que a lista sumiu.
     wrap.innerHTML = (estadoConfirmarEmbarque.totalPendentes > 0)
-      ? '<div class="vazio">Nenhum item liberado pelo Tingimento ainda — assim que marcarem ' +
-        '"Pronto p/ embarque" na tela Quantidade Tingida, o item aparece aqui.</div>'
+      ? '<div class="vazio">Nenhum item liberado pelo Tingimento ainda — assim que liberarem uma ' +
+        'quantidade em "Liberar p/ embarque", na tela Quantidade Tingida, o item aparece aqui.</div>'
       : '<div class="vazio">Nenhum item pendente para embarque.</div>';
     btn.style.display = 'none';
     return;
@@ -2384,14 +2390,17 @@ var estadoQuantidadeTingida = { linhas: [] };
 
 function viewQuantidadeTingida(alvo) {
   var desc = podeEditar(['master', 'tingimento'])
-    ? 'Marque a caixa grande pra confirmar quanto foi tingido AGORA de cada item — soma ao total já ' +
-      'lançado e dá baixa no fio crú daquele tipo de fio. Errou um lançamento (ou foi só um teste)? Use o ' +
-      'botão <b>✎</b> ao lado do "Já tingido" pra corrigir o total pro valor certo. Quando o item estiver ' +
-      'pronto pra sair (tingido no todo ou em parte que você decida liberar), marque <b>"Pronto p/ ' +
-      'embarque"</b> — só aí ele aparece pra expedição confirmar, na tela Confirmar Embarque. Se sobrar ' +
-      'saldo (embarcou só uma parte), o item continua aqui com "Já tingido" e "Volumes" ZERADOS — como se ' +
-      'fosse uma quantidade nova do mesmo item — pra você lançar o restante sem confundir com o que já ' +
-      'saiu. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.'
+    ? 'Digite em "+ kg agora" quanto foi tingido e clique em <b>Confirmar</b> — soma ao total já lançado e ' +
+      'dá baixa no fio crú daquele tipo de fio (pode fazer isso várias vezes, aos poucos, conforme for ' +
+      'tingindo). Errou um lançamento (ou foi só um teste)? Use o botão <b>✎</b> ao lado do "Já tingido" ' +
+      'pra corrigir o total pro valor certo. Quando parte (ou tudo) do que já foi tingido estiver pronta ' +
+      'pra sair, use <b>"Liberar p/ embarque"</b>: informe a quantidade e os volumes desse lote e clique em ' +
+      '<b>Liberar</b> — só o que for liberado aparece pra expedição confirmar, na tela Confirmar Embarque. ' +
+      'Se tingiu mais do que decidiu liberar, o restante fica RETIDO aqui mesmo (não aparece pra expedição) ' +
+      'até você liberar também — a quantidade a liberar já vem sugerida com tudo que está tingido, edite ' +
+      'pra baixo se só parte estiver pronta. Depois que o embarque for confirmado, o que sobrar volta a ' +
+      'aparecer com "Já tingido" e volumes ZERADOS, como se fosse uma quantidade nova do mesmo item. Use as ' +
+      'setas ↑/↓ (ou clique numa linha) para navegar item por item.'
     : 'Somente consulta — quem lança a quantidade tingida é o papel Tingimento.';
   alvo.innerHTML =
     '<section class="painel">' +
@@ -2422,9 +2431,10 @@ function carregarQuantidadeTingida() {
     });
 }
 
-/** Salva o nº de volumes de um item (usado na Quantidade Tingida e na
- * Confirmar Embarque — as duas telas gravam no mesmo campo da lista pendente,
- * então o almoxarifado 1 corrige o que o tingimento informou errado). */
+/** Salva o nº de volumes de um item — usado só na Confirmar Embarque, pra o
+ * almoxarifado 1 corrigir os volumes do lote liberado quando o Tingimento
+ * informou errado (ver `liberarParaEmbarque`, em Consultas.gs, que é quem
+ * grava os volumes na origem, junto com a liberação). */
 function salvarVolumes(inp) {
   var linha = Number(inp.getAttribute('data-linha'));
   if (!linha) return;
@@ -2489,6 +2499,12 @@ function renderQuantidadeTingida() {
   // tingimento editam. Ver `podeEditar`.
   var editavel = podeEditar(['master', 'tingimento']);
   var body = linhas.map(function (l, i) {
+    var liberado = Number(l.liberado) || 0;
+    // Prefill da quantidade a liberar: se já tem algo liberado (ainda não
+    // embarcado), mostra o que está liberado agora, editável; senão sugere
+    // liberar tudo que já foi tingido (o caso mais comum) — o usuário edita
+    // pra baixo quando só parte estiver pronta de verdade.
+    var qtdLiberarPrefill = liberado > 0 ? liberado : (l.tingido || '');
     return '<tr>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
       '<td class="col-item">' + (l.item || '—') + '</td>' +
@@ -2497,13 +2513,6 @@ function renderQuantidadeTingida() {
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
-      // Volumes (caixas): o tingimento informa aqui; o almox 1 pode corrigir na
-      // tela Confirmar Embarque. Vai pro embarque, pro Relatório e pro PDF.
-      '<td style="text-align:center">' + (editavel
-        ? '<input type="number" class="vol-input" data-linha="' + l.linha + '" data-idx="' + i + '" ' +
-          'min="0" step="any" value="' + escAttr(l.volumes) + '" placeholder="vol." ' +
-          'style="width:64px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">'
-        : (l.volumes !== '' && l.volumes != null ? l.volumes : '—')) + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg ' +
         (editavel
           ? '<button type="button" class="btn-atualizar-data btn-corrigir-tingido" data-idx="' + i +
@@ -2515,45 +2524,60 @@ function renderQuantidadeTingida() {
             '<input type="number" class="qtd-input-grande" data-idx="' + i + '" min="0" step="any" placeholder="+ kg">' +
           '</td>' +
           '<td style="text-align:center">' +
-            '<input type="checkbox" class="chk-grande chk-confirmar-tingido" data-idx="' + i +
-              '" title="Marcar para confirmar e dar baixa no fio crú">' +
+            '<button type="button" class="btn-atualizar-data btn-confirmar-tingido" data-idx="' + i +
+              '" title="Registrar essa quantidade tingida e dar baixa no fio crú">Confirmar</button>' +
           '</td>'
         : '') +
-      // PRONTO PARA EMBARQUE: gate pra expedição — enquanto não marcada aqui, o
-      // item nem aparece na tela Confirmar Embarque (ver `carregarListaConfirmarEmbarque`).
-      // É uma decisão à parte do "+ kg agora": o tingimento pode lançar aos poucos
-      // e só liberar quando decidir que está pronto (mesmo que seja um parcial).
+      // LIBERAR P/ EMBARQUE: quanto do "Já tingido" está pronto de verdade —
+      // pode ser menos que o total (o resto fica RETIDO, sem aparecer em
+      // Confirmar Embarque, ver `carregarListaConfirmarEmbarque`). Os volumes
+      // vão junto: agora são os volumes DESSE lote liberado, não do item todo.
       (editavel
-        ? '<td style="text-align:center">' +
-            '<input type="checkbox" class="chk-grande chk-pronto-embarque" data-idx="' + i + '"' +
-              (l.prontoEmbarque ? ' checked' : '') +
-              ' title="Marcar quando este item estiver pronto para a expedição confirmar o embarque">' +
+        ? '<td>' +
+            '<div style="display:flex;gap:4px;margin-bottom:4px">' +
+              '<input type="number" class="liberar-qtd-input" data-idx="' + i + '" min="0" step="any" ' +
+                'value="' + escAttr(qtdLiberarPrefill) + '" placeholder="kg" ' +
+                'style="width:56px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">' +
+              '<input type="number" class="liberar-vol-input" data-idx="' + i + '" min="0" step="any" ' +
+                'value="' + escAttr(l.volumes) + '" placeholder="vol." ' +
+                'style="width:46px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">' +
+            '</div>' +
+            '<button type="button" class="btn-atualizar-data btn-liberar-embarque" data-idx="' + i +
+              '" title="Liberar essa quantidade (e volumes) pra expedição confirmar embarque">Liberar</button>' +
+            (liberado > 0
+              ? '<div style="font-size:11px;color:#1E8E5A;margin-top:3px">Liberado: ' + num(liberado) + ' kg</div>'
+              : '') +
           '</td>'
-        : '<td style="text-align:center">' + (l.prontoEmbarque ? 'Sim' : '—') + '</td>') +
+        : '<td style="text-align:center">' +
+            (liberado > 0
+              ? num(liberado) + ' kg' + (l.volumes !== '' && l.volumes != null ? ' (' + l.volumes + ' vol.)' : '')
+              : '—') +
+          '</td>') +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
       '<th style="width:8%">Solicitado em</th>' +
-      '<th style="width:9%">Item</th><th style="width:16%">Descrição</th>' +
+      '<th style="width:9%">Item</th><th style="width:15%">Descrição</th>' +
       '<th style="width:9%">Cliente</th><th style="width:9%">Tipo de fio</th>' +
       '<th style="width:6%">Máquinas</th><th style="text-align:right;width:6%">Total (kg)</th>' +
-      '<th style="text-align:center;width:5%">Volumes</th>' +
       '<th style="text-align:right;width:7%">Já tingido</th>' +
-      (editavel ? '<th style="width:9%">+ kg agora</th><th style="width:5%">Confirmar</th>' : '') +
-      '<th style="width:8%">Pronto p/ embarque</th>' +
+      (editavel ? '<th style="width:9%">+ kg agora</th><th style="width:7%">Confirmar</th>' : '') +
+      '<th style="width:12%">Liberar p/ embarque</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   if (editavel) {
-    Array.prototype.forEach.call(wrap.querySelectorAll('.vol-input'), function (inp) {
-      inp.addEventListener('change', function () { salvarVolumes(inp); });
-    });
-    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-confirmar-tingido'), function (chk) {
-      chk.addEventListener('change', function () {
-        if (!chk.checked) return; // a caixa só dispara a ação ao marcar
-        var idx = Number(chk.getAttribute('data-idx'));
+    Array.prototype.forEach.call(wrap.querySelectorAll('.btn-confirmar-tingido'), function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = Number(btn.getAttribute('data-idx'));
         var inp = wrap.querySelector('.qtd-input-grande[data-idx="' + idx + '"]');
-        lancarQuantidadeTingidaFio(idx, inp, chk);
+        lancarQuantidadeTingidaFio(idx, inp, btn);
+      });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.btn-liberar-embarque'), function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = Number(btn.getAttribute('data-idx'));
+        liberarItemParaEmbarque(idx, btn);
       });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.btn-corrigir-tingido'), function (btn) {
@@ -2578,30 +2602,6 @@ function renderQuantidadeTingida() {
               if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
             });
         });
-      });
-    });
-    Array.prototype.forEach.call(wrap.querySelectorAll('.chk-pronto-embarque'), function (chk) {
-      chk.addEventListener('change', function () {
-        var idx = Number(chk.getAttribute('data-idx'));
-        var alvo = estadoQuantidadeTingida.linhas[idx];
-        if (!alvo) return;
-        var msg = document.getElementById('qt-msg');
-        var pronto = chk.checked;
-        chk.disabled = true;
-        chamar('definirProntoEmbarque', sessao.token, alvo.linha, pronto)
-          .then(function () {
-            chk.disabled = false;
-            alvo.prontoEmbarque = pronto;
-            msg.innerHTML = pronto
-              ? '<div class="aviso ok">Item "' + alvo.item + '" liberado — já aparece pra expedição em Confirmar Embarque.</div>'
-              : '<div class="aviso">Item "' + alvo.item + '" não está mais liberado pra expedição.</div>';
-          })
-          .catch(function (err) {
-            chk.disabled = false;
-            chk.checked = !pronto; // desfaz na tela — a gravação falhou
-            var m = tratarErro(err);
-            if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
-          });
       });
     });
   }
@@ -2658,21 +2658,22 @@ function abrirModalCorrigirTingido(item, tingidoAtual, callback) {
 }
 
 /** Lança a quantidade tingida digitada (soma ao total já registrado daquele
- * item) e dá baixa no fio crú — ver `registrarQuantidadeTingida`. */
-function lancarQuantidadeTingidaFio(idx, inp, chk) {
+ * item) e dá baixa no fio crú — ver `registrarQuantidadeTingida`. Disparado
+ * pelo clique no botão "Confirmar" (era uma caixa de marcar antes — virou
+ * botão porque é uma ação de disparo único, não um estado que fica marcado). */
+function lancarQuantidadeTingidaFio(idx, inp, btn) {
   var msg = document.getElementById('qt-msg');
   var alvo = estadoQuantidadeTingida.linhas[idx];
   var quantidade = inp ? Number(inp.value) : NaN;
   if (!alvo || !inp || inp.value === '' || isNaN(quantidade) || quantidade <= 0) {
-    chk.checked = false;
     if (inp) inp.style.borderColor = '#D0342C';
     return;
   }
 
-  chk.disabled = true; inp.disabled = true;
+  btn.disabled = true; inp.disabled = true;
   chamar('registrarQuantidadeTingida', sessao.token, { item: alvo.item, quantidade: quantidade })
     .then(function (r) {
-      chk.disabled = false; inp.disabled = false; chk.checked = false;
+      btn.disabled = false; inp.disabled = false;
       inp.value = ''; inp.style.borderColor = '';
       alvo.tingido = (alvo.tingido || 0) + quantidade;
       renderQuantidadeTingida();
@@ -2680,7 +2681,41 @@ function lancarQuantidadeTingidaFio(idx, inp, chk) {
       msg.innerHTML = '<div class="aviso ok">Baixa no fio crú (' + r.tipoFio + ', ' + quantidade + ' kg): ' + nfsTxt + '.</div>';
     })
     .catch(function (err) {
-      chk.disabled = false; inp.disabled = false; chk.checked = false;
+      btn.disabled = false; inp.disabled = false;
+      var m = tratarErro(err);
+      if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+    });
+}
+
+/** Libera uma quantidade (com os volumes daquele lote) pra expedição
+ * confirmar embarque — ver `liberarParaEmbarque`. Substitui o valor liberado
+ * anterior (não soma); liberar 0 tira o item de Confirmar Embarque. */
+function liberarItemParaEmbarque(idx, btn) {
+  var wrap = document.getElementById('tabela-qtd-tingida');
+  var alvo = estadoQuantidadeTingida.linhas[idx];
+  if (!alvo) return;
+  var msg = document.getElementById('qt-msg');
+  var qtdInp = wrap.querySelector('.liberar-qtd-input[data-idx="' + idx + '"]');
+  var volInp = wrap.querySelector('.liberar-vol-input[data-idx="' + idx + '"]');
+  var quantidade = qtdInp ? Number(qtdInp.value) : NaN;
+  if (!qtdInp || qtdInp.value === '' || isNaN(quantidade) || quantidade < 0) {
+    if (qtdInp) qtdInp.style.borderColor = '#D0342C';
+    return;
+  }
+  var volumes = volInp ? volInp.value : '';
+
+  btn.disabled = true; qtdInp.disabled = true; if (volInp) volInp.disabled = true;
+  chamar('liberarParaEmbarque', sessao.token, alvo.linha, quantidade, volumes)
+    .then(function (r) {
+      alvo.liberado = r.liberado;
+      alvo.volumes = r.volumes;
+      renderQuantidadeTingida();
+      msg.innerHTML = r.liberado > 0
+        ? '<div class="aviso ok">Liberado ' + num(r.liberado) + ' kg de "' + alvo.item + '" pra expedição confirmar embarque.</div>'
+        : '<div class="aviso">Item "' + alvo.item + '" não está mais liberado pra expedição.</div>';
+    })
+    .catch(function (err) {
+      btn.disabled = false; qtdInp.disabled = false; if (volInp) volInp.disabled = false;
       var m = tratarErro(err);
       if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
     });

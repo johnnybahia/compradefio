@@ -890,21 +890,50 @@ function salvarVolumesItem(token, linha, volumes) {
 }
 
 /**
- * Marca (ou desmarca) um item como PRONTO PARA EMBARQUE — ação exclusiva do
- * Tingimento (ou master), feita na tela Quantidade Tingida. Antes disso, o
- * item não aparece pra expedição na tela Confirmar Embarque (ver o filtro em
- * `carregarListaConfirmarEmbarque`, no cliente, sobre a leitura de
- * `obterListaFioParaTingir`) — a expedição só deve poder confirmar o que o
- * Tingimento já deu como pronto, nunca antes, senão arrisca confirmar um
- * embarque que ainda não terminou de tingir.
+ * Libera uma QUANTIDADE (com os volumes daquele lote) do item pra expedição
+ * embarcar — ação exclusiva do Tingimento (ou master), na tela Quantidade
+ * Tingida. Antes de liberar, o item não aparece pra expedição na tela
+ * Confirmar Embarque (ver o filtro em `carregarListaConfirmarEmbarque`, no
+ * cliente, sobre a leitura de `obterListaFioParaTingir`).
+ *
+ * `quantidade` SUBSTITUI o valor liberado anterior (não soma) — é "quanto
+ * está pronto pra sair AGORA", e pode ser MENOR do que o total já tingido:
+ * o que não for liberado fica RETIDO (o Tingimento continua vendo como "Já
+ * tingido" normalmente, só que a expedição não enxerga essa parte). Liberar
+ * 0 (ou não liberar nada) tira o item de Confirmar Embarque.
+ *
+ * `volumes` vai junto porque agora representa os volumes DESSE lote sendo
+ * liberado — não faz sentido informar separado, já que o volume depende de
+ * quanto realmente vai embarcar (ver pedido do usuário).
  */
-function definirProntoEmbarque(token, linha, pronto) {
+function liberarParaEmbarque(token, linha, quantidade, volumes) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   linha = parseInt(linha, 10);
   if (!linha || linha < 2) throw new Error('Linha inválida.');
-  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que a coluna PRONTO_EMBARQUE existe (planilha antiga pode não ter)
-  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'PRONTO_EMBARQUE', pronto ? 'SIM' : '');
-  return { ok: true, pronto: !!pronto };
+  var qtd = Number(quantidade);
+  if (isNaN(qtd) || qtd < 0) throw new Error('Quantidade a liberar inválida.');
+
+  var linhaAtual = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(function (r) { return r.__row === linha; })[0];
+  if (!linhaAtual) throw new Error('Item não encontrado — a lista pode ter mudado, recarregue a tela.');
+  var baseline = Number(linhaAtual.TINGIDO_BASELINE) || 0;
+  var dyedTotal = Math.max(0, (_tingidoPorItem()[_norm(linhaAtual.ITEM)] || 0) - baseline);
+  if (qtd > dyedTotal + 0.01) {
+    throw new Error('Não é possível liberar ' + qtd + 'kg — só há ' + dyedTotal + 'kg tingido(s) e ainda não ' +
+      'embarcado(s) desse item.');
+  }
+
+  var vol = '';
+  var volTxt = String(volumes == null ? '' : volumes).trim();
+  if (volTxt !== '') {
+    var v = parseFloat(volTxt.replace(',', '.'));
+    if (isNaN(v) || v < 0) throw new Error('Volumes inválido: informe um número (ou deixe vazio).');
+    vol = v;
+  }
+
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que as colunas existem (planilha antiga pode não ter)
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'PRONTO_EMBARQUE', qtd || '');
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'VOLUMES', vol);
+  return { ok: true, liberado: qtd, volumes: vol };
 }
 
 /** Campos do rascunho da Confirmar Embarque (ver `salvarRascunhoEmbarque`). */
