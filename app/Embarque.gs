@@ -1149,8 +1149,12 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
       var sugerido = Number(r.SUGERIDO) || 0;
       if (sugerido <= 0) return;
       var desconto = Math.min(sugerido, qtd);
-      var novoValor = sugerido - desconto;
-      restanteItem[k] = qtd - desconto;
+      // `_arredondarKg` em toda conta que volta pra planilha: sem isso, a
+      // subtração de ponto flutuante deixa lixo no SUGERIDO — um pedido de
+      // 420kg com dois embarques parciais (103,6 e 315) virava
+      // 1.3999999999999773 em vez de 1,4 (ver `_arredondarKg`, em Consultas.gs).
+      var novoValor = _arredondarKg(sugerido - desconto);
+      restanteItem[k] = _arredondarKg(qtd - desconto);
       baixados++;
       if (novoValor <= EPS) {
         removidas[r.__row] = true;
@@ -1161,12 +1165,12 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
         // inteiro. Se sobrar tingido RETIDO (não liberado), ele precisa
         // continuar aparecendo como "Já tingido" da próxima vez — só o que
         // já embarcou é que deve sumir.
-        baselinePorLinha[r.__row] = (Number(r.TINGIDO_BASELINE) || 0) + desconto;
+        baselinePorLinha[r.__row] = _arredondarKg((Number(r.TINGIDO_BASELINE) || 0) + desconto);
         // PRONTO_EMBARQUE (liberado) reduz pelo mesmo `desconto` — some
         // sozinho quando batia exatamente o que tinha sido liberado; se
         // sobrar liberado (ex.: confirmaram menos do que foi liberado),
         // continua liberado pro que faltar.
-        liberadoPorLinha[r.__row] = Math.max(0, (Number(r.PRONTO_EMBARQUE) || 0) - desconto);
+        liberadoPorLinha[r.__row] = Math.max(0, _arredondarKg((Number(r.PRONTO_EMBARQUE) || 0) - desconto));
       }
     });
   });
@@ -1416,7 +1420,9 @@ function _restaurarPendenciaCompra(itensRestaurar, numero) {
         var k = _norm(r.ITEM);
         if (addPorItem.hasOwnProperty(k) && !incrementadas[k] && _emAberto(r)) {
           incrementadas[k] = true;
-          return (Number(r.SUGERIDO) || 0) + addPorItem[k];
+          // Arredonda pra não devolver kg com lixo de ponto flutuante à
+          // pendência (ver `_arredondarKg`, em Consultas.gs).
+          return _arredondarKg((Number(r.SUGERIDO) || 0) + addPorItem[k]);
         }
       }
       return r[h] == null ? '' : r[h];

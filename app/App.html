@@ -1382,7 +1382,7 @@ function renderTingimento(linhas) {
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.total) + '</td>' +
       '<td>' + dataCel + '</td>' +
       '<td>' + obsCel + '</td>' +
       (editavelTing
@@ -2515,7 +2515,7 @@ function renderQuantidadeTingida() {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.total) + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg ' +
         (editavel
           ? '<button type="button" class="btn-atualizar-data btn-corrigir-tingido" data-idx="' + i +
@@ -4165,7 +4165,7 @@ function _linhaHtmlRelatorio(l, remessa) {
     '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
     '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
     '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-    '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+    '<td style="text-align:right">' + num(l.total) + '</td>' +
     '<td style="text-align:center">' + (l.volumes !== '' && l.volumes != null ? l.volumes : '—') + '</td>' +
     '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
     '<td>' + prevCel + '</td>' +
