@@ -4722,17 +4722,25 @@ function renderPreviewEmbarque(itens) {
     var status = it.ok
       ? (it.motivo === 'aprendido' ? 'aprendido' : 'ok')
       : '<span class="sem-desc">' + (it.motivo || 'resolver') + '</span>';
+    // Volumes: já vem preenchido com o "Ncx" lido do PDF (campo `caixas`), pra
+    // conferir e corrigir antes de gravar. Deixar em branco faz o servidor
+    // procurar o volume na lista pendente (ver `gravarEmbarque`).
+    var volPreview = (it.volumes !== '' && it.volumes != null)
+      ? it.volumes
+      : (it.caixas != null ? it.caixas : '');
     return '<tr' + cls + '>' +
       '<td><input class="item-emb obs-input" data-idx="' + i + '" list="itens-estoque-emb" value="' + escAttr(it.item || '') + '"></td>' +
       '<td style="text-align:right"><input type="number" class="qtd-emb obs-input" data-idx="' + i + '" value="' + (it.quantidade != null ? it.quantidade : '') + '" style="text-align:right"></td>' +
+      '<td style="text-align:right"><input type="number" class="vol-emb obs-input" data-idx="' + i + '" min="0" step="any" value="' + escAttr(volPreview) + '" placeholder="vol." style="text-align:right"></td>' +
       '<td>' + (it.descricao || '—') + '</td>' +
       '<td>' + status + '</td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:24%">Item (col A)</th><th style="width:12%">Quantidade (col B)</th>' +
-      '<th style="width:44%">Descrição no PDF</th><th style="width:20%">Status</th>' +
+      '<th style="width:22%">Item (col A)</th><th style="width:11%">Quantidade (col B)</th>' +
+      '<th style="width:9%">Volumes</th>' +
+      '<th style="width:40%">Descrição no PDF</th><th style="width:18%">Status</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
 
   Array.prototype.forEach.call(wrap.querySelectorAll('.item-emb'), function (inp) {
@@ -4740,6 +4748,9 @@ function renderPreviewEmbarque(itens) {
   });
   Array.prototype.forEach.call(wrap.querySelectorAll('.qtd-emb'), function (inp) {
     inp.addEventListener('input', function () { embarqueItens[Number(inp.getAttribute('data-idx'))].quantidade = inp.value; });
+  });
+  Array.prototype.forEach.call(wrap.querySelectorAll('.vol-emb'), function (inp) {
+    inp.addEventListener('input', function () { embarqueItens[Number(inp.getAttribute('data-idx'))].volumes = inp.value; });
   });
 }
 

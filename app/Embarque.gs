@@ -296,6 +296,11 @@ function analisarEmbarquePdf(token, base64, nome) {
     }
     return {
       descricao: l.descricao, codigo: l.codigo,
+      // `caixas` é o "Ncx" do PDF — ou seja, os VOLUMES daquele item naquele
+      // embarque. Ele era lido pelo parser e jogado fora aqui, e por isso o
+      // embarque importado ficava sem volumes no Relatório mesmo com o dado
+      // impresso no PDF (ver `gravarEmbarque`, que agora usa isto).
+      caixas: l.caixas,
       quantidade: l.quantidade, item: item, ok: ok, motivo: motivo
     };
   });
@@ -413,8 +418,15 @@ function gravarEmbarque(token, dados) {
     return { descricao: it.descricao, item: it.item };
   }));
 
-  // Leva os VOLUMES da lista pendente (informados no tingimento) pro registro
-  // do embarque — o PDF da transportadora não traz esse dado.
+  // VOLUMES do registro do embarque, em ordem de preferência:
+  //   1. o que já veio informado no item (edição na tela de importação);
+  //   2. o que estiver na lista pendente (informado no tingimento);
+  //   3. o "Ncx" do próprio PDF (campo `caixas`, lido pelo parser).
+  //
+  // O passo 3 faltava: o PDF da transportadora TRAZ a quantidade de caixas, o
+  // parser já a lia, mas ela era descartada — então todo embarque importado de
+  // um item sem volumes na pendência ficava sem volumes no Relatório, mesmo
+  // com o número impresso no PDF.
   var volumesPorItem = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
     var k = _norm(r.ITEM);
@@ -423,10 +435,13 @@ function gravarEmbarque(token, dados) {
     }
   });
   itens.forEach(function (it) {
-    if (it.volumes === '' || it.volumes == null) {
-      var v = volumesPorItem[_norm(it.item)];
-      if (v != null) it.volumes = v;
+    if (it.volumes !== '' && it.volumes != null) return;
+    var v = volumesPorItem[_norm(it.item)];
+    if (v == null) {
+      var cx = parseFloat(it.caixas);
+      v = (!isNaN(cx) && cx > 0) ? cx : null;
     }
+    if (v != null) it.volumes = v;
   });
 
   var r = _registrarEmbarqueEDarBaixa(itens, doc, data, s.usuario);
@@ -1805,8 +1820,13 @@ function _embarquesEmViagemPorItem() {
   var iEmb = header.indexOf('embarque'); if (iEmb < 0) iEmb = 2;
   var iData = header.indexOf('data'); if (iData < 0) iData = 3;
   var iSit = header.indexOf('situacao'); if (iSit < 0) iSit = 4;
-  var iVol = header.indexOf('volumes'); // pode não existir em aba antiga
-  var iSol = header.indexOf('solicitado_em'); // idem — coluna nova
+  // Volumes: aceita mais de uma grafia de cabeçalho — as planilhas das duas
+  // unidades não nasceram iguais (a da Bahia é herdada de outro script, ver
+  // `_colPorNomes`, em Db.gs). Com `indexOf('volumes')` puro, uma aba que
+  // chamasse a coluna de "VOLUME" ou "CAIXAS" ficava sem volume nenhum no
+  // Relatório, sem erro nenhum na tela. Pode não existir em aba antiga.
+  var iVol = _colPorNomes(header, ['volumes', 'volume', 'caixas', 'caixa', 'cx', 'vol']);
+  var iSol = header.indexOf('solicitado_em'); // pode não existir em aba antiga
 
   var porItemEmb = {}; // item -> { nºembarque -> remessa }
   vals.forEach(function (row) {
