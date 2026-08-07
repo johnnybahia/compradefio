@@ -1824,8 +1824,27 @@ function _embarquesEmViagemPorItem() {
   // unidades não nasceram iguais (a da Bahia é herdada de outro script, ver
   // `_colPorNomes`, em Db.gs). Com `indexOf('volumes')` puro, uma aba que
   // chamasse a coluna de "VOLUME" ou "CAIXAS" ficava sem volume nenhum no
-  // Relatório, sem erro nenhum na tela. Pode não existir em aba antiga.
+  // Relatório, sem erro nenhum na tela.
+  //
+  // Não achando por nome, cai na POSIÇÃO — coluna F, o lugar de VOLUMES em
+  // `EMBARQUES_HEADERS`. É o mesmo fallback que as cinco colunas acima já
+  // faziam; só esta ficara de fora, e por isso um cabeçalho com o nome
+  // diferente (ou em branco) zerava a coluna inteira mesmo com o dado
+  // gravado na planilha. Valor não numérico vira 0 logo abaixo, então
+  // apontar pra coluna errada não quebra nada.
   var iVol = _colPorNomes(header, ['volumes', 'volume', 'caixas', 'caixa', 'cx', 'vol']);
+  // `_colPorNomes` casa o cabeçalho INTEIRO (é `Array.indexOf`), então só
+  // acerta quando a célula é exatamente "VOLUMES" — é o caso do Ceará. Na
+  // Bahia, herdada de outro script, o cabeçalho tem texto a mais (algo como
+  // "Nº VOLUMES" / "VOLUMES (CX)"), não casava, e a coluna inteira virava
+  // zero: mesmo código, mesma posição, resultado diferente entre as duas
+  // unidades. Aqui procura qualquer cabeçalho que CONTENHA volume/caixa.
+  if (iVol < 0) {
+    for (var iv = 0; iv < header.length; iv++) {
+      if (header[iv].indexOf('volume') !== -1 || header[iv].indexOf('caixa') !== -1) { iVol = iv; break; }
+    }
+  }
+  if (iVol < 0 && header.length > 5) iVol = 5;
   var iSol = header.indexOf('solicitado_em'); // pode não existir em aba antiga
 
   var porItemEmb = {}; // item -> { nºembarque -> remessa }
@@ -1867,6 +1886,71 @@ function _embarquesEmViagemPorItem() {
     mapa[chave] = lista;
   });
   return mapa;
+}
+
+/**
+ * DIAGNÓSTICO dos volumes do Relatório — rode direto no editor do Apps
+ * Script (menu de funções → `diagnosticarVolumesEmbarque` → Executar) e leia
+ * o "Registro de execução".
+ *
+ * Existe porque "os volumes não aparecem" tem várias causas possíveis (a
+ * coluna não ser encontrada, a linha estar marcada CHEGOU, o valor não ser
+ * numérico, o arquivo não estar atualizado) e todas dão o MESMO resultado na
+ * tela: um traço. Isto mostra, sem adivinhação, o que o código está lendo da
+ * aba EMBARQUES desta unidade.
+ */
+function diagnosticarVolumesEmbarque() {
+  var sh = _aba(CONFIG.SHEETS.EMBARQUES);
+  if (!sh) { Logger.log('ABA "%s" NÃO ENCONTRADA nesta planilha.', CONFIG.SHEETS.EMBARQUES); return; }
+
+  var last = sh.getLastRow();
+  var lastCol = sh.getLastColumn();
+  Logger.log('Aba: %s | linhas: %s | colunas: %s', sh.getName(), last, lastCol);
+  if (last < 2) { Logger.log('Aba sem linhas de dados.'); return; }
+
+  var vals = sh.getRange(1, 1, last, lastCol).getValues();
+  var bruto = vals.shift();
+  var header = bruto.map(_norm);
+  Logger.log('Cabeçalho (como está): %s', JSON.stringify(bruto));
+  Logger.log('Cabeçalho (normalizado): %s', JSON.stringify(header));
+
+  var iVol = _colPorNomes(header, ['volumes', 'volume', 'caixas', 'caixa', 'cx', 'vol']);
+  var como = 'nome exato';
+  if (iVol < 0) {
+    for (var iv = 0; iv < header.length; iv++) {
+      if (header[iv].indexOf('volume') !== -1 || header[iv].indexOf('caixa') !== -1) {
+        iVol = iv; como = 'nome parcial ("' + header[iv] + '")'; break;
+      }
+    }
+  }
+  if (iVol < 0 && header.length > 5) { iVol = 5; como = 'posição (coluna F)'; }
+  Logger.log('Coluna de volumes: %s → índice %s (%s)',
+    como, iVol, iVol >= 0 ? 'coluna ' + String.fromCharCode(65 + iVol) : 'NENHUMA');
+  if (iVol < 0) { Logger.log('>>> Nenhuma coluna de volumes: o Relatório vai mostrar tudo como "—".'); return; }
+
+  var iItem = header.indexOf('cores'); if (iItem < 0) iItem = 0;
+  var iEmb = header.indexOf('embarque'); if (iEmb < 0) iEmb = 2;
+  var iSit = header.indexOf('situacao'); if (iSit < 0) iSit = 4;
+
+  var mostradas = 0, comVolume = 0, ignoradas = 0;
+  vals.forEach(function (row) {
+    if (row[iItem] === '' || row[iItem] == null) return;
+    var sit = _norm(row[iSit]);
+    var fora = sit.indexOf('chegou') !== -1 || sit.indexOf('cancelado') !== -1;
+    if (fora) { ignoradas++; return; }
+    var vol = parseFloat(row[iVol]) || 0;
+    if (vol > 0) comVolume++;
+    if (mostradas < 15) {
+      mostradas++;
+      Logger.log('  item=%s | embarque=%s | situação="%s" | célula volumes=%s (%s) → lido como %s',
+        row[iItem], row[iEmb], row[iSit], JSON.stringify(row[iVol]), typeof row[iVol], vol);
+    }
+  });
+  Logger.log('Linhas em viagem com volume > 0: %s | linhas ignoradas (chegou/cancelado): %s',
+    comVolume, ignoradas);
+  Logger.log(comVolume > 0
+    ? '>>> Os volumes ESTÃO sendo lidos. Se a tela ainda mostra "—", falta atualizar Consultas.gs (é ele que manda os volumes pro Relatório).'
+    : '>>> Nenhum volume lido. Confira a coluna apontada acima e o conteúdo das células.');
 }
 
 /* ------------------- pendências: embarque parcialmente lançado ------------------ */
