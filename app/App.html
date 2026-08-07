@@ -3841,7 +3841,7 @@ function abrirModalNovaSenha(usuario, callback) {
 // obterRelatorioCompraAtual) — só pra consultar direto no sistema, sem
 // esperar/procurar o e-mail. Compartilhada por TODOS os papéis (ver MENUS),
 // só leitura. Régua de navegação (setas ↑/↓) igual às outras listas.
-var estadoRelatorio = { linhas: [], filtro: '', marcas: {} };
+var estadoRelatorio = { linhas: [], filtro: '', marcas: {}, infoEmbarques: {} };
 
 function viewRelatorio(alvo) {
   alvo.innerHTML =
@@ -4032,6 +4032,9 @@ function carregarRelatorio() {
           (r.chegadaRotulos || []).join(', ') + '</b> · prazo mínimo de ' + r.chegadaPrazoDias + ' dia(s).</div>';
       }
       estadoRelatorio.linhas = r.linhas || [];
+      // Observação geral e malote por embarque (ver `_registrarInfoEmbarque`,
+      // em Embarque.gs) — saem no bloco do embarque, na tela e na impressão.
+      estadoRelatorio.infoEmbarques = r.infoEmbarques || {};
       mostrarUltimaAtualizacaoRelatorio(r.revisao);
       // Autocomplete da busca: só os itens que estão neste relatório.
       var dl = document.getElementById('rel-itens');
@@ -4131,6 +4134,41 @@ function _agruparLinhasRelatorio(linhas) {
 function _cabecalhoGrupoRelatorio(texto, cor) {
   return '<tr class="linha-grupo"><td colspan="' + COLUNAS_RELATORIO + '" ' +
     'style="background:' + cor + '">' + texto + '</td></tr>';
+}
+
+/**
+ * Linha com a OBSERVAÇÃO GERAL e o MALOTE do embarque, logo abaixo do
+ * cabeçalho do grupo. Esses dois dados só saíam no PDF do e-mail; quem
+ * reimprimia o embarque pelo Relatório não tinha como saber se ia malote nem
+ * ler a observação (ver `_registrarInfoEmbarque`, em Embarque.gs).
+ *
+ * Devolve '' quando o embarque não tem nenhum dos dois — inclusive nos
+ * embarques antigos, confirmados antes deste registro existir.
+ */
+function _linhaInfoEmbarque(numero) {
+  var info = _infoDoEmbarque(numero);
+  if (!info) return '';
+  var partes = [];
+  if (info.malote) {
+    partes.push('<b style="color:#7A5B12">MALOTE:</b> ' + escAttr(info.malote));
+  }
+  if (info.observacao) {
+    partes.push('<b style="color:#0B4576">Observação:</b> ' + escAttr(info.observacao));
+  }
+  if (!partes.length) return '';
+  return '<tr class="linha-info-embarque"><td colspan="' + COLUNAS_RELATORIO + '" ' +
+    'style="background:#FFFBEB;border-left:4px solid #F0C36D;font-size:12.5px;padding:6px 10px">' +
+    partes.join(' &nbsp;·&nbsp; ') + '</td></tr>';
+}
+
+/** Info do embarque pelo número, tolerando diferença de formato entre o que
+ * está gravado na aba EMBARQUES e na EMBARQUE_INFO (ex.: "1474" x 1474). */
+function _infoDoEmbarque(numero) {
+  var mapa = estadoRelatorio.infoEmbarques || {};
+  var chave = String(numero == null ? '' : numero).trim();
+  if (mapa[chave]) return mapa[chave];
+  var soDigitos = chave.replace(/\D/g, '');
+  return soDigitos && mapa[soDigitos] ? mapa[soDigitos] : null;
 }
 
 /** Uma linha (<tr>) da tabela do Relatório. `remessa` fixa a previsão mostrada
@@ -4240,6 +4278,7 @@ function renderRelatorio() {
       (listaPrev.length ? ' · previsão ' + escAttr(listaPrev.join(' / ')) : ' · previsão a definir') +
       ' · ' + g.itens.length + ' item(ns) · ' + num(kg) + ' kg',
       '#DDEBF7');
+    body += _linhaInfoEmbarque(g.numero);
     body += g.itens.map(function (x) { return _linhaHtmlRelatorio(x.linha, x.remessa); }).join('');
   });
   wrap.innerHTML = '<table class="dados">' + _cabecalhoHtmlRelatorio() + '<tbody>' + body + '</tbody></table>';
@@ -4303,7 +4342,8 @@ function imprimirSelecaoRelatorio(selecao) {
     textoSubtitulo = 'Embarque nº ' + escAttr(g.numero) +
       (g.dataEmbarque ? ' — saiu em ' + escAttr(g.dataEmbarque) : '') +
       ' — ' + g.itens.length + ' item(ns), ' + num(kg) + ' kg';
-    body = g.itens.map(function (x) { return _linhaHtmlRelatorio(x.linha, x.remessa); }).join('');
+    body = _linhaInfoEmbarque(g.numero) +
+      g.itens.map(function (x) { return _linhaHtmlRelatorio(x.linha, x.remessa); }).join('');
   } else {
     textoSubtitulo = 'Lista de itens pendentes — ' + agrupado.aguardando.length + ' item(ns)';
     body = agrupado.aguardando.map(function (l) { return _linhaHtmlRelatorio(l, null); }).join('');

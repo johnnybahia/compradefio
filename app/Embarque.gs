@@ -395,6 +395,56 @@ function _registrarEstornoEmbarque(numero, usuario, itens, lotes) {
     .setValues([[String(numero), new Date(), usuario || '', '', JSON.stringify({ itens: itens || [], lotes: lotes || [] })]]);
 }
 
+var EMBARQUE_INFO_HEADERS = ['EMBARQUE', 'DATA_HORA', 'USUARIO', 'OBSERVACAO', 'MALOTE'];
+
+/**
+ * Guarda a OBSERVAÇÃO GERAL e o MALOTE de um embarque confirmado.
+ *
+ * Esses dois campos só existiam no PDF que vai no e-mail, montado na hora da
+ * confirmação — quem reimprimisse o embarque pelo Relatório depois não tinha
+ * como saber se ia malote nem ler a observação. Aqui eles ficam gravados,
+ * uma linha por embarque, pra sair também na reimpressão (ver
+ * `_infoEmbarquesPorNumero` e o bloco de embarque, no Relatório).
+ *
+ * `malote` é o objeto normalizado ({ativo, modo, volumes}) — guardado já como
+ * texto pronto de ler, que é como vai ser mostrado.
+ */
+function _registrarInfoEmbarque(numero, usuario, observacao, malote) {
+  var obs = String(observacao == null ? '' : observacao).trim();
+  var m = malote || {};
+  var maloteTxt = !m.ativo ? ''
+    : (m.modo === 'volumes'
+        ? 'Nota separada — ' + _numeroBR(m.volumes) + ' volume(s)'
+        : 'Segue com os fios (mesma nota)');
+  if (!obs && !maloteTxt) return; // nada a guardar deste embarque
+  var sh = _aba(CONFIG.SHEETS.EMBARQUE_INFO, EMBARQUE_INFO_HEADERS);
+  var inicio = sh.getLastRow() + 1;
+  sh.getRange(inicio, 1, 1, 1).setNumberFormat('@'); // nº como texto
+  sh.getRange(inicio, 1, 1, EMBARQUE_INFO_HEADERS.length)
+    .setValues([[String(numero), new Date(), usuario || '', obs, maloteTxt]]);
+}
+
+/**
+ * Observação geral e malote de cada embarque: nºEmbarque normalizado →
+ * { observacao, malote }. Alimenta o Relatório (ver `obterRelatorioCompraAtual`).
+ * Embarque sem nenhum dos dois simplesmente não aparece aqui.
+ */
+function _infoEmbarquesPorNumero() {
+  var mapa = {};
+  var sh = _aba(CONFIG.SHEETS.EMBARQUE_INFO);
+  if (!sh || sh.getLastRow() < 2) return mapa;
+  lerRegistros(CONFIG.SHEETS.EMBARQUE_INFO).forEach(function (r) {
+    var num = _normNumero(r.EMBARQUE);
+    if (!num) return;
+    // Confirmação repetida do mesmo número: a última grava por cima.
+    mapa[num] = {
+      observacao: _textoCelula(r.OBSERVACAO),
+      malote: _textoCelula(r.MALOTE)
+    };
+  });
+  return mapa;
+}
+
 /**
  * Grava o embarque conferido (lido de PDF) na aba EMBARQUES, memoriza as
  * descrições novas e dá baixa automática na lista pendente — ver
@@ -829,6 +879,11 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
   // embarque já está gravado — a segunda tentativa tem que ser barrada como
   // duplicada (ver `_conferirEmbarqueDuplicado`).
   _registrarUltimoEmbarqueConfirmado(itens, numero, s.usuario);
+  // Observação geral e malote ficam gravados pra sair na reimpressão do
+  // Relatório — antes viviam só dentro do PDF do e-mail (ver
+  // `_registrarInfoEmbarque`). Nunca pode derrubar a confirmação: o embarque
+  // já está gravado a esta altura.
+  try { _registrarInfoEmbarque(numero, s.usuario, observacao, malote); } catch (e) { /* registro extra */ }
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');

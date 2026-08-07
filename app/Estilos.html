@@ -152,6 +152,11 @@
     padding: 6px 10px; border-top: 2px solid #0F5FA0;
   }
   table.dados tbody tr.linha-grupo:hover { background: transparent; }
+  /* Observação geral e malote do embarque, logo abaixo do cabeçalho do grupo.
+     A borda à esquerda é o que segura a leitura na folha impressa: fundo de
+     cor o navegador costuma descartar ao imprimir, borda não. */
+  table.dados tr.linha-info-embarque td { border-top: none; }
+  table.dados tbody tr.linha-info-embarque:hover td { background: #FFFBEB; }
   #sel-unidade {
     background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.35);
     padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;

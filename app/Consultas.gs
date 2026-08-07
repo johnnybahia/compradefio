@@ -165,6 +165,11 @@ function obterRelatorioCompraAtual(token) {
     chegadaPrazoDias: cfgChegada.prazoDias,
     chegadaRotulos: cfgChegada.dias.map(function (n) { return DIAS_SEMANA_ROTULO[n]; }),
     revisao: revisao,
+    // Observação geral e malote de cada embarque (nº → {observacao, malote}),
+    // pra aparecerem no bloco do embarque e na reimpressão — ver
+    // `_registrarInfoEmbarque`, em Embarque.gs. Só tem para embarques
+    // confirmados depois que esse registro passou a existir.
+    infoEmbarques: _infoEmbarquesPorNumero(),
     linhas: linhas
   };
 }
