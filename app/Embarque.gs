@@ -1824,8 +1824,16 @@ function _embarquesEmViagemPorItem() {
   // unidades não nasceram iguais (a da Bahia é herdada de outro script, ver
   // `_colPorNomes`, em Db.gs). Com `indexOf('volumes')` puro, uma aba que
   // chamasse a coluna de "VOLUME" ou "CAIXAS" ficava sem volume nenhum no
-  // Relatório, sem erro nenhum na tela. Pode não existir em aba antiga.
+  // Relatório, sem erro nenhum na tela.
+  //
+  // Não achando por nome, cai na POSIÇÃO — coluna F, o lugar de VOLUMES em
+  // `EMBARQUES_HEADERS`. É o mesmo fallback que as cinco colunas acima já
+  // faziam; só esta ficara de fora, e por isso um cabeçalho com o nome
+  // diferente (ou em branco) zerava a coluna inteira mesmo com o dado
+  // gravado na planilha. Valor não numérico vira 0 logo abaixo, então
+  // apontar pra coluna errada não quebra nada.
   var iVol = _colPorNomes(header, ['volumes', 'volume', 'caixas', 'caixa', 'cx', 'vol']);
+  if (iVol < 0 && header.length > 5) iVol = 5;
   var iSol = header.indexOf('solicitado_em'); // pode não existir em aba antiga
 
   var porItemEmb = {}; // item -> { nºembarque -> remessa }
