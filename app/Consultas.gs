@@ -43,6 +43,23 @@ function _numeroCelula(v) {
 }
 
 /**
+ * Arredonda um peso em kg pra 3 casas (grama) — use SEMPRE que um kg for
+ * gravado na planilha depois de uma conta.
+ *
+ * Motivo: subtração de ponto flutuante deixa lixo. Um pedido de 420kg que
+ * recebeu dois embarques parciais (103,6 e 315) virava
+ * `420 - 103.6 - 315 = 1.3999999999999773` na coluna SUGERIDO, em vez de
+ * 1,4 — o resíduo certo, mas escrito de um jeito que assusta quem abre a
+ * planilha e nunca mais some sozinho (cada nova conta carrega o lixo
+ * adiante).
+ */
+function _arredondarKg(n) {
+  var v = Number(n);
+  if (isNaN(v)) return 0;
+  return Math.round(v * 1000) / 1000;
+}
+
+/**
  * Código do ITEM vindo de uma célula. Quando o Sheets converteu o código em
  * DATA (ex.: "5108/1" → 01/01/5108), reconstrói "ano/mês" em vez de devolver a
  * data — senão o item sai como data no relatório e deixa de casar com o mesmo
@@ -174,6 +191,10 @@ function _montarLinhasRelatorio(cfg) {
       return {
         numero: v.numero,
         quantidade: v.quantidade,
+        // Volumes DAQUELA remessa (vêm da aba EMBARQUES): dentro do bloco de
+        // um embarque, o Relatório mostra o que saiu naquele embarque, não o
+        // que sobrou na pendência — ver `_linhaHtmlRelatorio`, no App.html.
+        volumes: v.volumes,
         dataEmbarque: v.data ? _soData(v.data) : '',
         previsaoChegada: p ? _soData(p) : ''
       };
@@ -220,7 +241,7 @@ function _montarLinhasRelatorio(cfg) {
       var remessas = lista.map(function (v) {
         var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
         return {
-          numero: v.numero, quantidade: v.quantidade,
+          numero: v.numero, quantidade: v.quantidade, volumes: v.volumes,
           dataEmbarque: v.data ? _soData(v.data) : '',
           previsaoChegada: p ? _soData(p) : ''
         };

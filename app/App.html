@@ -1382,7 +1382,7 @@ function renderTingimento(linhas) {
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.total) + '</td>' +
       '<td>' + dataCel + '</td>' +
       '<td>' + obsCel + '</td>' +
       (editavelTing
@@ -2095,7 +2095,7 @@ function renderConfirmarEmbarque() {
         ? '<input type="number" class="vol-input" data-linha="' + l.linha + '" data-idx="' + i + '" ' +
           'min="0" step="any" value="' + escAttr(l.volumes) + '" placeholder="vol." ' +
           'style="width:60px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">'
-        : (l.volumes !== '' && l.volumes != null ? l.volumes : '—')) + '</td>' +
+        : num(l.volumes)) + '</td>' +
       '<td>' + (editavel
         ? '<input type="number" class="qtd-embarcar-input" data-idx="' + i + '" min="0" step="any" ' +
           'placeholder="kg" value="' + escAttr(l.quantidade) + '">'
@@ -2515,7 +2515,7 @@ function renderQuantidadeTingida() {
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-      '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
+      '<td style="text-align:right">' + num(l.total) + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg ' +
         (editavel
           ? '<button type="button" class="btn-atualizar-data btn-corrigir-tingido" data-idx="' + i +
@@ -2553,7 +2553,7 @@ function renderQuantidadeTingida() {
           '</td>'
         : '<td style="text-align:center">' +
             (liberado > 0
-              ? num(liberado) + ' kg' + (l.volumes !== '' && l.volumes != null ? ' (' + l.volumes + ' vol.)' : '')
+              ? num(liberado) + ' kg' + (l.volumes !== '' && l.volumes != null ? ' (' + num(l.volumes) + ' vol.)' : '')
               : '—') +
           '</td>') +
     '</tr>';
@@ -4094,7 +4094,7 @@ function resumoCurtoAtualizacao(rev) {
   return p.join(' · ');
 }
 
-var COLUNAS_RELATORIO = 10;
+var COLUNAS_RELATORIO = 9;
 
 /**
  * Separa as linhas do relatório em duas partes: o que ainda AGUARDA embarque
@@ -4136,6 +4136,14 @@ function _cabecalhoGrupoRelatorio(texto, cor) {
 /** Uma linha (<tr>) da tabela do Relatório. `remessa` fixa a previsão mostrada
  * a UMA remessa (dentro de um bloco de embarque); null mostra todas as do item. */
 function _linhaHtmlRelatorio(l, remessa) {
+  // DENTRO do bloco de um embarque, quantidade e volumes são os DAQUELE
+  // embarque (o que realmente saiu) — não o saldo que sobrou na pendência,
+  // que não diz nada sobre aquela remessa. Fora do bloco, seguem valendo os
+  // números do item (saldo pendente e volumes da pendência).
+  var totalCel = remessa ? num(remessa.quantidade) : num(l.total);
+  var volumesOrigem = remessa ? remessa.volumes : l.volumes;
+  var volumesCel = (volumesOrigem === '' || volumesOrigem == null || Number(volumesOrigem) === 0)
+    ? '—' : num(volumesOrigem);
   // Previsão: só a remessa deste bloco (fora do bloco, todas as do item).
   var prevCel = '—';
   var remessas = remessa ? [remessa] : (l.remessas || []);
@@ -4144,12 +4152,16 @@ function _linhaHtmlRelatorio(l, remessa) {
       var dado = v.previsaoChegada
         ? '<b style="color:#0B4576">' + v.previsaoChegada + '</b>'
         : '<span class="sem-desc">a definir</span>';
-      return '<div title="Embarque ' + escAttr(v.numero) + ' de ' + escAttr(v.dataEmbarque || '—') + '">' +
-        dado + ' <span style="color:#64748b">· ' + num(v.quantidade) + ' kg</span></div>';
+      // Só a data: o peso embarcado agora tem coluna própria (Total (kg)),
+      // e repeti-lo aqui só poluía. O detalhe do embarque (número e data de
+      // saída) continua na dica ao passar o mouse.
+      return '<div title="Embarque ' + escAttr(v.numero) + ' de ' + escAttr(v.dataEmbarque || '—') +
+        ' · ' + num(v.quantidade) + ' kg">' + dado + '</div>';
     }).join('');
   }
-  // Linha "embarcado": item que já saiu da lista pendente (o embarque foi
-  // lançado) mas ainda não chegou — continua aqui até ser marcado CHEGOU.
+  // Item que já saiu da lista pendente (o embarque foi lançado) mas ainda não
+  // chegou — continua no relatório, em verde, até ser marcado CHEGOU. Sem
+  // rótulo escrito: dentro de um bloco de embarque isso é o óbvio.
   var embarcado = l.status === 'embarcado';
   // Marca o que mudou na última atualização da lista (ver `mostrarUltimaAtualizacaoRelatorio`).
   var marca = estadoRelatorio.marcas[semAcentoMinusculo(l.item || '')];
@@ -4160,13 +4172,11 @@ function _linhaHtmlRelatorio(l, remessa) {
         : '');
   return '<tr' + (l.saldoCritico ? ' class="destaque"' : (embarcado ? ' class="destaque-tingido-completo"' : '')) + '>' +
     '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
-    '<td class="col-item">' + (l.item || '—') + selo +
-      (embarcado ? ' <span class="badge-tingido-completo">embarcado</span>' : '') + '</td>' +
+    '<td class="col-item">' + (l.item || '—') + selo + '</td>' +
     '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
     '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
-    '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-    '<td style="text-align:right">' + (l.total !== '' && l.total != null ? l.total : '—') + '</td>' +
-    '<td style="text-align:center">' + (l.volumes !== '' && l.volumes != null ? l.volumes : '—') + '</td>' +
+    '<td style="text-align:right">' + (remessa ? '<b>' + totalCel + '</b>' : totalCel) + '</td>' +
+    '<td style="text-align:center">' + volumesCel + '</td>' +
     '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
     '<td>' + prevCel + '</td>' +
     '<td>' + (l.obs ? l.obs : '—') + '</td>' +
@@ -4176,12 +4186,12 @@ function _linhaHtmlRelatorio(l, remessa) {
 /** Cabeçalho (<thead>) da tabela do Relatório — igual na tela e na impressão. */
 function _cabecalhoHtmlRelatorio() {
   return '<thead><tr>' +
-    '<th style="width:7%">Solicitado em</th><th style="width:9%">Item</th>' +
-    '<th style="width:19%">Descrição</th><th style="width:11%">Cliente</th>' +
-    '<th style="width:10%">Máquinas</th><th style="text-align:right;width:7%">Total (kg)</th>' +
-    '<th style="text-align:center;width:5%">Volumes</th>' +
-    '<th style="width:9%">Data limite</th><th style="width:10%">Previsão de chegada</th>' +
-    '<th style="width:13%">Observação</th>' +
+    '<th style="width:8%">Solicitado em</th><th style="width:10%">Item</th>' +
+    '<th style="width:22%">Descrição</th><th style="width:12%">Cliente</th>' +
+    '<th style="text-align:right;width:8%">Total (kg)</th>' +
+    '<th style="text-align:center;width:6%">Volumes</th>' +
+    '<th style="width:10%">Data limite</th><th style="width:10%">Previsão de chegada</th>' +
+    '<th style="width:14%">Observação</th>' +
   '</tr></thead>';
 }
 
