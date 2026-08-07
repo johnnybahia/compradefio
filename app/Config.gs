@@ -136,6 +136,7 @@ var CONFIG = {
     MAPA_EMBARQUE: 'MAPA_EMBARQUE',   // aprendizado: descrição do PDF → item
     PENDENCIAS_EMBARQUE: 'PENDENCIAS EMBARQUE', // itens de embarque parcialmente lançados no estoque
     EMBARQUE_ESTORNO: 'EMBARQUE_ESTORNO', // instantâneo por embarque (consumo de crú + pendência) pra permitir cancelar
+    EMBARQUE_INFO: 'EMBARQUE_INFO',   // observação geral e malote de cada embarque, pra reimprimir depois no Relatório
     PENDENCIA_COMPRA: 'PENDENCIA_COMPRA', // backlog vivo: acumula até dar baixa (embarque confirmado ou remoção manual)
     RELATORIO_REVISAO: 'RELATORIO_REVISAO', // controle interno (aba oculta): revisão do Relatório, pra avisar todo mundo quando muda
     RELACAO_COMPRA: 'RELACAO_COMPRA', // reservada; hoje não é usada (ver PENDENCIA_COMPRA)
