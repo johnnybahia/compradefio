@@ -191,6 +191,10 @@ function _montarLinhasRelatorio(cfg) {
       return {
         numero: v.numero,
         quantidade: v.quantidade,
+        // Volumes DAQUELA remessa (vêm da aba EMBARQUES): dentro do bloco de
+        // um embarque, o Relatório mostra o que saiu naquele embarque, não o
+        // que sobrou na pendência — ver `_linhaHtmlRelatorio`, no App.html.
+        volumes: v.volumes,
         dataEmbarque: v.data ? _soData(v.data) : '',
         previsaoChegada: p ? _soData(p) : ''
       };
@@ -237,7 +241,7 @@ function _montarLinhasRelatorio(cfg) {
       var remessas = lista.map(function (v) {
         var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
         return {
-          numero: v.numero, quantidade: v.quantidade,
+          numero: v.numero, quantidade: v.quantidade, volumes: v.volumes,
           dataEmbarque: v.data ? _soData(v.data) : '',
           previsaoChegada: p ? _soData(p) : ''
         };

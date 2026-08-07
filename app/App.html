@@ -2095,7 +2095,7 @@ function renderConfirmarEmbarque() {
         ? '<input type="number" class="vol-input" data-linha="' + l.linha + '" data-idx="' + i + '" ' +
           'min="0" step="any" value="' + escAttr(l.volumes) + '" placeholder="vol." ' +
           'style="width:60px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;text-align:right">'
-        : (l.volumes !== '' && l.volumes != null ? l.volumes : '—')) + '</td>' +
+        : num(l.volumes)) + '</td>' +
       '<td>' + (editavel
         ? '<input type="number" class="qtd-embarcar-input" data-idx="' + i + '" min="0" step="any" ' +
           'placeholder="kg" value="' + escAttr(l.quantidade) + '">'
@@ -2553,7 +2553,7 @@ function renderQuantidadeTingida() {
           '</td>'
         : '<td style="text-align:center">' +
             (liberado > 0
-              ? num(liberado) + ' kg' + (l.volumes !== '' && l.volumes != null ? ' (' + l.volumes + ' vol.)' : '')
+              ? num(liberado) + ' kg' + (l.volumes !== '' && l.volumes != null ? ' (' + num(l.volumes) + ' vol.)' : '')
               : '—') +
           '</td>') +
     '</tr>';
@@ -4136,6 +4136,14 @@ function _cabecalhoGrupoRelatorio(texto, cor) {
 /** Uma linha (<tr>) da tabela do Relatório. `remessa` fixa a previsão mostrada
  * a UMA remessa (dentro de um bloco de embarque); null mostra todas as do item. */
 function _linhaHtmlRelatorio(l, remessa) {
+  // DENTRO do bloco de um embarque, quantidade e volumes são os DAQUELE
+  // embarque (o que realmente saiu) — não o saldo que sobrou na pendência,
+  // que não diz nada sobre aquela remessa. Fora do bloco, seguem valendo os
+  // números do item (saldo pendente e volumes da pendência).
+  var totalCel = remessa ? num(remessa.quantidade) : num(l.total);
+  var volumesOrigem = remessa ? remessa.volumes : l.volumes;
+  var volumesCel = (volumesOrigem === '' || volumesOrigem == null || Number(volumesOrigem) === 0)
+    ? '—' : num(volumesOrigem);
   // Previsão: só a remessa deste bloco (fora do bloco, todas as do item).
   var prevCel = '—';
   var remessas = remessa ? [remessa] : (l.remessas || []);
@@ -4165,8 +4173,8 @@ function _linhaHtmlRelatorio(l, remessa) {
     '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
     '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
     '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
-    '<td style="text-align:right">' + num(l.total) + '</td>' +
-    '<td style="text-align:center">' + (l.volumes !== '' && l.volumes != null ? l.volumes : '—') + '</td>' +
+    '<td style="text-align:right">' + (remessa ? '<b>' + totalCel + '</b>' : totalCel) + '</td>' +
+    '<td style="text-align:center">' + volumesCel + '</td>' +
     '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
     '<td>' + prevCel + '</td>' +
     '<td>' + (l.obs ? l.obs : '—') + '</td>' +
