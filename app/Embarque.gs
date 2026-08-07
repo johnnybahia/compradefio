@@ -1833,6 +1833,17 @@ function _embarquesEmViagemPorItem() {
   // gravado na planilha. Valor não numérico vira 0 logo abaixo, então
   // apontar pra coluna errada não quebra nada.
   var iVol = _colPorNomes(header, ['volumes', 'volume', 'caixas', 'caixa', 'cx', 'vol']);
+  // `_colPorNomes` casa o cabeçalho INTEIRO (é `Array.indexOf`), então só
+  // acerta quando a célula é exatamente "VOLUMES" — é o caso do Ceará. Na
+  // Bahia, herdada de outro script, o cabeçalho tem texto a mais (algo como
+  // "Nº VOLUMES" / "VOLUMES (CX)"), não casava, e a coluna inteira virava
+  // zero: mesmo código, mesma posição, resultado diferente entre as duas
+  // unidades. Aqui procura qualquer cabeçalho que CONTENHA volume/caixa.
+  if (iVol < 0) {
+    for (var iv = 0; iv < header.length; iv++) {
+      if (header[iv].indexOf('volume') !== -1 || header[iv].indexOf('caixa') !== -1) { iVol = iv; break; }
+    }
+  }
   if (iVol < 0 && header.length > 5) iVol = 5;
   var iSol = header.indexOf('solicitado_em'); // pode não existir em aba antiga
 
@@ -1904,10 +1915,17 @@ function diagnosticarVolumesEmbarque() {
   Logger.log('Cabeçalho (normalizado): %s', JSON.stringify(header));
 
   var iVol = _colPorNomes(header, ['volumes', 'volume', 'caixas', 'caixa', 'cx', 'vol']);
-  var porNome = iVol;
-  if (iVol < 0 && header.length > 5) iVol = 5;
-  Logger.log('Coluna de volumes: por nome = %s | usada = %s (%s)',
-    porNome, iVol, iVol >= 0 ? 'coluna ' + String.fromCharCode(65 + iVol) : 'NENHUMA');
+  var como = 'nome exato';
+  if (iVol < 0) {
+    for (var iv = 0; iv < header.length; iv++) {
+      if (header[iv].indexOf('volume') !== -1 || header[iv].indexOf('caixa') !== -1) {
+        iVol = iv; como = 'nome parcial ("' + header[iv] + '")'; break;
+      }
+    }
+  }
+  if (iVol < 0 && header.length > 5) { iVol = 5; como = 'posição (coluna F)'; }
+  Logger.log('Coluna de volumes: %s → índice %s (%s)',
+    como, iVol, iVol >= 0 ? 'coluna ' + String.fromCharCode(65 + iVol) : 'NENHUMA');
   if (iVol < 0) { Logger.log('>>> Nenhuma coluna de volumes: o Relatório vai mostrar tudo como "—".'); return; }
 
   var iItem = header.indexOf('cores'); if (iItem < 0) iItem = 0;
