@@ -1679,15 +1679,29 @@ function _atualizarChegadasEmbarque(inicio, fim) {
     });
 
     if (estritos.length === 1) {
-      estritos[0].pend.forEach(function (p) { linhasParaMarcar[p.linha] = true; });
+      // UMA entrada no estoque dá baixa em UMA linha do embarque.
+      //
+      // O mesmo item pode aparecer mais de uma vez no MESMO embarque (dois
+      // lotes do mesmo fio, pesos e datas diferentes, despachados juntos).
+      // Marcando todas as linhas de uma vez, uma única entrada no estoque
+      // dava o item inteiro como chegado: a segunda linha ficava marcada
+      // CHEGOU sem nunca ter entrado, e como não sobrava linha em aberto o
+      // embarque também não virava pendência — sumia sem ninguém perceber.
+      // Cada entrada marca só a primeira linha ainda não marcada; se vier
+      // outra entrada depois, ela marca a seguinte.
+      var alvo = estritos[0].pend.filter(function (p) { return !linhasParaMarcar[p.linha]; })[0];
+      if (alvo) linhasParaMarcar[alvo.linha] = true;
     } else if (estritos.length > 1 || embutidos.length >= 1) {
       var fonte = estritos.length > 1 ? estritos : embutidos;
       emDuvida.push({
         item: fonte[0].pend[0].item,
         nf: _textoCelula(row[iNfEst]),
         dataNf: _soData(row[iDataEst]),
+        // Mesma regra da baixa automática: esta NF resolve UMA linha por
+        // embarque candidato, não todas as do item.
         candidatos: fonte.map(function (c) {
-          return { numero: c.numero, linhas: c.pend.map(function (p) { return p.linha; }) };
+          var livre = c.pend.filter(function (p) { return !linhasParaMarcar[p.linha]; })[0] || c.pend[0];
+          return { numero: c.numero, linhas: [livre.linha] };
         })
       });
     }
