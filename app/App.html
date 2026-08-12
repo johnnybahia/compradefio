@@ -1677,7 +1677,9 @@ function viewConfirmarEmbarque(alvo) {
   var desc = editavel
     ? 'Todos os itens em aberto aparecem aqui. Para cada um que vai embarcar agora: digite o <b>peso</b> ' +
       '(kg) e os <b>volumes</b>, e marque a caixa <b>Embarcar</b>. Os campos vêm em branco de propósito — ' +
-      'o que vale é o que você digitar aqui. O peso confirmado é o que vai pro relatório/e-mail, sai da ' +
+      'o que vale é o que você digitar aqui, e <b>os dois são obrigatórios</b>: item marcado sem volume ' +
+      'não deixa confirmar (a tela avisa quais faltam). ' +
+      'O peso confirmado é o que vai pro relatório/e-mail, sai da ' +
       'lista pendente e dá baixa no estoque de fio crú. Embarcou só uma parte? Digite só o que saiu: o ' +
       'restante continua na lista, pra embarcar depois. ' +
       'O e-mail de confirmação usa a mesma lista de ' +
@@ -2136,6 +2138,15 @@ function renderConfirmarEmbarque() {
       });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.vol-input'), function (inp) {
+      // 'input' atualiza o estado NA HORA. O 'change' abaixo só dispara ao sair
+      // do campo e a gravação é assíncrona — quem digitasse o volume e clicasse
+      // direto em Confirmar seria barrado por falta de volume, com o número já
+      // na tela. Também limpa o vermelho de "faltou volume" assim que digita.
+      inp.addEventListener('input', function () {
+        estadoConfirmarEmbarque.linhas[Number(inp.getAttribute('data-idx'))].volumes = inp.value;
+        inp.style.background = '';
+        inp.style.borderColor = '#cbd5e1';
+      });
       inp.addEventListener('change', function () { salvarVolumes(inp); });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-obs-completo'), function (chk) {
@@ -2192,6 +2203,28 @@ function confirmarEmbarqueSelecionado(forcarDuplicado) {
   });
   if (!selecionados.length) {
     msg.innerHTML = '<div class="aviso erro">Marque ao menos um item, com quantidade maior que zero.</div>';
+    return;
+  }
+  // VOLUMES obrigatórios: item marcado pra embarcar tem que ter volume. Sem
+  // isso o embarque saía com "—" no PDF do e-mail e no Relatório, e o furo só
+  // aparecia depois. Barra aqui, dizendo QUAIS faltam — e marca os campos em
+  // vermelho, pra não ter que caçar na tabela.
+  var semVolume = selecionados.filter(function (l) { return !(Number(l.volumes) > 0); });
+  if (semVolume.length) {
+    var tabela = document.getElementById('tabela-embarque-confirmar');
+    var primeiro = null;
+    estadoConfirmarEmbarque.linhas.forEach(function (l, i) {
+      if (semVolume.indexOf(l) === -1) return;
+      var campo = tabela && tabela.querySelector('.vol-input[data-idx="' + i + '"]');
+      if (!campo) return;
+      campo.style.borderColor = '#D0342C';
+      campo.style.background = '#FDECEA';
+      if (!primeiro) primeiro = campo;
+    });
+    msg.innerHTML = '<div class="aviso erro"><b>Informe os volumes antes de confirmar.</b> ' +
+      semVolume.length + ' item(ns) marcado(s) sem volume: ' +
+      semVolume.map(function (l) { return escAttr(l.item); }).join(', ') + '.</div>';
+    if (primeiro) { primeiro.focus(); primeiro.scrollIntoView({ block: 'center' }); }
     return;
   }
   var totalKg = selecionados.reduce(function (acc, l) { return acc + Number(l.quantidade); }, 0);
