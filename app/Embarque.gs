@@ -457,17 +457,6 @@ function _infoEmbarquesPorNumero() {
 }
 
 /**
- * DIAGNÓSTICO da observação/malote do Relatório — rode no editor do Apps
- * Script (menu de funções → `diagnosticarInfoEmbarque` → Executar) e leia o
- * "Registro de execução".
- *
- * Também CRIA a aba com o cabeçalho certo, se ela ainda não existir. Serve
- * pra dois casos: conferir por que a faixa não aparece, e deixar a aba
- * pronta pra preencher na mão a observação/malote de um embarque que já foi
- * confirmado antes deste registro existir (basta acrescentar uma linha:
- * número do embarque, data/hora, usuário, observação e malote).
- */
-/**
  * Texto gravado na coluna MALOTE pelo `prepararInfoEmbarquesAbertos()`.
  * Ajuste aqui antes de rodar, se quiser outra redação — é o que vai aparecer
  * na faixa do Relatório e sair na folha impressa.
@@ -637,6 +626,19 @@ function _prepararInfoEmbarquesAbertosUnidade() {
     'não levaram — o que estiver escrito ali é o que sai na folha impressa.');
 }
 
+/**
+ * DIAGNÓSTICO da observação/malote do Relatório — rode no editor do Apps
+ * Script (menu de funções → `diagnosticarInfoEmbarque` → Executar) e leia o
+ * "Registro de execução". Passa nas DUAS unidades (ver `_emCadaUnidade`).
+ *
+ * Mostra, por unidade: o que já está gravado na aba de info e, montando o
+ * Relatório de verdade, quais embarques abertos ganham a faixa e quais não —
+ * é o que separa "falta preparar" de "falta atualizar Consultas.gs/App.html",
+ * duas causas que dão exatamente o mesmo resultado na tela.
+ *
+ * Também CRIA a aba (enxuta) se ela ainda não existir, deixando-a pronta pra
+ * preencher na mão a observação/malote de embarques já confirmados.
+ */
 function diagnosticarInfoEmbarque() {
   _emCadaUnidade(_diagnosticarInfoEmbarqueUnidade);
 }
