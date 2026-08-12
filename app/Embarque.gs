@@ -428,7 +428,7 @@ function _registrarInfoEmbarque(numero, usuario, observacao, malote) {
         ? 'Nota separada — ' + _numeroBR(m.volumes) + ' volume(s)'
         : 'Segue com os fios (mesma nota)');
   if (!obs && !maloteTxt) return; // nada a guardar deste embarque
-  var sh = _aba(_nomeAbaInfoEmbarque(), EMBARQUE_INFO_HEADERS);
+  var sh = _abaInfoEmbarque(true);
   var inicio = sh.getLastRow() + 1;
   sh.getRange(inicio, 1, 1, 1).setNumberFormat('@'); // nº como texto
   sh.getRange(inicio, 1, 1, EMBARQUE_INFO_HEADERS.length)
@@ -442,7 +442,7 @@ function _registrarInfoEmbarque(numero, usuario, observacao, malote) {
  */
 function _infoEmbarquesPorNumero() {
   var mapa = {};
-  var sh = _aba(_nomeAbaInfoEmbarque());
+  var sh = _abaInfoEmbarque(false);
   if (!sh || sh.getLastRow() < 2) return mapa;
   lerRegistros(_nomeAbaInfoEmbarque()).forEach(function (r) {
     var num = _normNumero(r.EMBARQUE);
@@ -475,6 +475,111 @@ function _infoEmbarquesPorNumero() {
 var INFO_EMBARQUE_MALOTE_PADRAO = 'Sim';
 
 /**
+ * Roda `fn` uma vez em CADA unidade (Ceará e Bahia), com o log dizendo onde
+ * está mexendo.
+ *
+ * As funções de manutenção rodam pelo editor do Apps Script, onde não existe
+ * sessão — e sem sessão a unidade ativa cai na padrão, então elas mexeriam
+ * sempre no Ceará. A informação é necessária nas duas unidades, então em vez
+ * de uma constante pra trocar na mão (fácil de esquecer, e o esquecimento
+ * grava na planilha errada), passa nas duas de uma vez.
+ */
+function _emCadaUnidade(fn) {
+  CONFIG.UNIDADES.forEach(function (u) {
+    Logger.log('');
+    Logger.log('=============== %s ===============', u.rotulo.toUpperCase());
+    _definirUnidadeAtiva(u.id);
+    try {
+      fn(u);
+    } catch (e) {
+      Logger.log('ERRO nesta unidade: %s', e.message);
+    }
+  });
+  _definirUnidadeAtiva(null);
+}
+
+/**
+ * Abre (ou cria) a aba de observação/malote gastando o MÍNIMO de células.
+ *
+ * Uma aba nova do Sheets nasce com 1000 linhas × 26 colunas = 26 mil células,
+ * e a planilha tem teto de 10 milhões. Numa planilha cheia isso estoura na
+ * hora de criar, com uma mensagem do Google que não diz o que fazer. Esta aba
+ * guarda cinco colunas e uma linha por embarque: nasce enxuta e, se faltar
+ * espaço, o erro explica o problema e aponta o diagnóstico.
+ */
+function _abaInfoEmbarque(criar) {
+  var nome = _nomeAbaInfoEmbarque();
+  var ss = _ss();
+  var sh = ss.getSheetByName(nome);
+  if (sh || !criar) return sh;
+
+  try {
+    sh = ss.insertSheet(nome);
+  } catch (e) {
+    throw new Error('Não deu pra criar a aba "' + nome + '": a planilha está no limite de células do ' +
+      'Google (10 milhões). Rode `diagnosticarEspacoPlanilha()` pra ver quais abas estão ocupando ' +
+      'espaço à toa — normalmente são linhas vazias sobrando no fim de abas grandes. Erro original: ' +
+      e.message);
+  }
+  // Enxuga na hora: guarda o cabeçalho e uma folga de linhas pros embarques.
+  try {
+    var sobraCol = sh.getMaxColumns() - EMBARQUE_INFO_HEADERS.length;
+    if (sobraCol > 0) sh.deleteColumns(EMBARQUE_INFO_HEADERS.length + 1, sobraCol);
+    var sobraLin = sh.getMaxRows() - 200;
+    if (sobraLin > 0) sh.deleteRows(201, sobraLin);
+  } catch (e) { /* não conseguiu enxugar: a aba funciona igual, só ocupa mais */ }
+
+  sh.getRange(1, 1, 1, EMBARQUE_INFO_HEADERS.length)
+    .setValues([EMBARQUE_INFO_HEADERS])
+    .setFontWeight('bold').setBackground('#0F5FA0').setFontColor('#FFFFFF');
+  sh.setFrozenRows(1);
+  return sh;
+}
+
+/**
+ * Onde estão as células da planilha desta unidade — rode no editor do Apps
+ * Script quando algo falhar por limite de células (o Google recusa acima de
+ * 10 milhões).
+ *
+ * Lista cada aba com o tamanho reservado (linhas × colunas) e quanto disso
+ * está VAZIO no fim. Linha vazia sobrando ocupa célula do mesmo jeito, e é
+ * quase sempre daí que vem o estouro: uma aba com 50 linhas de dado e 40 mil
+ * reservadas desperdiça mais de um milhão de células.
+ *
+ * Só lê — não apaga nada. A limpeza é decisão sua, na própria planilha
+ * (selecionar as linhas vazias do fim → excluir linhas).
+ */
+function diagnosticarEspacoPlanilha() {
+  _emCadaUnidade(_diagnosticarEspacoPlanilhaUnidade);
+}
+
+function _diagnosticarEspacoPlanilhaUnidade() {
+  var ss = _ss();
+  Logger.log('Planilha: %s', ss.getName());
+
+  var total = 0, desperdicio = 0;
+  var abas = ss.getSheets().map(function (sh) {
+    var linhas = sh.getMaxRows(), cols = sh.getMaxColumns();
+    var usadas = sh.getLastRow();
+    var celulas = linhas * cols;
+    var sobra = Math.max(0, linhas - Math.max(usadas, 1)) * cols;
+    total += celulas;
+    desperdicio += sobra;
+    return { nome: sh.getName(), linhas: linhas, cols: cols, usadas: usadas, celulas: celulas, sobra: sobra };
+  }).sort(function (a, b) { return b.celulas - a.celulas; });
+
+  Logger.log('TOTAL: %s células (teto do Google: 10.000.000) | vazias no fim das abas: %s',
+    total.toLocaleString('pt-BR'), desperdicio.toLocaleString('pt-BR'));
+  Logger.log('--- abas, da maior pra menor ---');
+  abas.forEach(function (a) {
+    Logger.log('  %s: %s linhas × %s col = %s células | com dado até a linha %s | vazias no fim: %s',
+      a.nome, a.linhas, a.cols, a.celulas.toLocaleString('pt-BR'), a.usadas, a.sobra.toLocaleString('pt-BR'));
+  });
+  Logger.log('>>> Pra liberar espaço: nas abas com muitas "vazias no fim", selecione as linhas ' +
+    'abaixo da última com dado e exclua (botão direito → Excluir linhas). Isso não apaga dado nenhum.');
+}
+
+/**
  * Prepara a observação/malote dos embarques que JÁ ESTÃO ABERTOS (a caminho)
  * e foram confirmados antes deste registro existir — rode no editor do Apps
  * Script, uma vez por unidade.
@@ -492,8 +597,12 @@ var INFO_EMBARQUE_MALOTE_PADRAO = 'Sim';
  * aba é pulado, então o que você editar não é sobrescrito.
  */
 function prepararInfoEmbarquesAbertos() {
+  _emCadaUnidade(_prepararInfoEmbarquesAbertosUnidade);
+}
+
+function _prepararInfoEmbarquesAbertosUnidade() {
   var nome = _nomeAbaInfoEmbarque();
-  var sh = _aba(nome, EMBARQUE_INFO_HEADERS); // cria com cabeçalho se faltar
+  var sh = _abaInfoEmbarque(true); // cria enxuta, se faltar
 
   // Mesma regra do Relatório: embarque aberto é o que tem item a caminho
   // (linha não marcada CHEGOU nem CANCELADO) — ver `_embarquesEmViagemPorItem`.
@@ -529,11 +638,15 @@ function prepararInfoEmbarquesAbertos() {
 }
 
 function diagnosticarInfoEmbarque() {
+  _emCadaUnidade(_diagnosticarInfoEmbarqueUnidade);
+}
+
+function _diagnosticarInfoEmbarqueUnidade() {
   var nome = _nomeAbaInfoEmbarque();
   Logger.log('Aba usada: "%s" (Config.gs %s)', nome,
     (CONFIG && CONFIG.SHEETS && CONFIG.SHEETS.EMBARQUE_INFO) ? 'atualizado' : 'DESATUALIZADO — usando o nome padrão');
 
-  var sh = _aba(nome, EMBARQUE_INFO_HEADERS); // cria com cabeçalho se faltar
+  var sh = _abaInfoEmbarque(true); // cria enxuta, se faltar
   Logger.log('Linhas na aba (fora o cabeçalho): %s', Math.max(0, sh.getLastRow() - 1));
 
   var mapa = _infoEmbarquesPorNumero();
@@ -548,8 +661,31 @@ function diagnosticarInfoEmbarque() {
   nums.forEach(function (n) {
     Logger.log('  embarque %s → malote="%s" | observação="%s"', n, mapa[n].malote, mapa[n].observacao);
   });
-  Logger.log('>>> Esses são os embarques que ganham a faixa no Relatório. Se algum não aparece na ' +
-    'tela, confira se Consultas.gs e App.html também estão atualizados.');
+
+  // Confere a CADEIA inteira, não só a gravação: o dado pode estar certo na
+  // planilha e mesmo assim não chegar na tela, quando falta atualizar o
+  // Consultas.gs (que é quem manda `infoEmbarques` pro Relatório).
+  try {
+    var rel = _montarLinhasRelatorio();
+    var abertosNoRelatorio = {};
+    (rel || []).forEach(function (l) {
+      (l.remessas || []).forEach(function (v) {
+        var k = _normNumero(v.numero);
+        if (k) abertosNoRelatorio[k] = true;
+      });
+    });
+    var comFaixa = Object.keys(abertosNoRelatorio).filter(function (k) { return !!mapa[k]; });
+    Logger.log('Embarques abertos no Relatório: %s | com faixa: %s',
+      Object.keys(abertosNoRelatorio).length, comFaixa.length);
+    if (comFaixa.length) Logger.log('  ganham faixa: %s', comFaixa.join(', '));
+    var semFaixa = Object.keys(abertosNoRelatorio).filter(function (k) { return !mapa[k]; });
+    if (semFaixa.length) Logger.log('  SEM faixa (rode prepararInfoEmbarquesAbertos): %s', semFaixa.join(', '));
+  } catch (e) {
+    Logger.log('Não consegui montar o Relatório aqui: %s', e.message);
+  }
+
+  Logger.log('>>> Se os embarques acima aparecem "com faixa" mas a tela não mostra, o que falta é ' +
+    'atualizar o Consultas.gs (ele precisa devolver `infoEmbarques`) e o App.html.');
 }
 
 /**
