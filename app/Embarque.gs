@@ -398,6 +398,17 @@ function _registrarEstornoEmbarque(numero, usuario, itens, lotes) {
 var EMBARQUE_INFO_HEADERS = ['EMBARQUE', 'DATA_HORA', 'USUARIO', 'OBSERVACAO', 'MALOTE'];
 
 /**
+ * Nome da aba de observação/malote, SEM depender do Config.gs estar
+ * atualizado. O registro só existe em uma aba própria e novinha, então
+ * amarrá-lo a `CONFIG.SHEETS.EMBARQUE_INFO` fazia a gravação inteira falhar
+ * (em silêncio, dentro do try) quando esse arquivo ficava pra trás numa
+ * atualização — e o dado do embarque se perdia sem volta.
+ */
+function _nomeAbaInfoEmbarque() {
+  return (CONFIG && CONFIG.SHEETS && CONFIG.SHEETS.EMBARQUE_INFO) || 'EMBARQUE_INFO';
+}
+
+/**
  * Guarda a OBSERVAÇÃO GERAL e o MALOTE de um embarque confirmado.
  *
  * Esses dois campos só existiam no PDF que vai no e-mail, montado na hora da
@@ -417,7 +428,7 @@ function _registrarInfoEmbarque(numero, usuario, observacao, malote) {
         ? 'Nota separada — ' + _numeroBR(m.volumes) + ' volume(s)'
         : 'Segue com os fios (mesma nota)');
   if (!obs && !maloteTxt) return; // nada a guardar deste embarque
-  var sh = _aba(CONFIG.SHEETS.EMBARQUE_INFO, EMBARQUE_INFO_HEADERS);
+  var sh = _aba(_nomeAbaInfoEmbarque(), EMBARQUE_INFO_HEADERS);
   var inicio = sh.getLastRow() + 1;
   sh.getRange(inicio, 1, 1, 1).setNumberFormat('@'); // nº como texto
   sh.getRange(inicio, 1, 1, EMBARQUE_INFO_HEADERS.length)
@@ -431,9 +442,9 @@ function _registrarInfoEmbarque(numero, usuario, observacao, malote) {
  */
 function _infoEmbarquesPorNumero() {
   var mapa = {};
-  var sh = _aba(CONFIG.SHEETS.EMBARQUE_INFO);
+  var sh = _aba(_nomeAbaInfoEmbarque());
   if (!sh || sh.getLastRow() < 2) return mapa;
-  lerRegistros(CONFIG.SHEETS.EMBARQUE_INFO).forEach(function (r) {
+  lerRegistros(_nomeAbaInfoEmbarque()).forEach(function (r) {
     var num = _normNumero(r.EMBARQUE);
     if (!num) return;
     // Confirmação repetida do mesmo número: a última grava por cima.
@@ -443,6 +454,41 @@ function _infoEmbarquesPorNumero() {
     };
   });
   return mapa;
+}
+
+/**
+ * DIAGNÓSTICO da observação/malote do Relatório — rode no editor do Apps
+ * Script (menu de funções → `diagnosticarInfoEmbarque` → Executar) e leia o
+ * "Registro de execução".
+ *
+ * Também CRIA a aba com o cabeçalho certo, se ela ainda não existir. Serve
+ * pra dois casos: conferir por que a faixa não aparece, e deixar a aba
+ * pronta pra preencher na mão a observação/malote de um embarque que já foi
+ * confirmado antes deste registro existir (basta acrescentar uma linha:
+ * número do embarque, data/hora, usuário, observação e malote).
+ */
+function diagnosticarInfoEmbarque() {
+  var nome = _nomeAbaInfoEmbarque();
+  Logger.log('Aba usada: "%s" (Config.gs %s)', nome,
+    (CONFIG && CONFIG.SHEETS && CONFIG.SHEETS.EMBARQUE_INFO) ? 'atualizado' : 'DESATUALIZADO — usando o nome padrão');
+
+  var sh = _aba(nome, EMBARQUE_INFO_HEADERS); // cria com cabeçalho se faltar
+  Logger.log('Linhas na aba (fora o cabeçalho): %s', Math.max(0, sh.getLastRow() - 1));
+
+  var mapa = _infoEmbarquesPorNumero();
+  var nums = Object.keys(mapa);
+  if (!nums.length) {
+    Logger.log('>>> Nenhum embarque com observação/malote gravado ainda.');
+    Logger.log('    Para um embarque JÁ confirmado, acrescente uma linha na aba "%s":', nome);
+    Logger.log('    %s', EMBARQUE_INFO_HEADERS.join(' | '));
+    Logger.log('    ex.: 1478 | (data) | (usuário) | sai amanhã pela transportadora X | Nota separada — 24 volume(s)');
+    return;
+  }
+  nums.forEach(function (n) {
+    Logger.log('  embarque %s → malote="%s" | observação="%s"', n, mapa[n].malote, mapa[n].observacao);
+  });
+  Logger.log('>>> Esses são os embarques que ganham a faixa no Relatório. Se algum não aparece na ' +
+    'tela, confira se Consultas.gs e App.html também estão atualizados.');
 }
 
 /**
@@ -883,7 +929,14 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
   // Relatório — antes viviam só dentro do PDF do e-mail (ver
   // `_registrarInfoEmbarque`). Nunca pode derrubar a confirmação: o embarque
   // já está gravado a esta altura.
-  try { _registrarInfoEmbarque(numero, s.usuario, observacao, malote); } catch (e) { /* registro extra */ }
+  try {
+    _registrarInfoEmbarque(numero, s.usuario, observacao, malote);
+  } catch (e) {
+    // Registro extra: não pode derrubar a confirmação (o embarque já está
+    // gravado e o e-mail vai sair). Mas TEM que deixar rastro — engolir calado
+    // fazia a observação/malote sumir sem ninguém saber por quê.
+    try { Logger.log('Falha ao gravar info do embarque %s: %s', numero, e.message); } catch (e2) {}
+  }
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
