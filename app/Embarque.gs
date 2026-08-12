@@ -693,6 +693,15 @@ function confirmarEmbarqueManual(token, params) {
       };
     });
   if (!itens.length) throw new Error('Marque ao menos um item, com quantidade, para confirmar o embarque.');
+  // VOLUMES obrigatórios. A tela já barra antes de chegar aqui, mas a trava
+  // vive dos dois lados: uma aba aberta com a versão antiga do App.html
+  // continuaria mandando itens sem volume, e o embarque sairia com "—" no PDF
+  // e no Relatório sem ninguém perceber.
+  var semVolume = itens.filter(function (it) { return !(Number(it.volumes) > 0); });
+  if (semVolume.length) {
+    throw new Error('Informe os volumes antes de confirmar. ' + semVolume.length +
+      ' item(ns) sem volume: ' + semVolume.map(function (it) { return it.item; }).join(', ') + '.');
+  }
   // Observação geral, digitada na tela — sai no FIM do relatório (PDF).
   var observacao = String(params.observacao == null ? '' : params.observacao).trim();
 
