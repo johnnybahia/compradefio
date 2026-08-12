@@ -475,22 +475,27 @@ function _infoEmbarquesPorNumero() {
 var INFO_EMBARQUE_MALOTE_PADRAO = 'Sim';
 
 /**
- * UNIDADE em que `prepararInfoEmbarquesAbertos()` e `diagnosticarInfoEmbarque()`
- * trabalham: 'CEARA' ou 'BAHIA'.
+ * Roda `fn` uma vez em CADA unidade (Ceará e Bahia), com o log dizendo onde
+ * está mexendo.
  *
- * Rodando pelo editor do Apps Script não existe sessão, e sem sessão a
- * unidade ativa cai na PADRÃO (Ceará) — as duas funções mexeriam sempre na
- * planilha do Ceará, mesmo com a intenção de arrumar a Bahia. Troque aqui
- * antes de rodar para a outra unidade.
+ * As funções de manutenção rodam pelo editor do Apps Script, onde não existe
+ * sessão — e sem sessão a unidade ativa cai na padrão, então elas mexeriam
+ * sempre no Ceará. A informação é necessária nas duas unidades, então em vez
+ * de uma constante pra trocar na mão (fácil de esquecer, e o esquecimento
+ * grava na planilha errada), passa nas duas de uma vez.
  */
-var INFO_EMBARQUE_UNIDADE = 'CEARA';
-
-/** Aponta as funções de manutenção para a unidade escolhida (ver
- * `INFO_EMBARQUE_UNIDADE`) e devolve o rótulo, pro log deixar claro onde
- * mexeu — errar de planilha aqui é gravar dado no lugar errado. */
-function _usarUnidadeInfoEmbarque() {
-  _definirUnidadeAtiva(INFO_EMBARQUE_UNIDADE);
-  return CONFIG.getUnidadeInfo(INFO_EMBARQUE_UNIDADE).rotulo;
+function _emCadaUnidade(fn) {
+  CONFIG.UNIDADES.forEach(function (u) {
+    Logger.log('');
+    Logger.log('=============== %s ===============', u.rotulo.toUpperCase());
+    _definirUnidadeAtiva(u.id);
+    try {
+      fn(u);
+    } catch (e) {
+      Logger.log('ERRO nesta unidade: %s', e.message);
+    }
+  });
+  _definirUnidadeAtiva(null);
 }
 
 /**
@@ -545,9 +550,12 @@ function _abaInfoEmbarque(criar) {
  * (selecionar as linhas vazias do fim → excluir linhas).
  */
 function diagnosticarEspacoPlanilha() {
-  var rotulo = _usarUnidadeInfoEmbarque();
+  _emCadaUnidade(_diagnosticarEspacoPlanilhaUnidade);
+}
+
+function _diagnosticarEspacoPlanilhaUnidade() {
   var ss = _ss();
-  Logger.log('Unidade: %s | planilha: %s', rotulo, ss.getName());
+  Logger.log('Planilha: %s', ss.getName());
 
   var total = 0, desperdicio = 0;
   var abas = ss.getSheets().map(function (sh) {
@@ -589,8 +597,10 @@ function diagnosticarEspacoPlanilha() {
  * aba é pulado, então o que você editar não é sobrescrito.
  */
 function prepararInfoEmbarquesAbertos() {
-  var rotulo = _usarUnidadeInfoEmbarque();
-  Logger.log('Unidade: %s (troque em INFO_EMBARQUE_UNIDADE pra mexer na outra)', rotulo);
+  _emCadaUnidade(_prepararInfoEmbarquesAbertosUnidade);
+}
+
+function _prepararInfoEmbarquesAbertosUnidade() {
   var nome = _nomeAbaInfoEmbarque();
   var sh = _abaInfoEmbarque(true); // cria enxuta, se faltar
 
@@ -628,8 +638,10 @@ function prepararInfoEmbarquesAbertos() {
 }
 
 function diagnosticarInfoEmbarque() {
-  var rotulo = _usarUnidadeInfoEmbarque();
-  Logger.log('Unidade: %s (troque em INFO_EMBARQUE_UNIDADE pra ver a outra)', rotulo);
+  _emCadaUnidade(_diagnosticarInfoEmbarqueUnidade);
+}
+
+function _diagnosticarInfoEmbarqueUnidade() {
   var nome = _nomeAbaInfoEmbarque();
   Logger.log('Aba usada: "%s" (Config.gs %s)', nome,
     (CONFIG && CONFIG.SHEETS && CONFIG.SHEETS.EMBARQUE_INFO) ? 'atualizado' : 'DESATUALIZADO — usando o nome padrão');
