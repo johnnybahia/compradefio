@@ -467,6 +467,67 @@ function _infoEmbarquesPorNumero() {
  * confirmado antes deste registro existir (basta acrescentar uma linha:
  * número do embarque, data/hora, usuário, observação e malote).
  */
+/**
+ * Texto gravado na coluna MALOTE pelo `prepararInfoEmbarquesAbertos()`.
+ * Ajuste aqui antes de rodar, se quiser outra redação — é o que vai aparecer
+ * na faixa do Relatório e sair na folha impressa.
+ */
+var INFO_EMBARQUE_MALOTE_PADRAO = 'Sim';
+
+/**
+ * Prepara a observação/malote dos embarques que JÁ ESTÃO ABERTOS (a caminho)
+ * e foram confirmados antes deste registro existir — rode no editor do Apps
+ * Script, uma vez por unidade.
+ *
+ * Cria uma linha por embarque aberto na aba de info, com MALOTE preenchido
+ * (ver `INFO_EMBARQUE_MALOTE_PADRAO`) e OBSERVAÇÃO em branco, pro master
+ * editar direto na planilha. A partir daí a faixa aparece no Relatório.
+ *
+ * ATENÇÃO: grava o mesmo texto de malote em TODOS os embarques abertos —
+ * não há como saber quais realmente levaram malote, porque esse dado nunca
+ * foi salvo. O log lista os embarques criados: confira e apague o malote das
+ * linhas em que não havia, antes de imprimir.
+ *
+ * Pode rodar mais de uma vez sem estragar nada: embarque que já tem linha na
+ * aba é pulado, então o que você editar não é sobrescrito.
+ */
+function prepararInfoEmbarquesAbertos() {
+  var nome = _nomeAbaInfoEmbarque();
+  var sh = _aba(nome, EMBARQUE_INFO_HEADERS); // cria com cabeçalho se faltar
+
+  // Mesma regra do Relatório: embarque aberto é o que tem item a caminho
+  // (linha não marcada CHEGOU nem CANCELADO) — ver `_embarquesEmViagemPorItem`.
+  var emViagem = _embarquesEmViagemPorItem();
+  var abertos = {};
+  Object.keys(emViagem).forEach(function (item) {
+    (emViagem[item] || []).forEach(function (r) {
+      var num = _normNumero(r.numero);
+      if (num) abertos[num] = true;
+    });
+  });
+  var numeros = Object.keys(abertos).sort(function (a, b) { return (parseFloat(a) || 0) - (parseFloat(b) || 0); });
+  if (!numeros.length) { Logger.log('Nenhum embarque aberto (a caminho) encontrado.'); return; }
+
+  var jaTem = _infoEmbarquesPorNumero();
+  var novos = numeros.filter(function (n) { return !jaTem[n]; });
+  Logger.log('Embarques abertos: %s | já com info: %s | a criar: %s',
+    numeros.length, numeros.length - novos.length, novos.length);
+  if (!novos.length) { Logger.log('Nada a fazer — todos já têm linha na aba "%s".', nome); return; }
+
+  var agora = new Date();
+  var linhas = novos.map(function (n) {
+    return [String(n), agora, '(preparado pelo master)', '', INFO_EMBARQUE_MALOTE_PADRAO];
+  });
+  var inicio = sh.getLastRow() + 1;
+  sh.getRange(inicio, 1, linhas.length, 1).setNumberFormat('@'); // nº como texto
+  sh.getRange(inicio, 1, linhas.length, EMBARQUE_INFO_HEADERS.length).setValues(linhas);
+
+  Logger.log('Criados na aba "%s" (MALOTE="%s", OBSERVAÇÃO em branco): %s',
+    nome, INFO_EMBARQUE_MALOTE_PADRAO, novos.join(', '));
+  Logger.log('>>> Agora edite a aba: escreva a observação de cada um e APAGUE o malote dos que ' +
+    'não levaram — o que estiver escrito ali é o que sai na folha impressa.');
+}
+
 function diagnosticarInfoEmbarque() {
   var nome = _nomeAbaInfoEmbarque();
   Logger.log('Aba usada: "%s" (Config.gs %s)', nome,
