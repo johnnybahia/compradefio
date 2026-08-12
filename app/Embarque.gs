@@ -475,6 +475,25 @@ function _infoEmbarquesPorNumero() {
 var INFO_EMBARQUE_MALOTE_PADRAO = 'Sim';
 
 /**
+ * UNIDADE em que `prepararInfoEmbarquesAbertos()` e `diagnosticarInfoEmbarque()`
+ * trabalham: 'CEARA' ou 'BAHIA'.
+ *
+ * Rodando pelo editor do Apps Script não existe sessão, e sem sessão a
+ * unidade ativa cai na PADRÃO (Ceará) — as duas funções mexeriam sempre na
+ * planilha do Ceará, mesmo com a intenção de arrumar a Bahia. Troque aqui
+ * antes de rodar para a outra unidade.
+ */
+var INFO_EMBARQUE_UNIDADE = 'CEARA';
+
+/** Aponta as funções de manutenção para a unidade escolhida (ver
+ * `INFO_EMBARQUE_UNIDADE`) e devolve o rótulo, pro log deixar claro onde
+ * mexeu — errar de planilha aqui é gravar dado no lugar errado. */
+function _usarUnidadeInfoEmbarque() {
+  _definirUnidadeAtiva(INFO_EMBARQUE_UNIDADE);
+  return CONFIG.getUnidadeInfo(INFO_EMBARQUE_UNIDADE).rotulo;
+}
+
+/**
  * Prepara a observação/malote dos embarques que JÁ ESTÃO ABERTOS (a caminho)
  * e foram confirmados antes deste registro existir — rode no editor do Apps
  * Script, uma vez por unidade.
@@ -492,6 +511,8 @@ var INFO_EMBARQUE_MALOTE_PADRAO = 'Sim';
  * aba é pulado, então o que você editar não é sobrescrito.
  */
 function prepararInfoEmbarquesAbertos() {
+  var rotulo = _usarUnidadeInfoEmbarque();
+  Logger.log('Unidade: %s (troque em INFO_EMBARQUE_UNIDADE pra mexer na outra)', rotulo);
   var nome = _nomeAbaInfoEmbarque();
   var sh = _aba(nome, EMBARQUE_INFO_HEADERS); // cria com cabeçalho se faltar
 
@@ -529,6 +550,8 @@ function prepararInfoEmbarquesAbertos() {
 }
 
 function diagnosticarInfoEmbarque() {
+  var rotulo = _usarUnidadeInfoEmbarque();
+  Logger.log('Unidade: %s (troque em INFO_EMBARQUE_UNIDADE pra ver a outra)', rotulo);
   var nome = _nomeAbaInfoEmbarque();
   Logger.log('Aba usada: "%s" (Config.gs %s)', nome,
     (CONFIG && CONFIG.SHEETS && CONFIG.SHEETS.EMBARQUE_INFO) ? 'atualizado' : 'DESATUALIZADO — usando o nome padrão');
@@ -548,8 +571,31 @@ function diagnosticarInfoEmbarque() {
   nums.forEach(function (n) {
     Logger.log('  embarque %s → malote="%s" | observação="%s"', n, mapa[n].malote, mapa[n].observacao);
   });
-  Logger.log('>>> Esses são os embarques que ganham a faixa no Relatório. Se algum não aparece na ' +
-    'tela, confira se Consultas.gs e App.html também estão atualizados.');
+
+  // Confere a CADEIA inteira, não só a gravação: o dado pode estar certo na
+  // planilha e mesmo assim não chegar na tela, quando falta atualizar o
+  // Consultas.gs (que é quem manda `infoEmbarques` pro Relatório).
+  try {
+    var rel = _montarLinhasRelatorio();
+    var abertosNoRelatorio = {};
+    (rel || []).forEach(function (l) {
+      (l.remessas || []).forEach(function (v) {
+        var k = _normNumero(v.numero);
+        if (k) abertosNoRelatorio[k] = true;
+      });
+    });
+    var comFaixa = Object.keys(abertosNoRelatorio).filter(function (k) { return !!mapa[k]; });
+    Logger.log('Embarques abertos no Relatório: %s | com faixa: %s',
+      Object.keys(abertosNoRelatorio).length, comFaixa.length);
+    if (comFaixa.length) Logger.log('  ganham faixa: %s', comFaixa.join(', '));
+    var semFaixa = Object.keys(abertosNoRelatorio).filter(function (k) { return !mapa[k]; });
+    if (semFaixa.length) Logger.log('  SEM faixa (rode prepararInfoEmbarquesAbertos): %s', semFaixa.join(', '));
+  } catch (e) {
+    Logger.log('Não consegui montar o Relatório aqui: %s', e.message);
+  }
+
+  Logger.log('>>> Se os embarques acima aparecem "com faixa" mas a tela não mostra, o que falta é ' +
+    'atualizar o Consultas.gs (ele precisa devolver `infoEmbarques`) e o App.html.');
 }
 
 /**
