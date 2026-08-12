@@ -568,6 +568,71 @@ function _diagnosticarEspacoPlanilhaUnidade() {
     'abaixo da última com dado e exclua (botão direito → Excluir linhas). Isso não apaga dado nenhum.');
 }
 
+/** Folga de linhas mantida abaixo do último dado, ao limpar (ver
+ * `limparLinhasVaziasPlanilha`). Nunca encosta no que tem conteúdo. */
+var LIMPEZA_MARGEM_LINHAS = 100;
+
+/**
+ * SIMULAÇÃO ligada: a limpeza só MOSTRA o que faria, sem mexer em nada.
+ * Rode assim primeiro, confira o log, e só então troque para `false` e rode
+ * de novo pra valer. Apagar linha não tem desfazer pelo script.
+ */
+var LIMPEZA_SIMULAR = true;
+
+/**
+ * Devolve espaço apagando as LINHAS VAZIAS sobrando no fim de cada aba —
+ * rode quando a planilha bater no limite de células do Google (10 milhões).
+ *
+ * Linha vazia reservada ocupa célula igual à preenchida, e é daí que vem
+ * quase todo o estouro: aba com 1.000 linhas reservadas e 2 de dado
+ * desperdiça 25 mil células. Só mexe ABAIXO da última linha com conteúdo, e
+ * ainda deixa uma folga (`LIMPEZA_MARGEM_LINHAS`) — nenhum dado é tocado.
+ *
+ * Começa em modo SIMULAÇÃO (ver `LIMPEZA_SIMULAR`): mostra o que faria e não
+ * altera nada. Confira o log antes de executar de verdade.
+ *
+ * CUIDADO com fórmulas de intervalo aberto: uma fórmula que aponta pra
+ * `A1:A80000` numa aba encolhida passa a apontar pro novo tamanho. Se alguma
+ * aba sua tem fórmula assim (as de espelho/backup são candidatas), confira
+ * depois — ou aumente a margem antes de rodar.
+ */
+function limparLinhasVaziasPlanilha() {
+  Logger.log(LIMPEZA_SIMULAR
+    ? '*** SIMULAÇÃO — nada será alterado. Troque LIMPEZA_SIMULAR pra false e rode de novo pra valer. ***'
+    : '*** EXECUTANDO DE VERDADE — as linhas vazias serão apagadas. ***');
+  _emCadaUnidade(_limparLinhasVaziasUnidade);
+}
+
+function _limparLinhasVaziasUnidade() {
+  var ss = _ss();
+  Logger.log('Planilha: %s', ss.getName());
+  var totalLiberado = 0, abasMexidas = 0;
+
+  ss.getSheets().forEach(function (sh) {
+    var maxLin = sh.getMaxRows(), cols = sh.getMaxColumns();
+    var usadas = sh.getLastRow();
+    // Guarda o que tem dado + a folga; aba vazia fica só com a folga.
+    var manter = Math.max(usadas, 0) + LIMPEZA_MARGEM_LINHAS;
+    if (maxLin <= manter) return;
+    var apagar = maxLin - manter;
+    var liberado = apagar * cols;
+    totalLiberado += liberado;
+    abasMexidas++;
+    Logger.log('  %s: %s → %s linhas (apaga %s, libera %s células) | dado até a linha %s',
+      sh.getName(), maxLin, manter, apagar, liberado.toLocaleString('pt-BR'), usadas);
+    if (!LIMPEZA_SIMULAR) {
+      try {
+        sh.deleteRows(manter + 1, apagar);
+      } catch (e) {
+        Logger.log('    !! não deu pra apagar nesta aba: %s', e.message);
+      }
+    }
+  });
+
+  Logger.log('%s %s aba(s), %s células.',
+    LIMPEZA_SIMULAR ? 'SIMULADO:' : 'LIMPO:', abasMexidas, totalLiberado.toLocaleString('pt-BR'));
+}
+
 /**
  * Prepara a observação/malote dos embarques que JÁ ESTÃO ABERTOS (a caminho)
  * e foram confirmados antes deste registro existir — rode no editor do Apps
