@@ -634,6 +634,152 @@ function _limparLinhasVaziasUnidade() {
 }
 
 /**
+ * Reconhece o nome que o Google dá a uma aba criada SEM nome: "Página1",
+ * "Página2"… (e "Sheet1" quando a planilha está em inglês). Ver `_aba` em
+ * Db.gs — é de lá que elas saíram.
+ */
+function _pareceAbaSemNome(nome) {
+  return /^(p[áa]gina|sheet|planilha)\s*\d+$/i.test(String(nome || '').trim());
+}
+
+/** Objeto global do Apps Script, pra alcançar as listas de cabeçalho pelo nome
+ * sem saber em qual arquivo .gs cada uma mora (ver `_cabecalhosConhecidos`). */
+var _GLOBAL_GS = (function () { return this; })();
+
+/** Cabeçalhos conhecidos do sistema, pra identificar de qual aba a "PáginaNN"
+ * é sósia. Cada lista é buscada pelo nome e ignorada se não existir — assim
+ * esta manutenção não quebra quando um arquivo .gs ainda não foi atualizado. */
+function _cabecalhosConhecidos() {
+  var nomes = ['RELACAO_COMPRA_HEADERS', 'PENDENCIAS_EMBARQUE_HEADERS', 'EMBARQUES_HEADERS',
+    'EMBARQUE_ESTORNO_HEADERS', 'EMBARQUE_INFO_HEADERS', 'FIO_CRU_BAIXAS_HEADERS',
+    'FIO_CRU_ENTRADAS_HEADERS', 'FIO_CRU_AJUSTES_HEADERS', 'ASSOCIACAO_FIO_CRU_HEADERS',
+    'RELATORIO_REVISAO_HEADERS', 'USUARIOS_HEADERS'];
+  var mapa = {};
+  nomes.forEach(function (n) {
+    var v = _GLOBAL_GS ? _GLOBAL_GS[n] : null;
+    if (v && v.length) mapa[n] = v.map(_norm).join('|');
+  });
+  return mapa;
+}
+
+/**
+ * DIAGNÓSTICO das abas "PáginaNN" — as abas numeradas que ninguém criou e que
+ * ninguém usa. Rode no editor do Apps Script e leia o "Registro de execução".
+ *
+ * Elas não são lixo aleatório: cada uma é uma aba do sistema que nasceu SEM
+ * NOME, porque o Config.gs implantado estava mais antigo que o arquivo que a
+ * pediu (ver `_aba` em Db.gs). O log mostra o cabeçalho de cada uma justamente
+ * pra você ver de qual aba ela é sósia — e quantas células dá pra recuperar.
+ *
+ * Só lê. Pra apagar, use `limparAbasSemNome()`.
+ */
+function diagnosticarAbasSemNome() {
+  _emCadaUnidade(_diagnosticarAbasSemNomeUnidade);
+}
+
+function _diagnosticarAbasSemNomeUnidade() {
+  var ss = _ss();
+  Logger.log('Planilha: %s', ss.getName());
+  var conhecidos = _cabecalhosConhecidos();
+
+  var achadas = ss.getSheets().filter(function (sh) { return _pareceAbaSemNome(sh.getName()); });
+  if (!achadas.length) { Logger.log('Nenhuma aba "PáginaNN" — nada a fazer aqui.'); return; }
+
+  var total = 0;
+  achadas.forEach(function (sh) {
+    var celulas = sh.getMaxRows() * sh.getMaxColumns();
+    total += celulas;
+    var linhas = Math.max(0, sh.getLastRow() - 1);
+    var cab = '';
+    if (sh.getLastRow() >= 1 && sh.getLastColumn() >= 1) {
+      cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+        .map(function (c) { return String(c).trim(); }).join(' | ');
+    }
+    var assinatura = _norm(cab.replace(/ \| /g, '|')).replace(/\s*\|\s*/g, '|');
+    var sosia = '';
+    Object.keys(conhecidos).forEach(function (k) {
+      if (conhecidos[k] === assinatura) sosia = k.replace('_HEADERS', '');
+    });
+    Logger.log('  %s: %s células | %s linha(s) de dado%s',
+      sh.getName(), celulas.toLocaleString('pt-BR'), linhas,
+      sosia ? ' | é sósia da aba ' + sosia : '');
+    if (cab) Logger.log('      cabeçalho: %s', cab);
+  });
+  Logger.log('>>> %s aba(s) "PáginaNN" ocupando %s células. Apagar todas devolve esse espaço ' +
+    '(rode `limparAbasSemNome()`).', achadas.length, total.toLocaleString('pt-BR'));
+}
+
+/**
+ * SIMULAÇÃO ligada: `limparAbasSemNome()` só MOSTRA o que apagaria. Confira o
+ * log, troque para `false` e rode de novo pra valer. Apagar aba não tem
+ * desfazer pelo script (dá pra recuperar pelo histórico de versões da planilha).
+ */
+var LIMPEZA_ABAS_SIMULAR = true;
+
+/**
+ * Apaga as abas "PáginaNN" criadas por engano, devolvendo as células que elas
+ * ocupam (26 mil por aba, no tamanho padrão) — é o caminho mais rápido pra
+ * planilha sair do limite de 10 milhões.
+ *
+ * Só encosta em aba cujo NOME é "PáginaNN" e cujo conteúdo está vazio ou bate
+ * com um cabeçalho conhecido do sistema. Aba numerada com conteúdo estranho é
+ * apenas apontada no log, pra você olhar — pode ser algo que alguém criou de
+ * verdade e ainda usa.
+ *
+ * A causa já está corrigida em `_aba` (Db.gs): com o Config.gs desatualizado o
+ * sistema agora recusa e explica, em vez de fabricar aba nova a cada clique.
+ * Por isso elas não voltam depois da limpeza — desde que o Db.gs novo esteja
+ * implantado.
+ */
+function limparAbasSemNome() {
+  Logger.log(LIMPEZA_ABAS_SIMULAR
+    ? '*** SIMULAÇÃO — nada será apagado. Troque LIMPEZA_ABAS_SIMULAR pra false e rode de novo pra valer. ***'
+    : '*** EXECUTANDO DE VERDADE — as abas serão apagadas. ***');
+  _emCadaUnidade(_limparAbasSemNomeUnidade);
+}
+
+function _limparAbasSemNomeUnidade() {
+  var ss = _ss();
+  Logger.log('Planilha: %s', ss.getName());
+  var conhecidos = _cabecalhosConhecidos();
+  var assinaturas = Object.keys(conhecidos).map(function (k) { return conhecidos[k]; });
+
+  var apagadas = 0, liberado = 0, pulei = [];
+  ss.getSheets().forEach(function (sh) {
+    if (!_pareceAbaSemNome(sh.getName())) return;
+    var celulas = sh.getMaxRows() * sh.getMaxColumns();
+    var vazia = sh.getLastRow() < 1 || sh.getLastColumn() < 1;
+    var conhecida = false;
+    if (!vazia) {
+      var assinatura = _norm(sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+        .map(function (c) { return String(c).trim(); }).join('|')).replace(/\s*\|\s*/g, '|');
+      conhecida = assinaturas.indexOf(assinatura) !== -1;
+    }
+    if (!vazia && !conhecida) { pulei.push(sh.getName()); return; }
+
+    Logger.log('  %s %s (%s células)', LIMPEZA_ABAS_SIMULAR ? 'apagaria' : 'apagando',
+      sh.getName(), celulas.toLocaleString('pt-BR'));
+    apagadas++;
+    liberado += celulas;
+    if (!LIMPEZA_ABAS_SIMULAR) {
+      try {
+        ss.deleteSheet(sh);
+      } catch (e) {
+        apagadas--; liberado -= celulas;
+        Logger.log('    !! não deu pra apagar: %s', e.message);
+      }
+    }
+  });
+
+  Logger.log('%s %s aba(s), %s células.',
+    LIMPEZA_ABAS_SIMULAR ? 'SIMULADO:' : 'APAGADO:', apagadas, liberado.toLocaleString('pt-BR'));
+  if (pulei.length) {
+    Logger.log('>>> NÃO mexi nestas (têm conteúdo que não reconheço — confira antes de apagar na mão): %s',
+      pulei.join(', '));
+  }
+}
+
+/**
  * Prepara a observação/malote dos embarques que JÁ ESTÃO ABERTOS (a caminho)
  * e foram confirmados antes deste registro existir — rode no editor do Apps
  * Script, uma vez por unidade.

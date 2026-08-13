@@ -52,12 +52,32 @@ function _ss(idOpcional, contexto) {
  * Retorna a aba pelo nome. Se ela não existir e `headers` for informado,
  * cria a aba com o cabeçalho. `ssOpcional` permite operar numa planilha
  * específica em vez da unidade ativa (ver `_ss`).
+ *
+ * O nome VAZIO é recusado de propósito — era ele que enchia a planilha de abas
+ * "PáginaNN". Quase todo mundo aqui chama `_aba(CONFIG.SHEETS.ALGO, …)`; se o
+ * Config.gs implantado no editor for mais antigo que o arquivo que chamou (uma
+ * chave nova ainda não colada lá), esse `CONFIG.SHEETS.ALGO` vem `undefined`.
+ * Aí o Apps Script trata `insertSheet(undefined)` como `insertSheet()` — sem
+ * nome — e o Google batiza a aba de "Página1", "Página2"… Como
+ * `getSheetByName(undefined)` nunca acha nada, CADA chamada criava mais uma:
+ * as que rodam a cada tela (ex.: `_atualizarPendenciasEmbarque`) fabricam
+ * dezenas delas em silêncio, comendo 26 mil células cada uma. Melhor falhar
+ * com uma mensagem que diz o que arrumar.
  */
 function _aba(nome, headers, ssOpcional) {
+  var nomeAba = (nome == null ? '' : String(nome)).trim();
+  if (!nomeAba) {
+    throw new Error(
+      'Tentativa de abrir/criar uma aba sem nome. Isso quase sempre é o Config.gs ' +
+      'implantado mais antigo que os outros arquivos: uma chave de CONFIG.SHEETS que ' +
+      'o código já usa ainda não existe lá. Cole a versão nova do Config.gs no editor ' +
+      'do Apps Script e rode de novo.'
+    );
+  }
   var ss = ssOpcional || _ss();
-  var sh = ss.getSheetByName(nome);
+  var sh = ss.getSheetByName(nomeAba);
   if (!sh && headers && headers.length) {
-    sh = ss.insertSheet(nome);
+    sh = ss.insertSheet(nomeAba);
     sh.getRange(1, 1, 1, headers.length)
       .setValues([headers])
       .setFontWeight('bold')
