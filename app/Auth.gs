@@ -199,12 +199,26 @@ function _assinar(texto) {
   return Utilities.base64EncodeWebSafe(bytes);
 }
 
+/**
+ * Quanto tempo o login vale, em milissegundos (ver `CONFIG.SESSAO_MINUTOS`).
+ *
+ * Aceita o `SESSAO_HORAS` antigo e ainda tem um padrão próprio de propósito:
+ * se este arquivo for implantado antes do Config.gs novo, a conta viraria
+ * `NaN`, todo token nasceria inválido e NINGUÉM conseguiria entrar no
+ * sistema — inclusive o master, pra desfazer.
+ */
+function _duracaoSessaoMs() {
+  if (CONFIG && CONFIG.SESSAO_MINUTOS > 0) return CONFIG.SESSAO_MINUTOS * 60 * 1000;
+  if (CONFIG && CONFIG.SESSAO_HORAS > 0) return CONFIG.SESSAO_HORAS * 3600 * 1000;
+  return 20 * 60 * 1000;
+}
+
 function _criarToken(usuario, papel, unidade) {
   var payload = {
     u: usuario,
     p: papel,
     un: unidade || CONFIG.UNIDADE_PADRAO,
-    exp: Date.now() + CONFIG.SESSAO_HORAS * 3600 * 1000
+    exp: Date.now() + _duracaoSessaoMs()
   };
   var corpo = Utilities.base64EncodeWebSafe(JSON.stringify(payload));
   return corpo + '.' + _assinar(corpo);

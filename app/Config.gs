@@ -148,6 +148,15 @@ var CONFIG = {
     EQUIVALENCIA_UNIDADES: 'EQUIVALENCIA_UNIDADES' // aprendizado: item de uma unidade ↔ item equivalente na outra (comparar estoque entre unidades)
   },
 
-  /** Duração da sessão (token de login), em horas. */
-  SESSAO_HORAS: 12
+  /**
+   * Duração da sessão (token de login), em MINUTOS — é aqui que se ajusta de
+   * quanto em quanto tempo o sistema pede login de novo.
+   *
+   * O prazo conta a partir do LOGIN, não da última ação: continuar
+   * trabalhando não renova. Passado o tempo, a próxima ação cai em "Sessão
+   * expirada" e a tela volta pro login, mesmo com o usuário no meio de algo.
+   * Por isso, prazo curto protege terminal compartilhado mas incomoda quem
+   * fica horas na mesma tela.
+   */
+  SESSAO_MINUTOS: 20
 };
