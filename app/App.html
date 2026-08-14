@@ -1212,6 +1212,11 @@ function viewTingimento(alvo) {
       '<p class="legenda-critico no-print" id="legenda-critico" style="display:none">' +
         'Linhas destacadas: saldo de estoque negativo ou zero (aviso só na tela, ' +
         'não sai na impressão nem no e-mail).</p>' +
+      '<p class="no-print" id="legenda-parcial" style="display:none;font-size:13px;color:#64748b">' +
+        '<span class="badge-parcial">parcial</span> este pedido já saiu em parte — o que está na linha ' +
+        'é só o resíduo que faltou. &nbsp; <span class="badge-em-viagem">a caminho</span> há kg deste item ' +
+        'embarcado(s) e ainda não recebido(s). Passe o mouse no selo para ver as quantidades e decida se ' +
+        'o resto continua na lista ou sai no <b>✕</b>.</p>' +
       (editavelTing
         ? '<p class="legenda-abastecido no-print" id="legenda-saldo-baixo" style="display:none;color:#7C3AED">' +
             'Linhas roxas: total pendente igual ou abaixo do valor informado acima — candidatas a ' +
@@ -1337,6 +1342,36 @@ function blocoAjuda(corpoHtml, rotulo) {
   '</details>';
 }
 
+/**
+ * Selos ao lado do código do item, na lista de Tingimento:
+ *   - "parcial" — este pedido JÁ SAIU em parte; o que está na linha é o
+ *     resíduo. É a informação que o usuário pediu pra decidir, item a item,
+ *     se o resto continua na lista ou sai no ✕ (ver `obterListaTingimento`,
+ *     em Consultas.gs, pra origem do número).
+ *   - "a caminho" — há kg DESTE ITEM em viagem, ainda não recebidos. Pode
+ *     aparecer sem o "parcial" (remessa de um pedido anterior do mesmo
+ *     código): também pesa na decisão de manter ou não o resíduo.
+ * Só na tela: na folha impressa (que é o pedido enviado pro tingimento)
+ * esses avisos não fazem sentido — ver a regra @media print, em Estilos.html.
+ */
+function selosParcialTing(l) {
+  var selos = '';
+  var jaEmb = Number(l.jaEmbarcado) || 0;
+  if (jaEmb > 0) {
+    selos += ' <span class="badge-parcial" title="Embarque parcial: já saíram ' + num(jaEmb) +
+      ' kg do pedido de ' + num(l.pedidoOriginal) + ' kg. O que está aqui são os ' + num(l.total) +
+      ' kg que faltam — decida se vale manter ou remover (✕).">parcial</span>';
+  }
+  var viagem = Number(l.emViagemQtd) || 0;
+  if (viagem > 0) {
+    var embarques = (l.embarques || []).join(', ');
+    selos += ' <span class="badge-em-viagem" title="' + num(viagem) + ' kg deste item já embarcado(s)' +
+      (embarques ? ' (embarque ' + escAttr(embarques) + ')' : '') +
+      ' e ainda não recebido(s) na empresa.">a caminho</span>';
+  }
+  return selos;
+}
+
 function renderTingimento(linhas) {
   var wrap = document.getElementById('tabela-ting');
   var legenda = document.getElementById('legenda-critico');
@@ -1347,6 +1382,14 @@ function renderTingimento(linhas) {
   }
   var temCritico = linhas.some(function (l) { return l.saldoCritico; });
   if (legenda) legenda.style.display = temCritico ? '' : 'none';
+  // Legenda dos selos "parcial"/"a caminho" — só quando existe algum na lista.
+  var legendaParcial = document.getElementById('legenda-parcial');
+  if (legendaParcial) {
+    var temSelo = linhas.some(function (l) {
+      return (Number(l.jaEmbarcado) || 0) > 0 || (Number(l.emViagemQtd) || 0) > 0;
+    });
+    legendaParcial.style.display = temSelo ? '' : 'none';
+  }
   var editavelTing = podeEditar(['master', 'tingimento']);
   var priorizar = podeEditar(['master', 'programacao']);
 
@@ -1378,7 +1421,7 @@ function renderTingimento(linhas) {
     return '<tr data-idx="' + i + '"' + (l.saldoCritico ? ' class="destaque"' : '') +
       (l.prioridade ? ' style="box-shadow:inset 4px 0 0 0 #B91C1C"' : '') + '>' +
       '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
-      '<td>' + (l.item || '—') + '</td>' +
+      '<td>' + (l.item || '—') + selosParcialTing(l) + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
@@ -3893,9 +3936,11 @@ function viewRelatorio(alvo) {
       '<p class="so-print" id="rel-impressao-subtitulo" style="font-weight:700;margin:-4px 0 10px"></p>' +
       '<p class="desc">O mesmo pedido que sai por e-mail — pra consultar direto no sistema, sem esperar. ' +
       'Linha destacada em <span style="color:#C0392B;font-weight:600">vermelho</span> tem saldo de estoque ' +
-      'crítico. Primeiro vem o que <b>aguarda embarque</b>; depois o que está <b>em viagem</b>, ' +
-      '<b>agrupado por nº do embarque</b> (do menor para o maior), com a data de saída, a previsão de ' +
-      'chegada e o total de kg de cada um. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
+      'crítico. Primeiro vem o que <b>aguarda embarque</b> — a mesma lista da aba <b>Tingimento</b>; ' +
+      'depois o que está <b>em viagem</b>, <b>agrupado por nº do embarque</b> (do menor para o maior), ' +
+      'com a data de saída, a previsão de chegada e o total de kg de cada um. Item de <b>embarque ' +
+      'parcial</b> aparece nos dois lugares: em cima com o que ainda <b>falta</b>, no bloco do embarque ' +
+      'com o que já <b>saiu</b>. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
       '<div class="no-print" style="margin:0 0 12px">' +
         '<button class="btn-principal" id="btn-imprimir-relatorio" ' +
           'title="Pergunta o que imprimir: a lista pendente ou um dos embarques já a caminho">' +

@@ -111,22 +111,51 @@ function _saldoCritico(r) {
  * pedidos ao longo do tempo — aqui só entram os itens ainda EM ABERTO (o
  * tingimento pode não dar conta de tudo de uma vez). Acessível ao master e
  * ao papel tingimento.
+ *
+ * Marca o que é RESÍDUO DE EMBARQUE PARCIAL, pro usuário decidir se aquele
+ * resto continua na lista ou sai (✕):
+ *   - `jaEmbarcado`: kg DESTA linha que já foram embarcados. Vem do
+ *     TINGIDO_BASELINE, que avança exatamente pelo que cada embarque
+ *     confirmou desta linha (ver `_baixarPendenciaCompraPorEmbarque`, em
+ *     Embarque.gs) — então maior que zero quer dizer, com certeza, que este
+ *     pedido já saiu em parte. É por LINHA, não por item: quando um embarque
+ *     cobre várias pendências do mesmo código, cada uma recebe só a sua parte.
+ *   - `pedidoOriginal`: o pedido antes das baixas (o que sobrou + o que saiu).
+ *   - `emViagemQtd` / `embarques`: kg do item que estão A CAMINHO e ainda não
+ *     chegaram. Esse é por ITEM (é o que a aba EMBARQUES sabe dizer), e existe
+ *     mesmo sem embarque parcial nesta linha — ex.: uma remessa de um pedido
+ *     anterior do mesmo código, ainda em viagem. Ajuda a decidir: já tem
+ *     material a caminho, o resíduo talvez não valha a espera.
+ *
+ * Um detalhe pra não assustar: se a Análise de Compra gerar de novo o MESMO
+ * item com a MESMA data limite, ela reescreve a linha inteira e o
+ * TINGIDO_BASELINE volta a zero (ver `gerarCompra`, em Analise.gs) — a marca
+ * de parcial some junto, porque dali em diante aquela linha é um pedido novo.
  */
 function obterListaTingimento(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.PROGRAMACAO]);
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
+  var emViagem = _embarquesEmViagemPorItem();
   var linhas = regs.map(function (r) {
+    var total = _numeroCelula(r.SUGERIDO);
+    var jaEmbarcado = Math.max(0, Number(r.TINGIDO_BASELINE) || 0);
+    var viagem = emViagem[_norm(_itemDeCelula(r.ITEM))] || [];
     return {
       linha: r.__row,
       item: _itemDeCelula(r.ITEM),
       descricao: _textoCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       maquinas: _textoCelula(r.MAQUINAS),
-      total: _numeroCelula(r.SUGERIDO),
+      total: total,
       dataLimite: _soData(r.DATA_LIMITE),
       dataSolicitado: _soData(r.GERADO_EM),
       obs: _textoCelula(r.OBS),
-      saldoCritico: _saldoCritico(r)
+      saldoCritico: _saldoCritico(r),
+      jaEmbarcado: _arredondarKg(jaEmbarcado),
+      pedidoOriginal: _arredondarKg((Number(total) || 0) + jaEmbarcado),
+      emViagemQtd: _arredondarKg(viagem.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0)),
+      embarques: viagem.map(function (v) { return String(v.numero == null ? '' : v.numero).trim(); })
+        .filter(function (n) { return n; })
     };
   });
   return { ok: true, linhas: linhas };
@@ -180,6 +209,25 @@ function obterRelatorioCompraAtual(token) {
  * (`_revisaoRelatorio`) usa exatamente as mesmas linhas — o aviso precisa
  * enxergar o relatório do mesmo jeito que a tela.
  * `cfg` (opcional) evita reler a configuração de chegada quem já a tem.
+ *
+ * As duas coisas são linhas SEPARADAS, nunca a mesma:
+ *   - PENDENTE: o que ainda falta embarcar (PENDENCIA_COMPRA em aberto) — é
+ *     exatamente a lista que o Tingimento enxerga (ver `obterListaTingimento`)
+ *     e a que sai no PDF do e-mail (ver `_relatorioCompraHTML`).
+ *   - EMBARCADO: cada remessa a caminho, com os kg que saíram naquela remessa.
+ *
+ * Antes, a remessa a caminho era pendurada NA linha pendente (casando só pelo
+ * código do item). Como a tela joga pro bloco do embarque toda linha que tenha
+ * remessa (ver `_agruparLinhasRelatorio`, no App.html), o RESÍDUO de um embarque
+ * parcial sumia da lista pendente: pediu 50, embarcaram 47, e os 3 kg que
+ * continuavam pendentes não apareciam em lugar nenhum do Relatório — só na aba
+ * Tingimento. Pior no item com MAIS DE UMA linha pendente: uma única remessa se
+ * repetia em todas elas (mesmo código), tirando todas da lista pendente e
+ * contando os mesmos kg várias vezes no total do bloco do embarque.
+ *
+ * Por isso a linha pendente não recebe mais remessa nenhuma: o que está a
+ * caminho vira sempre linha própria, do jeito que já era feito com o item que
+ * tinha saído inteiro da pendência.
  */
 function _montarLinhasRelatorio(cfg) {
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
@@ -189,22 +237,6 @@ function _montarLinhasRelatorio(cfg) {
   var cfgChegada = cfg || _configChegadaUnidade();
   var emViagem = _embarquesEmViagemPorItem();
   var linhas = regs.map(function (r) {
-    // Uma entrada por remessa a caminho (cada uma com sua data e quantidade).
-    // Remessa parcial já recebida não aparece — ver `_embarquesEmViagemPorItem`.
-    var remessas = (emViagem[_norm(_itemDeCelula(r.ITEM))] || []).map(function (v) {
-      var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
-      return {
-        numero: v.numero,
-        quantidade: v.quantidade,
-        // Volumes DAQUELA remessa (vêm da aba EMBARQUES): dentro do bloco de
-        // um embarque, o Relatório mostra o que saiu naquele embarque, não o
-        // que sobrou na pendência — ver `_linhaHtmlRelatorio`, no App.html.
-        volumes: v.volumes,
-        dataEmbarque: v.data ? _soData(v.data) : '',
-        previsaoChegada: p ? _soData(p) : ''
-      };
-    });
-    var totalViagem = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
     return {
       linha: r.__row,
       dataSolicitado: _soData(r.GERADO_EM),
@@ -217,9 +249,9 @@ function _montarLinhasRelatorio(cfg) {
       obs: _textoCelula(r.OBS),
       saldoCritico: _saldoCritico(r),
       volumes: _numeroCelula(r.VOLUMES),
-      // Vazio quando não há nada a caminho (nem embarque, ou o parcial já chegou).
-      remessas: remessas,
-      emViagemQtd: totalViagem,
+      // Sempre vazio: o que está a caminho é linha à parte (ver docstring).
+      remessas: [],
+      emViagemQtd: 0,
       status: 'pendente'
     };
   });
@@ -227,55 +259,80 @@ function _montarLinhasRelatorio(cfg) {
   // O item embarcado SAI da lista pendente na hora do lançamento do embarque
   // (regra do sistema — ver `_baixarPendenciaCompraPorEmbarque`), mas neste
   // relatório ele deve continuar aparecendo, com a previsão, até ser marcado
-  // como CHEGOU. Então acrescenta os itens que estão a caminho e já não estão
-  // mais na lista pendente. (Só o Relatório muda; a análise de compra e o
-  // restante seguem como antes.)
-  var jaListado = {};
-  regs.forEach(function (r) { jaListado[_norm(_itemDeCelula(r.ITEM))] = true; });
-  var faltantes = Object.keys(emViagem).filter(function (k) { return !jaListado[k]; });
-  if (faltantes.length) {
-    var localizarDesc = _criarLocalizadorDescricao();
-    var localizarData = _criarLocalizadorDataLimite();
-    faltantes.forEach(function (k) {
-      var lista = emViagem[k];
-      if (!lista || !lista.length) return;
-      var itemTxt = String(lista[0].item || '').trim();
-      // O nome do item vem da própria aba EMBARQUES (coluna CORES).
-      if (!itemTxt) return;
-      var d = localizarDesc(itemTxt);
-      var remessas = lista.map(function (v) {
-        var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
-        return {
-          numero: v.numero, quantidade: v.quantidade, volumes: v.volumes,
-          dataEmbarque: v.data ? _soData(v.data) : '',
-          previsaoChegada: p ? _soData(p) : ''
-        };
-      });
-      var total = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
-      // Volumes vêm registrados na própria aba EMBARQUES (o item já saiu da pendência).
-      var volTotal = lista.reduce(function (a, v) { return a + (Number(v.volumes) || 0); }, 0);
-      // Data de solicitação também vem registrada na própria aba EMBARQUES —
-      // gravada lá na hora do embarque, exatamente pra não se perder aqui
-      // (ver `_registrarEmbarqueEDarBaixa`, em Embarque.gs).
-      var dataSolicitadoItem = lista.map(function (v) { return v.dataSolicitado; }).filter(Boolean)[0] || '';
-      linhas.push({
-        linha: 0, // não é linha de PENDENCIA_COMPRA (nada a editar aqui)
-        dataSolicitado: dataSolicitadoItem,
-        item: itemTxt,
-        descricao: d.descricao || '',
-        cliente: d.cliente || '',
-        maquinas: '',
-        total: total,
-        dataLimite: localizarData(itemTxt) || '',
-        obs: '',
-        saldoCritico: false,
-        volumes: volTotal || '',
-        remessas: remessas,
-        emViagemQtd: total,
-        status: 'embarcado'
-      });
+  // como CHEGOU. Cada item a caminho vira uma linha própria — inclusive quando
+  // ainda sobrou saldo pendente dele (embarque parcial): a linha pendente conta
+  // o que FALTA, esta conta o que JÁ SAIU. (Só o Relatório muda; a análise de
+  // compra e o restante seguem como antes.)
+  //
+  // Descrição, cliente e data limite vêm da linha pendente do mesmo item quando
+  // ela existe — é o dado da própria relação de compra, melhor que o buscado no
+  // cadastro. Os localizadores (que leem outras abas) só são montados quando
+  // fazem falta de verdade, pra não custar leitura à toa.
+  var pendentePorItem = {};
+  linhas.forEach(function (l) {
+    var k = _norm(l.item);
+    if (k && !pendentePorItem[k]) pendentePorItem[k] = l;
+  });
+  var localizarDesc = null, localizarData = null;
+  var descDe = function (itemTxt) {
+    if (!localizarDesc) localizarDesc = _criarLocalizadorDescricao();
+    return localizarDesc(itemTxt);
+  };
+  var dataLimiteDe = function (itemTxt) {
+    if (!localizarData) localizarData = _criarLocalizadorDataLimite();
+    return localizarData(itemTxt);
+  };
+  Object.keys(emViagem).forEach(function (k) {
+    var lista = emViagem[k];
+    if (!lista || !lista.length) return;
+    var itemTxt = String(lista[0].item || '').trim();
+    // O nome do item vem da própria aba EMBARQUES (coluna CORES).
+    if (!itemTxt) return;
+    var pend = pendentePorItem[k] || null;
+    var descricao = pend ? pend.descricao : '';
+    var cliente = pend ? pend.cliente : '';
+    if (!descricao && !cliente) {
+      var d = descDe(itemTxt);
+      descricao = d.descricao || '';
+      cliente = d.cliente || '';
+    }
+    var remessas = lista.map(function (v) {
+      var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
+      return {
+        numero: v.numero, quantidade: v.quantidade,
+        // Volumes DAQUELA remessa (vêm da aba EMBARQUES): dentro do bloco de
+        // um embarque, o Relatório mostra o que saiu naquele embarque, não o
+        // que sobrou na pendência — ver `_linhaHtmlRelatorio`, no App.html.
+        volumes: v.volumes,
+        dataEmbarque: v.data ? _soData(v.data) : '',
+        previsaoChegada: p ? _soData(p) : ''
+      };
     });
-  }
+    var total = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
+    // Volumes vêm registrados na própria aba EMBARQUES (é o que saiu na remessa).
+    var volTotal = lista.reduce(function (a, v) { return a + (Number(v.volumes) || 0); }, 0);
+    // Data de solicitação também vem registrada na própria aba EMBARQUES —
+    // gravada lá na hora do embarque, exatamente pra não se perder aqui
+    // (ver `_registrarEmbarqueEDarBaixa`, em Embarque.gs).
+    var dataSolicitadoItem = lista.map(function (v) { return v.dataSolicitado; }).filter(Boolean)[0] ||
+      (pend ? pend.dataSolicitado : '');
+    linhas.push({
+      linha: 0, // não é linha de PENDENCIA_COMPRA (nada a editar aqui)
+      dataSolicitado: dataSolicitadoItem,
+      item: itemTxt,
+      descricao: descricao,
+      cliente: cliente,
+      maquinas: '',
+      total: total,
+      dataLimite: (pend && pend.dataLimite) || dataLimiteDe(itemTxt) || '',
+      obs: '',
+      saldoCritico: false,
+      volumes: volTotal || '',
+      remessas: remessas,
+      emViagemQtd: total,
+      status: 'embarcado'
+    });
+  });
 
   // Ordem final: primeiro os itens PENDENTES (o pedido em si), e só depois os
   // JÁ EMBARCADOS — pra não misturar as duas coisas na leitura (antes disso
