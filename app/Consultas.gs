@@ -111,22 +111,51 @@ function _saldoCritico(r) {
  * pedidos ao longo do tempo — aqui só entram os itens ainda EM ABERTO (o
  * tingimento pode não dar conta de tudo de uma vez). Acessível ao master e
  * ao papel tingimento.
+ *
+ * Marca o que é RESÍDUO DE EMBARQUE PARCIAL, pro usuário decidir se aquele
+ * resto continua na lista ou sai (✕):
+ *   - `jaEmbarcado`: kg DESTA linha que já foram embarcados. Vem do
+ *     TINGIDO_BASELINE, que avança exatamente pelo que cada embarque
+ *     confirmou desta linha (ver `_baixarPendenciaCompraPorEmbarque`, em
+ *     Embarque.gs) — então maior que zero quer dizer, com certeza, que este
+ *     pedido já saiu em parte. É por LINHA, não por item: quando um embarque
+ *     cobre várias pendências do mesmo código, cada uma recebe só a sua parte.
+ *   - `pedidoOriginal`: o pedido antes das baixas (o que sobrou + o que saiu).
+ *   - `emViagemQtd` / `embarques`: kg do item que estão A CAMINHO e ainda não
+ *     chegaram. Esse é por ITEM (é o que a aba EMBARQUES sabe dizer), e existe
+ *     mesmo sem embarque parcial nesta linha — ex.: uma remessa de um pedido
+ *     anterior do mesmo código, ainda em viagem. Ajuda a decidir: já tem
+ *     material a caminho, o resíduo talvez não valha a espera.
+ *
+ * Um detalhe pra não assustar: se a Análise de Compra gerar de novo o MESMO
+ * item com a MESMA data limite, ela reescreve a linha inteira e o
+ * TINGIDO_BASELINE volta a zero (ver `gerarCompra`, em Analise.gs) — a marca
+ * de parcial some junto, porque dali em diante aquela linha é um pedido novo.
  */
 function obterListaTingimento(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO, CONFIG.PAPEIS.PROGRAMACAO]);
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
+  var emViagem = _embarquesEmViagemPorItem();
   var linhas = regs.map(function (r) {
+    var total = _numeroCelula(r.SUGERIDO);
+    var jaEmbarcado = Math.max(0, Number(r.TINGIDO_BASELINE) || 0);
+    var viagem = emViagem[_norm(_itemDeCelula(r.ITEM))] || [];
     return {
       linha: r.__row,
       item: _itemDeCelula(r.ITEM),
       descricao: _textoCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       maquinas: _textoCelula(r.MAQUINAS),
-      total: _numeroCelula(r.SUGERIDO),
+      total: total,
       dataLimite: _soData(r.DATA_LIMITE),
       dataSolicitado: _soData(r.GERADO_EM),
       obs: _textoCelula(r.OBS),
-      saldoCritico: _saldoCritico(r)
+      saldoCritico: _saldoCritico(r),
+      jaEmbarcado: _arredondarKg(jaEmbarcado),
+      pedidoOriginal: _arredondarKg((Number(total) || 0) + jaEmbarcado),
+      emViagemQtd: _arredondarKg(viagem.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0)),
+      embarques: viagem.map(function (v) { return String(v.numero == null ? '' : v.numero).trim(); })
+        .filter(function (n) { return n; })
     };
   });
   return { ok: true, linhas: linhas };
