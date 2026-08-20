@@ -430,3 +430,59 @@ já usado ali pra saldo crítico de ESTOQUE (métrica diferente). Não sai na
 impressão/e-mail — é só um filtro visual de trabalho.
 
 Testado com `teste20.js` e regressão completa (`teste.js`–`teste18.js`).
+
+
+## ESTOQUE da Bahia migrada pro cabeçalho do Ceará (dados vindo errados)
+
+Reportado: "o layout da aba ESTOQUE na planilha da Bahia agora está igual ao
+do Ceará — como está, os dados estão vindo incorretos."
+
+O que já era verdade antes dessa migração: as duas unidades **sempre tiveram
+as mesmas posições físicas** na aba ESTOQUE — `A` vazia (Ceará) ou `GRUPO`
+(Bahia), `B` item, `C` data, `D` NF, `E` obs, `F` saldo anterior, `G`
+entrada, `H` saída, `I` saldo. Só o TEXTO da linha 1 mudava, e o código já
+aceitava os dois textos (`_colPorNomes`). Ou seja: com um cabeçalho novo bem
+posto em cima das colunas certas, a leitura continuaria correta — o que
+sobra pra explicar número errado é cabeçalho e dados **desalinhados**.
+
+E é um desalinhamento fácil de produzir justamente ao migrar: como na Bahia
+a coluna `A` tinha nome (`GRUPO`) e no Ceará ela é vazia, escrever os nomes
+do Ceará começando em `A1` empurra todo o cabeçalho uma coluna à esquerda
+dos dados que ele descreve. Aí cada nome passa a apontar pro vizinho — o
+sistema lê a SAÍDA como saldo e o código do item como data. Nada disso dá
+erro: só entrega número errado na tela, que é exatamente o sintoma difícil
+de rastrear.
+
+Corrigido em `_colunasEstoque` (`Db.gs`), que passa a ser o único caminho de
+localização de coluna da aba ESTOQUE: acha cada campo pelo nome (as duas
+convenções, ver `ESTOQUE_NOMES_COLUNA`) e depois **confere o resultado
+contra os dados** — a coluna de item precisa estar preenchida e não ser
+data, a de data precisa conter datas de verdade, a de saldo precisa conter
+números. Se não bater, procura o deslocamento (±1, ±2) que faz bater e lê
+pelas colunas certas, registrando um aviso no log. Se nem assim casar, o
+erro agora diz o cabeçalho que encontrou e o padrão esperado, em vez de
+seguir lendo a coluna vizinha calado.
+
+Detalhe importante: a conferência de data aqui é mais rígida que
+`_parseData` de propósito. `_parseData` termina num `new Date(texto)`, que
+aceita código de item como ano (`new Date('4085')` → 01/01/4085) — usá-lo
+pra decidir alinhamento faria a coluna de ITEM passar por coluna de DATA.
+
+Os seis pontos que liam a aba passaram a usar o mesmo resolvedor
+(`_lerEstoque` em `Analise.gs`; `consultarHistoricoItem` e
+`listarItensEstoque` em `Consultas.gs`; `_itensEstoqueSet` e
+`_atualizarChegadasEmbarque` em `Embarque.gs`; `_saldoPorItemUnidade` em
+`EstoqueUnidades.gs`) — antes três deles tinham o próprio jeito de achar a
+coluna, com fallback fixo pra coluna B. Só `_lerEstoque` **recusa** ler
+quando a conferência falha (é a base da Análise de Compra: saldo errado ali
+vira compra errada); os outros, que são telas de leitura, seguem com o
+melhor palpite, como já faziam.
+
+Testado com dois arquivos novos de teste rodando sobre os dados REAIS
+exportados das duas planilhas (`*- ESTOQUE.csv` na raiz do repositório):
+cabeçalho real do Ceará e o antigo da Bahia continuam lidos igualzinho
+(deslocamento 0, nada muda); migração bem feita (nomes do Ceará nas colunas
+certas), migração com a coluna `GRUPO` removida e migração com o cabeçalho
+uma coluna fora do lugar (pros dois lados) devolvem todas o MESMO resultado
+que o cabeçalho antigo; aba sem dados não quebra; cabeçalho irreconhecível
+levanta erro explicativo.

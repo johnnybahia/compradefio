@@ -81,13 +81,25 @@ planilha de produção é do cliente e uma edição de cabeçalho pode ser
 revertida por proteção/script antigo sem eu perceber; ajustar o código é
 reversível e fica versionado aqui.
 
-**Status: implementado (opção 2).** `_lerEstoque` (`Analise.gs`) e as
-funções de conciliação de embarque (`Embarque.gs`) agora usam
-`_colPorNomes` (`Db.gs`), que tenta cada convenção de nome em ordem —
-`item`/`descricao`, `data`/`data lancamento`, `saldo`/`saldo de estoque`,
-`obs`/`observacoes`, `nf`/`nota fiscal/pedido`. Nada muda na planilha real;
-o `codigo.gs` antigo pode continuar rodando na Bahia sem conflito, já que
-o Web App só lê `ESTOQUE`.
+**Status: implementado (opção 2), depois reforçado.** Todos os pontos que
+leem `ESTOQUE` usam `_colunasEstoque` (`Db.gs`), que tenta cada convenção
+de nome — `item`/`descricao`, `data`/`data lancamento`, `saldo`/`saldo de
+estoque`, `obs`/`observacoes`, `nf`/`nota fiscal/pedido` — e depois
+**confere a escolha contra os dados** da própria aba. Nada muda na planilha
+real; o `codigo.gs` antigo pode continuar rodando na Bahia sem conflito, já
+que o Web App só lê `ESTOQUE`.
+
+A conferência foi necessária porque a Bahia acabou migrando o cabeçalho
+para o padrão do Ceará (opção 1) por conta própria, e os dados passaram a
+vir errados. Detalhe que explica o porquê: as duas unidades sempre tiveram
+as mesmas POSIÇÕES de coluna — o que muda é que a coluna `A` tem nome na
+Bahia (`GRUPO`) e é vazia no Ceará. Escrever os nomes do Ceará começando em
+`A1` desloca todo o cabeçalho uma coluna à esquerda dos dados: cada nome
+passa a apontar pro vizinho (a SAÍDA é lida como saldo) sem levantar erro
+nenhum. Agora esse desalinhamento é detectado e corrigido na leitura — e o
+que não der pra resolver vira erro dizendo o cabeçalho encontrado, em vez
+de número errado na tela. Ver `app/NOTAS.md`, "ESTOQUE da Bahia migrada pro
+cabeçalho do Ceará".
 
 ## 3. Único ponto de "branding" fixo no código (Ceará hardcoded)
 

@@ -1123,9 +1123,9 @@ function consultarHistoricoItem(token, termo, modo) {
   var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var header = vals.shift();
   var normHeader = header.map(function (h) { return _norm(h); });
-  var iItem = normHeader.indexOf('item');
-  if (iItem < 0) iItem = 1; // fallback: coluna B
-  var iData = normHeader.indexOf('data');
+  var cols = _colunasEstoque(normHeader, vals);
+  var iItem = cols.item >= 0 ? cols.item : 1; // fallback: coluna B
+  var iData = cols.data;
 
   var alvo = _norm(termo);
   var exatas = [];      // item IGUAL ao digitado
@@ -1200,7 +1200,7 @@ function listarItensEstoque(token) {
 
   var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var normHeader = vals.shift().map(function (h) { return _norm(h); });
-  var iItem = normHeader.indexOf('item');
+  var iItem = _colunasEstoque(normHeader, vals).item;
   if (iItem < 0) iItem = 1;
 
   var visto = {};

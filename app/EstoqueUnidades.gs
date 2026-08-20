@@ -74,7 +74,8 @@ function _chaveEquivItem(item) {
  *   - porChave: código+tipo       → { item, saldo, data(Date|null) }  (p/ o automático)
  *   - lista:    [{ item, saldo, data('dd/MM/aaaa') }]  (p/ o datalist de vincular)
  * Aceita os dois padrões de coluna (Ceará: Item/Data/Saldo; Bahia:
- * Descrição/Data Lançamento/Saldo de Estoque) — ver `_colPorNomes`.
+ * Descrição/Data Lançamento/Saldo de Estoque) e confere a escolha contra os
+ * dados — ver `_colunasEstoque` (Db.gs).
  */
 function _saldoPorItemUnidade(unidadeId) {
   var res = { porItem: {}, porChave: {}, lista: [] };
@@ -86,9 +87,10 @@ function _saldoPorItemUnidade(unidadeId) {
 
   var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var header = vals.shift().map(_norm);
-  var iItem = _colPorNomes(header, ['item', 'descricao']);
-  var iData = _colPorNomes(header, ['data', 'data lancamento']);
-  var iSaldo = _colPorNomes(header, ['saldo', 'saldo de estoque']);
+  var cols = _colunasEstoque(header, vals);
+  var iItem = cols.item;
+  var iData = cols.data;
+  var iSaldo = cols.saldo;
   if (iItem < 0 || iSaldo < 0) return res;
 
   var ultimo = {}; // normalizado(item) -> { item, saldo, data }

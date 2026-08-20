@@ -172,7 +172,7 @@ function _itensEstoqueSet() {
   if (last < 2) return set;
   var vals = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var nh = vals.shift().map(function (h) { return _norm(h); });
-  var i = _colPorNomes(nh, ['item', 'descricao']); if (i < 0) i = 1;
+  var i = _colunasEstoque(nh, vals).item; if (i < 0) i = 1;
   vals.forEach(function (r) {
     var it = r[i];
     if (it === '' || it == null) return;
@@ -2127,9 +2127,10 @@ function _atualizarChegadasEmbarque(inicio, fim) {
   if (lastEst < 2) return vazio;
   var valsEst = shEst.getRange(1, 1, lastEst, shEst.getLastColumn()).getValues();
   var headerEst = valsEst.shift().map(_norm);
-  var iItemEst = _colPorNomes(headerEst, ['item', 'descricao']);
-  var iDataEst = _colPorNomes(headerEst, ['data', 'data lancamento']);
-  var iNfEst = _colPorNomes(headerEst, ['nf', 'nota fiscal/pedido']);
+  var colsEst = _colunasEstoque(headerEst, valsEst);
+  var iItemEst = colsEst.item;
+  var iDataEst = colsEst.data;
+  var iNfEst = colsEst.nf;
   if (iItemEst < 0 || iDataEst < 0 || iNfEst < 0) return vazio;
 
   var linhasParaMarcar = {};

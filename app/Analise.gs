@@ -544,7 +544,8 @@ function _chaveItemData(item, dataLimite) {
 /**
  * Lê a aba ESTOQUE e devolve uma lista de movimentos
  * { item, data, entrada, saida, saldo, obs }. As colunas são localizadas
- * pelo nome do cabeçalho (sem depender de acentos, maiúsculas ou posição).
+ * pelo nome do cabeçalho (sem depender de acentos, maiúsculas ou posição) e
+ * conferidas contra os dados antes de usar — ver `_colunasEstoque` (Db.gs).
  */
 function _lerEstoque() {
   var sh = _aba(CONFIG.SHEETS.ESTOQUE);
@@ -555,17 +556,19 @@ function _lerEstoque() {
   var valores = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
   var header = valores.shift().map(_norm);
   // Aceita tanto o cabeçalho do Ceará (Item/Data/Saldo/Obs) quanto o da Bahia
-  // (Descrição/Data Lançamento/Saldo de Estoque/Observações) — mesma aba,
-  // duas convenções de nome herdadas de scripts diferentes.
-  var iItem = _colPorNomes(header, ['item', 'descricao']);
-  var iData = _colPorNomes(header, ['data', 'data lancamento']);
-  var iEntrada = _colPorNomes(header, ['entrada']);
-  var iSaida = _colPorNomes(header, ['saida']);   // "Saída" → "saida"
-  var iSaldo = _colPorNomes(header, ['saldo', 'saldo de estoque']);
-  var iObs = _colPorNomes(header, ['obs', 'observacoes']);
-  if (iItem < 0 || iData < 0 || iSaldo < 0) {
-    throw new Error('A aba ESTOQUE precisa ter as colunas Item, Data e Saldo no cabeçalho.');
-  }
+  // (Descrição/Data Lançamento/Saldo de Estoque/Observações) — mesma aba, duas
+  // convenções de nome herdadas de scripts diferentes — e CONFERE a escolha
+  // contra os dados antes de usar (ver `_colunasEstoque`, Db.gs). Aqui a
+  // conferência é obrigatória: esta leitura é a base da Análise de Compra, e
+  // ler a coluna errada não dá erro, só entrega saldo errado pra quem compra.
+  var cols = _colunasEstoque(header, valores);
+  if (!cols.confere) throw new Error(cols.diagnostico);
+  var iItem = cols.item;
+  var iData = cols.data;
+  var iEntrada = cols.entrada;
+  var iSaida = cols.saida;
+  var iSaldo = cols.saldo;
+  var iObs = cols.obs;
 
   var out = [];
   valores.forEach(function (r) {

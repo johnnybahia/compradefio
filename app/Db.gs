@@ -128,9 +128,12 @@ function acrescentarRegistro(nome, obj, headersPadrao, ssOpcional) {
  * Acha o índice de uma coluna dentro de um cabeçalho já normalizado (via
  * `_norm`), tentando cada nome de `nomes` em ordem. Devolve -1 se nenhum
  * bater. Existe para aceitar mais de uma convenção de nome de coluna na
- * mesma aba lógica — ex.: a aba ESTOQUE tem cabeçalho "Item/Data/Saldo" no
- * Ceará, mas "Descrição/Data Lançamento/Saldo de Estoque" na Bahia (mesmo
- * dado, planilha herdada de outro script).
+ * mesma aba lógica — ex.: a coluna de volumes do embarque, que aparece como
+ * "Volumes", "Caixas" ou "Cx" dependendo de quem montou a aba.
+ *
+ * Para a aba ESTOQUE, use `_colunasEstoque` (logo abaixo) em vez desta: lá as
+ * colunas escolhidas ainda são CONFERIDAS contra os dados, o que esta função
+ * sozinha não faz.
  */
 function _colPorNomes(headerNormalizado, nomes) {
   for (var i = 0; i < nomes.length; i++) {
@@ -138,6 +141,227 @@ function _colPorNomes(headerNormalizado, nomes) {
     if (idx !== -1) return idx;
   }
   return -1;
+}
+
+/**
+ * Nomes de coluna aceitos em cada campo lógico da aba ESTOQUE. A mesma aba
+ * lógica nasceu em dois sistemas diferentes e as duas convenções continuam
+ * valendo:
+ *
+ *   Ceará: `(A vazia) | Item | Data | NF | Obs | Saldo Anterior | Entrada |
+ *           Saída | Saldo | Alterado Em | Alterado Por`
+ *   Bahia: `GRUPO | DESCRIÇÃO | DATA LANÇAMENTO | NOTA FISCAL/PEDIDO |
+ *           OBSERVAÇÕES | ESTOQUE ATUAL | ENTRADA | SAIDA | SALDO DE ESTOQUE |
+ *           ALTERAÇÕES | USUÁRIO | OK`   (herdada do script antigo)
+ *
+ * Repare que as POSIÇÕES sempre foram as mesmas nas duas — só o texto do
+ * cabeçalho mudava. Uma unidade pode migrar o cabeçalho pro padrão da outra
+ * a qualquer momento (foi o que a Bahia fez), então o código aceita os dois
+ * nomes e confere o resultado contra os dados (ver `_colunasEstoque`).
+ */
+var ESTOQUE_NOMES_COLUNA = {
+  item:    ['item', 'descricao', 'produto'],
+  data:    ['data', 'data lancamento'],
+  nf:      ['nf', 'nota fiscal/pedido', 'nota fiscal'],
+  obs:     ['obs', 'observacoes'],
+  entrada: ['entrada'],
+  saida:   ['saida'],
+  saldo:   ['saldo', 'saldo de estoque']
+};
+
+/** Índice de cada campo lógico do ESTOQUE olhando SÓ o texto do cabeçalho. */
+function _colunasEstoquePorNome(headerNormalizado) {
+  var mapa = {};
+  Object.keys(ESTOQUE_NOMES_COLUNA).forEach(function (campo) {
+    mapa[campo] = _colPorNomes(headerNormalizado, ESTOQUE_NOMES_COLUNA[campo]);
+  });
+  return mapa;
+}
+
+/* ---- testes de conteúdo, pra conferir o cabeçalho contra os dados ---- */
+
+/** Célula com algum conteúdo. */
+function _celulaPreenchida(v) {
+  return v !== '' && v != null && String(v).trim() !== '';
+}
+
+/**
+ * Célula que é data DE VERDADE. De propósito mais rígido que `_parseData`:
+ * aqui o valor só conta como data se for um Date da planilha ou um texto
+ * dd/mm/aaaa. `_parseData` cai num `new Date(texto)` no fim, e isso aceita
+ * código de item como se fosse ano (`new Date('4085')` → 01/01/4085) — o que
+ * faria a coluna de ITEM passar por coluna de DATA justamente na hora de
+ * decidir se o cabeçalho está alinhado.
+ */
+function _celulaData(v) {
+  if (v instanceof Date) return !isNaN(v.getTime());
+  return typeof v === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}(\s|$)/.test(v.trim());
+}
+
+/** Célula numérica (Date NÃO conta como número). */
+function _celulaNumero(v) {
+  if (typeof v === 'number') return isFinite(v);
+  if (typeof v !== 'string') return false;
+  var s = v.trim();
+  return s !== '' && /^-?[\d.,]+$/.test(s) && !isNaN(parseFloat(s.replace(',', '.')));
+}
+
+/** Célula que parece código/descrição de item: preenchida e não é data. */
+function _celulaItem(v) {
+  return _celulaPreenchida(v) && !_celulaData(v);
+}
+
+/** Fração das linhas da amostra em que a coluna `col` passa em `teste`. */
+function _fracaoColuna(amostra, col, teste) {
+  if (col < 0 || !amostra.length) return 0;
+  var n = 0;
+  for (var i = 0; i < amostra.length; i++) {
+    if (teste(amostra[i][col])) n++;
+  }
+  return n / amostra.length;
+}
+
+/**
+ * Até 400 linhas COM CONTEÚDO da aba, olhando do fim pro começo (os
+ * lançamentos mais recentes retratam o formato atual). Para de varrer depois
+ * de 5.000 linhas pra não pagar caro por uma aba cheia de linhas vazias no fim.
+ */
+function _amostraEstoque(linhas) {
+  var amostra = [];
+  var vistas = 0;
+  for (var i = linhas.length - 1; i >= 0 && amostra.length < 400 && vistas < 5000; i--) {
+    vistas++;
+    var linha = linhas[i];
+    for (var c = 0; c < linha.length; c++) {
+      if (_celulaPreenchida(linha[c])) { amostra.push(linha); break; }
+    }
+  }
+  return amostra;
+}
+
+/**
+ * Confere um mapa de colunas contra os DADOS: a coluna de item precisa estar
+ * preenchida (e não ser data), a de data precisa conter datas de verdade e a
+ * de saldo, números. É o que separa "cabeçalho alinhado com os dados" de
+ * "cabeçalho escrito uma coluna fora do lugar".
+ */
+function _avaliarColunasEstoque(mapa, amostra) {
+  var temEssenciais = mapa.item >= 0 && mapa.data >= 0 && mapa.saldo >= 0;
+  var item = _fracaoColuna(amostra, mapa.item, _celulaItem);
+  var data = _fracaoColuna(amostra, mapa.data, _celulaData);
+  var saldo = _fracaoColuna(amostra, mapa.saldo, _celulaNumero);
+  return {
+    confere: temEssenciais && item >= 0.6 && data >= 0.7 && saldo >= 0.7,
+    nota: item + data + saldo,
+    item: item, data: data, saldo: saldo
+  };
+}
+
+/** Move todos os índices do mapa em `d` colunas; null se sair do intervalo. */
+function _deslocarColunasEstoque(mapa, d, largura) {
+  var novo = {};
+  var campos = Object.keys(mapa);
+  for (var i = 0; i < campos.length; i++) {
+    var idx = mapa[campos[i]];
+    if (idx < 0) { novo[campos[i]] = -1; continue; }
+    var alvo = idx + d;
+    if (alvo < 0 || alvo >= largura) {
+      // Coluna essencial jogada pra fora da aba: esse deslocamento não existe.
+      if (campos[i] === 'item' || campos[i] === 'data' || campos[i] === 'saldo') return null;
+      alvo = -1;
+    }
+    novo[campos[i]] = alvo;
+  }
+  return novo;
+}
+
+/**
+ * Cabeçalho como texto legível, pras mensagens de erro. Corta as colunas
+ * vazias do fim (a aba costuma ser mais larga que o cabeçalho) pra mensagem
+ * não virar uma fileira de "(vazia)".
+ */
+function _textoCabecalhoEstoque(headerNormalizado) {
+  var fim = headerNormalizado.length;
+  while (fim > 0 && !headerNormalizado[fim - 1]) fim--;
+  return headerNormalizado.slice(0, Math.min(fim, 20)).map(function (h) {
+    return h ? h : '(vazia)';
+  }).join(' | ') || '(linha 1 vazia)';
+}
+
+/**
+ * Resolve as colunas da aba ESTOQUE de forma VERIFICADA: acha cada campo pelo
+ * nome do cabeçalho (as duas convenções — ver `ESTOQUE_NOMES_COLUNA`) e
+ * depois confere o resultado contra os dados da própria aba.
+ *
+ * Por que conferir, e não confiar só no nome: as duas unidades sempre tiveram
+ * as MESMAS posições físicas (A vazia/GRUPO, B item, C data … I saldo) e só o
+ * texto do cabeçalho mudava. Quando alguém migra o cabeçalho de uma unidade
+ * pro padrão da outra, é fácil escrever os nomes começando na coluna errada —
+ * ex.: digitar "Item" em A1, que na Bahia era o GRUPO, empurrando todos os
+ * nomes uma coluna pra esquerda dos dados que eles descrevem. Aí cada nome
+ * aponta pro vizinho: o sistema lê a SAÍDA como saldo e o código do item como
+ * data. Nada disso dá erro — só entrega número errado na tela, que é o
+ * sintoma difícil de rastrear. Conferindo contra os dados dá pra detectar o
+ * desalinhamento e corrigir o deslocamento.
+ *
+ * @param {Array} headerNormalizado Linha 1 já passada por `_norm`.
+ * @param {Array} linhas Linhas de dados (a aba SEM o cabeçalho).
+ * @return {Object} { item, data, nf, obs, entrada, saida, saldo,
+ *                    confere, deslocamento, diagnostico } — índices 0-based,
+ *                    -1 quando o campo não existe na aba.
+ */
+function _colunasEstoque(headerNormalizado, linhas) {
+  var base = _colunasEstoquePorNome(headerNormalizado);
+  var amostra = _amostraEstoque(linhas || []);
+
+  // Aba sem nenhum dado ainda: não há como conferir, fica o que o nome disse.
+  if (!amostra.length) return _resultadoColunasEstoque(base, true, 0, '');
+
+  if (_avaliarColunasEstoque(base, amostra).confere) {
+    return _resultadoColunasEstoque(base, true, 0, '');
+  }
+
+  // Cabeçalho não bate com os dados: procura o deslocamento que bate.
+  var largura = headerNormalizado.length;
+  for (var i = 0; i < amostra.length; i++) {
+    if (amostra[i].length > largura) largura = amostra[i].length;
+  }
+  var melhor = null;
+  [-1, 1, -2, 2].forEach(function (d) {
+    var alt = _deslocarColunasEstoque(base, d, largura);
+    if (!alt) return;
+    var aval = _avaliarColunasEstoque(alt, amostra);
+    if (aval.confere && (!melhor || aval.nota > melhor.nota)) {
+      melhor = { mapa: alt, nota: aval.nota, deslocamento: d };
+    }
+  });
+
+  if (melhor) {
+    var aviso = 'Aba ESTOQUE: o cabeçalho está ' + Math.abs(melhor.deslocamento) +
+      ' coluna(s) ' + (melhor.deslocamento > 0 ? 'à ESQUERDA' : 'à DIREITA') +
+      ' dos dados que descreve — lendo pelas colunas certas mesmo assim. ' +
+      'Vale arrumar a linha 1 da aba. Cabeçalho encontrado: ' +
+      _textoCabecalhoEstoque(headerNormalizado);
+    Logger.log(aviso);
+    return _resultadoColunasEstoque(melhor.mapa, true, melhor.deslocamento, aviso);
+  }
+
+  return _resultadoColunasEstoque(base, false, 0,
+    'A aba ESTOQUE não está no formato esperado: não consegui casar as colunas ' +
+    'Item, Data e Saldo com os dados. Cabeçalho encontrado: ' +
+    _textoCabecalhoEstoque(headerNormalizado) + '. O padrão esperado é ' +
+    '"Item | Data | NF | Obs | Saldo Anterior | Entrada | Saída | Saldo" ' +
+    '(ou os nomes antigos: DESCRIÇÃO | DATA LANÇAMENTO | … | SALDO DE ESTOQUE), ' +
+    'com cada nome na linha 1, em cima da coluna que ele descreve.');
+}
+
+/** Monta o retorno de `_colunasEstoque` (mapa + como ele foi decidido). */
+function _resultadoColunasEstoque(mapa, confere, deslocamento, diagnostico) {
+  return {
+    item: mapa.item, data: mapa.data, nf: mapa.nf, obs: mapa.obs,
+    entrada: mapa.entrada, saida: mapa.saida, saldo: mapa.saldo,
+    confere: confere, deslocamento: deslocamento, diagnostico: diagnostico
+  };
 }
 
 /**
