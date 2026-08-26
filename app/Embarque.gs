@@ -1446,10 +1446,17 @@ function _moedaBR(v) {
  * anexo). Um bloco por tipo de fio: cabeçalho do tipo (com total tingido e o
  * total de mão de obra do grupo), a tabela de itens tingidos daquele tipo
  * (com o custo de mão de obra de cada item) e, abaixo, o consumo no estoque
- * de fio crú (item, NF, fornecedor, data da NF, quantidade ORIGINAL da nota,
- * PREÇO UNITÁRIO dela, peso consumido e SALDO restante — listando TODAS as
- * NFs usadas; preço e saldo saem em destaque, que é o que os usuários
- * procuram primeiro). No fim, o total geral de mão de obra do embarque.
+ * de fio crú — uma linha por NF (não por item: o peso consumido já sai
+ * somado entre todas as cores que saíram dela, ver `_agruparLotesPorNf` —
+ * discriminar cor por cor aqui só confundia, principalmente quando 2 NFs são
+ * descontadas juntas, uma acabando e outra começando), com fornecedor, data
+ * da NF, quantidade ORIGINAL da nota, PREÇO UNITÁRIO dela, peso consumido e
+ * SALDO restante — listando TODAS as NFs usadas; preço e saldo saem em
+ * destaque, que é o que os usuários procuram primeiro. Quando há mais de uma
+ * NF no mesmo grupo, cada uma ganha um rótulo (Finalizando/Iniciando/Em uso)
+ * ao lado do número, pra ficar óbvio qual está no fim do saldo e qual é a
+ * nova sendo consumida agora — sem depender só da cor de fundo do saldo. No
+ * fim, o total geral de mão de obra do embarque.
  * Cada item mostra a mão de obra unitária (R$/kg) e o total do item; a
  * `observacao` geral (digitada na tela) sai no fim do relatório.
  *
@@ -1466,7 +1473,7 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
   // Densidade conforme o tamanho total do relatório (itens + NFs + chrome de
   // cada bloco), pra tentar caber numa página A4 retrato (ver `_densidadeRelatorio`).
   var linhasEstimadas = resumo.reduce(function (a, g) {
-    return a + g.itens.length + Math.max(g.lotes.length, 1) + 3;
+    return a + g.itens.length + Math.max(_agruparLotesPorNf(g.lotes).length, 1) + 3;
   }, 0) + ((malote && malote.ativo) ? 3 : 0);
   var d = _densidadeRelatorio(linhasEstimadas);
   var thStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';background:#0F5FA0;' +
@@ -1487,14 +1494,15 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
   }
 
   var thItens = ['Item', 'Volumes', 'Quantidade (kg)', 'Mão de obra unitária (R$/kg)', 'Mão de obra total (R$)'].map(th).join('');
-  // Consumo de fio crú: a NF de onde saiu a baixa, com a QUANTIDADE ORIGINAL
-  // da nota, o PREÇO UNITÁRIO dela (a que preço aquele fio entrou), o quanto
-  // foi consumido agora e o SALDO que ficou. Preço e saldo em destaque —
-  // pedido dos usuários.
-  var thLotes = th('Item') + th('NF') + th('Fornecedor') + th('Data da NF') +
+  // Consumo de fio crú: uma linha por NF (peso somado entre as cores que
+  // saíram dela — ver `_agruparLotesPorNf`), com a QUANTIDADE ORIGINAL da
+  // nota, o PREÇO UNITÁRIO dela (a que preço aquele fio entrou), o quanto foi
+  // consumido agora e o SALDO que ficou. Preço e saldo em destaque — pedido
+  // dos usuários.
+  var thLotes = th('NF') + th('Fornecedor') + th('Data da NF') +
     th('Qtd. da NF (kg)') + thD('Preço unit. (R$)') + th('Peso consumido (kg)') +
     thD('Saldo restante (kg)');
-  var COLS_LOTES = 8;
+  var COLS_LOTES = 7;
   var rotuloFonte = Math.max(d.fonte - 1, 8);
 
   var totalGeral = 0;
@@ -1524,8 +1532,9 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     var msgSemLotes = (Number(g.totalEstoque) > 0 && !g.totalTingido)
       ? 'saída do estoque de produto pronto — sem consumo de fio crú nesta confirmação'
       : 'sem NF de fio crú associada (lance a quantidade tingida antes de confirmar o embarque)';
-    var rowsLotes = g.lotes.length
-      ? g.lotes.map(function (l) {
+    var lotesAgg = _agruparLotesPorNf(g.lotes);
+    var rowsLotes = lotesAgg.length
+      ? lotesAgg.map(function (l, idx) {
           // NF sem preço cadastrado sai como "—" (não inventa zero).
           var precoCel = (l.precoUnitario === '' || l.precoUnitario == null)
             ? '—' : _moedaBR(l.precoUnitario);
@@ -1536,7 +1545,21 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
           var saldoCel = (l.saldoApos === '' || l.saldoApos == null || isNaN(saldoNum))
             ? '—' : _numeroBR(saldoNum);
           var saldoVazio = !isNaN(saldoNum) && saldoNum <= 0;
-          return '<tr>' + td(l.item) + td(l.nf || '—') + td(l.fornecedor || '—') +
+          // Rótulo só faz sentido havendo mais de uma NF no grupo — é
+          // exatamente o caso que confunde o usuário (qual NF tá acabando e
+          // qual começou a ser descontada agora). `lotesAgg` já está
+          // ordenado da NF mais antiga pra mais nova (ordem FIFO real).
+          var rotuloNf = '';
+          if (lotesAgg.length > 1) {
+            rotuloNf = saldoVazio ? 'Finalizando' : (idx === lotesAgg.length - 1 ? 'Iniciando' : 'Em uso');
+          }
+          var badgeNf = rotuloNf
+            ? '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;' +
+              'font-size:' + rotuloFonte + 'px;font-weight:bold;white-space:nowrap;background:' +
+              (saldoVazio ? '#FDECEA' : '#FFF7E0') + ';color:' + (saldoVazio ? '#B91C1C' : '#7A5B12') + '">' +
+              rotuloNf + '</span>'
+            : '';
+          return '<tr>' + td((l.nf || '—') + badgeNf) + td(l.fornecedor || '—') +
             td(l.dataNf || '—') + td(qtdNfCel) +
             tdD(precoCel, '#EAF2FB', '#0B4576') + td(_numeroBR(l.peso)) +
             tdD(saldoCel, saldoVazio ? '#FDECEA' : '#FFF7E0', saldoVazio ? '#B91C1C' : '#7A5B12') +
@@ -2020,6 +2043,41 @@ function _parseDataBR(s) {
   var m = String(s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) return null;
   return new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+}
+
+/**
+ * Agrupa os lotes de consumo de fio crú (uma entrada por item+NF, vinda de
+ * `g.lotes`) por NF, somando o peso consumido entre todas as cores que
+ * saíram dela — o relatório de embarque não precisa discriminar cor por cor
+ * na tabela de consumo, só o total que saiu de cada NF (pedido dos
+ * usuários). Fornecedor, data, quantidade original, preço unitário e saldo
+ * são os mesmos pra todas as ocorrências da mesma NF (propriedades do lote,
+ * não do item), então vêm da primeira ocorrência de cada grupo. Resultado
+ * ordenado da NF mais antiga pra mais nova — mesma ordem em que o FIFO de
+ * `_baixarFioCru` de fato consome, e a ordem em que os rótulos
+ * Finalizando/Iniciando são decididos no HTML.
+ */
+function _agruparLotesPorNf(lotes) {
+  var porNf = {}, ordem = [];
+  (lotes || []).forEach(function (l) {
+    var chave = String(l.nf || '').trim() || ('#' + ordem.length);
+    if (!porNf[chave]) {
+      porNf[chave] = {
+        nf: l.nf, fornecedor: l.fornecedor, dataNf: l.dataNf,
+        quantidadeNf: l.quantidadeNf, precoUnitario: l.precoUnitario,
+        saldoApos: l.saldoApos, peso: 0
+      };
+      ordem.push(chave);
+    }
+    porNf[chave].peso += Number(l.peso) || 0;
+  });
+  return ordem.map(function (chave) { return porNf[chave]; }).sort(function (a, b) {
+    var da = _parseDataBR(a.dataNf), db = _parseDataBR(b.dataNf);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da.getTime() - db.getTime();
+  });
 }
 
 /* -------------------- conciliação: embarque já chegou? ------------------- */
