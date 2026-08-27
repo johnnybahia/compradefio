@@ -185,10 +185,14 @@ function detectarItensNovos(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
 
   // Códigos já cadastrados (coluna A da ASSOCIAÇÃO), normalizados p/ comparação.
+  // Célula virou Date (Sheets convertendo sozinho um código tipo "6271/1" ao
+  // gravar sem coluna travada em texto — ver `registrarItensNovos`) conta como
+  // "ainda não registrado", pra ser recadastrada já como texto puro.
   var registrados = {};
   var shA = _aba(CONFIG.SHEETS.ASSOCIACAO);
   if (shA && shA.getLastRow() > 1) {
     shA.getRange(2, 1, shA.getLastRow() - 1, 1).getValues().forEach(function (r) {
+      if (r[0] instanceof Date) return;
       var k = _norm(r[0]);
       if (k) registrados[k] = true;
     });
@@ -239,7 +243,14 @@ function registrarItensNovos(token) {
   var linhas = novos.map(function (n) {
     return [n.codigo, n.nomes[0] || '', n.nomes[1] || '', n.nomes[2] || ''];
   });
-  shA.getRange(inicio, 1, linhas.length, 4).setValues(linhas);
+  var destino = shA.getRange(inicio, 1, linhas.length, 4);
+  // TEXTO PURO: senão o Sheets converte um código "cru" (sem sufixo /PET, COR,
+  // CABO...) tipo "6271/1" em data ao gravar — mesma causa-raiz já corrigida em
+  // Embarque.gs/Analise.gs/FioCru.gs para esse mesmo formato de código. Sem
+  // isso, a célula deixa de bater por texto e `corrigirAssociacao` nunca acha
+  // o código pra corrigir (e cada análise nova recadastra duplicado).
+  destino.setNumberFormat('@');
+  destino.setValues(linhas);
   return {
     ok: true,
     adicionados: novos.length,
