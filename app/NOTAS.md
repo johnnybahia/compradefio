@@ -429,4 +429,48 @@ Cor nova (roxo, `.destaque-saldo-baixo`) pra não confundir com o vermelho
 já usado ali pra saldo crítico de ESTOQUE (métrica diferente). Não sai na
 impressão/e-mail — é só um filtro visual de trabalho.
 
+## "Itens novos cadastrados na Associação" — Salvar dava "Código não encontrado" (resolvido)
+
+Reportado pelo usuário: no painel de conferência de itens novos, o botão
+Salvar falhava pra alguns códigos com `Error: Código "6271/1" não
+encontrado na ASSOCIAÇÃO.` — mesmo o código tendo acabado de aparecer
+nessa mesma tela, recém-cadastrado sozinho pelo sistema. Nunca tinha
+acontecido antes.
+
+Mesma causa-raiz de outros bugs já documentados aqui (ver "Item de
+FIO_CRU_BAIXAS aparecendo como data"): o Sheets converte sozinho um código
+"cru" — número/número, sem sufixo `/PET`, `COR`, `CABO`, `B`, `BT`... —
+em `Date` ao gravar, a menos que a coluna esteja travada em texto puro.
+Os 5 códigos do relato (`6271/1`, `4550/1`, `5279/1`, `6254/1`, `6265/1`)
+são todos desse formato "cru"; a maioria dos códigos que chegam da
+produção tem algum sufixo com letra, o que por acaso já os protegia do
+`Date` — por isso só apareceu agora, com os primeiros códigos "crus" a
+passar pelo cadastro automático.
+
+`registrarItensNovos` (`Associacao.gs`) gravava a coluna A (e B/C/D) direto
+com `setValues()`, sem `.setNumberFormat('@')` — a única gravação de código
+no projeto que ainda não tinha essa proteção (as outras cinco, em
+`Embarque.gs`/`Analise.gs`/`FioCru.gs`, já a usam pro mesmo formato de
+código). Uma vez convertida em `Date`, a célula deixa de bater por texto
+contra qualquer comparação — `detectarItensNovos` não reconhece o código
+como "já cadastrado" (recadastra duplicado a cada análise nova) e
+`corrigirAssociacao` não acha a linha pra corrigir o nome (o erro do
+relato).
+
+Corrigido em `Associacao.gs`:
+
+- `registrarItensNovos` — trava as colunas A-D em texto puro
+  (`.setNumberFormat('@')`) antes do `setValues()`, igual ao padrão já
+  usado nos outros pontos de gravação de código.
+- `detectarItensNovos` — usa `_itemDeCelula` (Consultas.gs, já usado em
+  `FIO_CRU_BAIXAS`/`PENDENCIA_COMPRA`) pra reconhecer um código mesmo se a
+  célula da ASSOCIAÇÃO já tiver sido corrompida em `Date` antes desta
+  correção, em vez de tratá-lo como "novo" pra sempre.
+- `corrigirAssociacao` — mesma reconstrução via `_itemDeCelula` pra achar
+  a linha certa; se a célula do código estiver corrompida, **reescreve o
+  próprio código como texto puro na hora**, além de gravar o nome — assim
+  o Salvar já cura a linha, diferente do caso de `FIO_CRU_BAIXAS` (onde as
+  baixas antigas continuam corrompidas na planilha, só reconstruídas na
+  leitura).
+
 Testado com `teste20.js` e regressão completa (`teste.js`–`teste18.js`).

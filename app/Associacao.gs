@@ -185,15 +185,16 @@ function detectarItensNovos(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
 
   // Códigos já cadastrados (coluna A da ASSOCIAÇÃO), normalizados p/ comparação.
-  // Célula virou Date (Sheets convertendo sozinho um código tipo "6271/1" ao
-  // gravar sem coluna travada em texto — ver `registrarItensNovos`) conta como
-  // "ainda não registrado", pra ser recadastrada já como texto puro.
+  // `_itemDeCelula` (Consultas.gs) recupera o código de uma célula que virou
+  // Date (Sheets convertendo sozinho um código "cru" tipo "6271/1" ao gravar
+  // sem coluna travada em texto — ver `registrarItensNovos`); sem isso, o
+  // mesmo código nunca bateria como "já registrado" e seria recadastrado do
+  // zero a cada análise.
   var registrados = {};
   var shA = _aba(CONFIG.SHEETS.ASSOCIACAO);
   if (shA && shA.getLastRow() > 1) {
     shA.getRange(2, 1, shA.getLastRow() - 1, 1).getValues().forEach(function (r) {
-      if (r[0] instanceof Date) return;
-      var k = _norm(r[0]);
+      var k = _norm(_itemDeCelula(r[0]));
       if (k) registrados[k] = true;
     });
   }
@@ -283,8 +284,21 @@ function corrigirAssociacao(token, codigo, nome) {
   if (last > 1) {
     var vals = sh.getRange(2, 1, last - 1, 1).getValues(); // coluna A
     for (var i = 0; i < vals.length; i++) {
-      if (_norm(vals[i][0]) === alvo) {
-        sh.getRange(i + 2, 2).setValue(nome); // coluna B, mesma linha
+      var bruto = vals[i][0];
+      // `_itemDeCelula` recupera o código mesmo se a célula virou Date (ver
+      // `detectarItensNovos`) — sem isso, uma linha corrompida nunca seria
+      // encontrada e o "Salvar" falharia pra sempre com "não encontrado".
+      if (_norm(_itemDeCelula(bruto)) === alvo) {
+        var linha = i + 2;
+        if (bruto instanceof Date) {
+          // Cura a célula da vez: reescreve o próprio código como texto puro.
+          var celCodigo = sh.getRange(linha, 1);
+          celCodigo.setNumberFormat('@');
+          celCodigo.setValue(codigo);
+        }
+        var celNome = sh.getRange(linha, 2);
+        celNome.setNumberFormat('@'); // TEXTO PURO: nome também pode ser um código "cru"
+        celNome.setValue(nome); // coluna B, mesma linha
         return { ok: true, mensagem: 'Associação de "' + codigo + '" corrigida para "' + nome + '".' };
       }
     }
