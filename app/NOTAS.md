@@ -515,3 +515,41 @@ Corrigido:
   colunas B-G via `_itemDeCelula`, igual ao resto do projeto — reconstrói
   na hora mesmo se a linha ainda não tiver sido reparada (ou pra outra
   unidade), em vez de depender só do botão.
+
+### Efeito colateral: "Código não encontrado" ao salvar item "058" (resolvido)
+
+Direto depois de rodar o "Corrigir cadastro da Associação" e "Analisar
+estoque" de novo, o painel "Itens novos cadastrados na Associação" mostrou
+um item cru **058 → 58** (o ramo "começa com 0" de `_transformarFio` — ver
+`stripZeros`), e o **Salvar** deu `Error: Código "058" não encontrado na
+ASSOCIAÇÃO.` mesmo o item tendo acabado de ser cadastrado sozinho ali do
+lado.
+
+Causa: `detectarItensNovos` compara o código da produção com o que já está
+cadastrado usando só `_norm` (sem tirar zero à esquerda). Se a ASSOCIAÇÃO
+já tinha uma linha pro MESMO item cadastrada sem o zero (`58`, de uma
+produção anterior), o código novo `058` (COM o zero) não batia com nada
+registrado — virava "item novo" e ganhava uma linha PRÓPRIA. Isso por si só
+não devia impedir o Salvar (a linha nova existe, com o código certo)... mas
+deixava duas linhas pro mesmo item na ASSOCIAÇÃO, o que é o preparo pro
+mesmo tipo de inconsistência já visto nos casos de `Date` (duas fontes de
+verdade pro mesmo código).
+
+Corrigido em `Associacao.gs` pra tratar "058" e "58" como o MESMO código
+em todo lugar que decide "já cadastrado" ou "achar a linha pra salvar" —
+mesma regra que `_transformarFio` já usa pra decidir o NOME (`stripZeros`),
+só que agora aplicada também na comparação de CÓDIGO:
+
+- `_semZerosEsquerda(s)` — novo helper, mesma regra do `stripZeros` interno
+  de `_transformarFio`, só que reutilizável fora daquele fechamento.
+- `detectarItensNovos` — o mapa de "já cadastrados" (e o de "já visto nesta
+  rodada") ganha também a chave sem zero à esquerda — evita a linha
+  duplicada nascer da próxima vez.
+- `corrigirAssociacao` — a busca da linha pra corrigir aceita bater tanto
+  pelo código exato quanto pela forma sem zero à esquerda — o Salvar
+  encontra a linha mesmo se ficou uma duplicata de uma análise anterior a
+  este reparo.
+
+Não desfaz duplicata que já exista na planilha (`Salvar` grava na PRIMEIRA
+linha que bater) — se sobrar uma linha duplicada de antes deste reparo,
+precisa apagar a de mais na mão.

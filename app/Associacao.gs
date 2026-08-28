@@ -18,6 +18,21 @@
  */
 
 /**
+ * Remove zeros à esquerda de um código (ex.: "058" → "58"; "6254/1" fica
+ * igual, não começa com zero). Mesma regra do `stripZeros` interno de
+ * `_transformarFio` (que já trata "058" e "58" como o mesmo nome — ver
+ * o ramo "começa com 0") e do `_codEmbarque` (Embarque.gs); replicada aqui,
+ * fora daquele fechamento, pra reuso em `detectarItensNovos`/
+ * `corrigirAssociacao` — casar/gravar um código "cru" que só difere de um
+ * já cadastrado pelo zero à esquerda não pode virar linha duplicada nem
+ * fazer o "Salvar" da correção não achar a linha (ver NOTAS.md).
+ */
+function _semZerosEsquerda(s) {
+  s = String(s == null ? '' : s).trim();
+  return s.replace(/^(0+)(\d)/, '$2');
+}
+
+/**
  * Normaliza um código de cor para até 3 nomes padrão (colunas B/C/D da
  * ASSOCIAÇÃO — mais de um valor só quando o código é composto). Porta fiel
  * da função `TRANSFORMAR_FIO` (fórmula personalizada já usada na planilha
@@ -189,13 +204,21 @@ function detectarItensNovos(token) {
   // Date (Sheets convertendo sozinho um código "cru" tipo "6271/1" ao gravar
   // sem coluna travada em texto — ver `registrarItensNovos`); sem isso, o
   // mesmo código nunca bateria como "já registrado" e seria recadastrado do
-  // zero a cada análise.
+  // zero a cada análise. Guarda também a chave SEM zeros à esquerda
+  // (`_semZerosEsquerda`) pelo mesmo motivo: "58" já cadastrado tem que
+  // reconhecer "058" chegando da produção como o MESMO item (ver
+  // "itens '/1'... ASSOCIAÇÃO" no NOTAS.md) — sem isso, vira linha
+  // duplicada a cada análise, e a duplicada nova não é a que o "Salvar" da
+  // tela espera achar.
   var registrados = {};
   var shA = _aba(CONFIG.SHEETS.ASSOCIACAO);
   if (shA && shA.getLastRow() > 1) {
     shA.getRange(2, 1, shA.getLastRow() - 1, 1).getValues().forEach(function (r) {
-      var k = _norm(_itemDeCelula(r[0]));
+      var bruto = _itemDeCelula(r[0]);
+      var k = _norm(bruto);
       if (k) registrados[k] = true;
+      var kSemZeros = _norm(_semZerosEsquerda(bruto));
+      if (kSemZeros) registrados[kSemZeros] = true;
     });
   }
 
@@ -208,7 +231,8 @@ function detectarItensNovos(token) {
       var cod = r[0];
       var k = _norm(cod);
       if (!k) return;
-      if (visto[k] || registrados[k]) return;
+      var kSemZeros = _norm(_semZerosEsquerda(cod));
+      if (visto[k] || visto[kSemZeros] || registrados[k] || registrados[kSemZeros]) return;
       visto[k] = true;
       var nomes = _transformarFio(cod).filter(function (n) { return n !== ''; });
       novos.push({ codigo: String(cod).trim(), nomes: nomes });
@@ -281,6 +305,10 @@ function corrigirAssociacao(token, codigo, nome) {
   if (!sh) throw new Error('Aba ASSOCIAÇÃO não encontrada.');
   var last = sh.getLastRow();
   var alvo = _norm(codigo);
+  // Fallback sem zeros à esquerda: "058" tem que achar uma linha gravada como
+  // "58" (e vice-versa) — mesmo critério de `detectarItensNovos`, pra não
+  // depender de nenhuma das duas formas ter sido a que ficou na coluna A.
+  var alvoSemZeros = _norm(_semZerosEsquerda(codigo));
   if (last > 1) {
     var vals = sh.getRange(2, 1, last - 1, 1).getValues(); // coluna A
     for (var i = 0; i < vals.length; i++) {
@@ -288,7 +316,10 @@ function corrigirAssociacao(token, codigo, nome) {
       // `_itemDeCelula` recupera o código mesmo se a célula virou Date (ver
       // `detectarItensNovos`) — sem isso, uma linha corrompida nunca seria
       // encontrada e o "Salvar" falharia pra sempre com "não encontrado".
-      if (_norm(_itemDeCelula(bruto)) === alvo) {
+      var candidato = _itemDeCelula(bruto);
+      var candidatoNorm = _norm(candidato);
+      if (candidatoNorm === alvo ||
+          (alvoSemZeros && _norm(_semZerosEsquerda(candidato)) === alvoSemZeros)) {
         var linha = i + 2;
         if (bruto instanceof Date) {
           // Cura a célula da vez: reescreve o próprio código como texto puro.
