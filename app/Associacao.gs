@@ -306,6 +306,65 @@ function corrigirAssociacao(token, codigo, nome) {
   throw new Error('Código "' + codigo + '" não encontrado na ASSOCIAÇÃO.');
 }
 
+/**
+ * Repara, na ASSOCIAÇÃO, códigos "crus" (número/número, sem sufixo com letra —
+ * ex.: "6254/1") que o Sheets converteu sozinho em Date ao gravar (mesma
+ * causa-raiz de "Itens novos cadastrados na Associação — Salvar dava 'Código
+ * não encontrado'", já corrigida em `registrarItensNovos` pra NOVOS cadastros
+ * com `.setNumberFormat('@')`). Essa correção não alcança linhas que já
+ * tinham sido gravadas ANTES dela — ficam com a célula em Date pra sempre, a
+ * menos que alguém rode isto aqui.
+ *
+ * Isso importa além da coluna A: `_criarLocalizadorDescricao` (Analise.gs)
+ * casa o código do ESTOQUE contra as colunas B-G (o[s] nome[s] padrão — pra
+ * um código "cru" sem sufixo, `_transformarFio` devolve o PRÓPRIO código
+ * como nome, então B corrompe junto com A). Uma célula em Date nunca bate
+ * por texto com nada — o item aparece como "sem cadastro na ASSOCIAÇÃO" na
+ * Análise de Compra mesmo já estando cadastrado. Repara A-G (todo o
+ * intervalo que a comparação usa), não só A, e devolve texto puro pra
+ * também curar a fórmula nativa da planilha (PEDIDO DE FIO, coluna E) que
+ * essa função reproduz — não é só um jeito de ler em volta do problema.
+ *
+ * Só master, e roda na unidade ATIVA (troque de unidade pra reparar a outra).
+ * @return {Object} { ok, corrigidos, naoRecuperados }
+ */
+function repararAssociacao(token) {
+  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var sh = _aba(CONFIG.SHEETS.ASSOCIACAO);
+  if (!sh) throw new Error('Aba ASSOCIAÇÃO não encontrada.');
+  var last = sh.getLastRow();
+  if (last < 2) return { ok: true, corrigidos: 0, naoRecuperados: 0 };
+
+  var COLS = 7; // A..G (mesmo intervalo usado por `_criarLocalizadorDescricao`)
+  var largura = Math.min(sh.getLastColumn(), COLS);
+  if (largura < 1) return { ok: true, corrigidos: 0, naoRecuperados: 0 };
+
+  var faixa = sh.getRange(2, 1, last - 1, largura);
+  var valores = faixa.getValues();
+  var corrigidos = 0, naoRecuperados = 0, mudou = false;
+  for (var i = 0; i < valores.length; i++) {
+    for (var c = 0; c < largura; c++) {
+      var v = valores[i][c];
+      if (!(v instanceof Date) || isNaN(v.getTime())) continue;
+      // "6254/1" foi lido como 1º de janeiro do ano 6254 → volta a "6254/1".
+      // Só reconstrói quando o dia é 1; fora desse padrão não há como inferir
+      // (mesmo critério de `repararItensPendencia`, em Analise.gs).
+      if (v.getDate() === 1) {
+        valores[i][c] = v.getFullYear() + '/' + (v.getMonth() + 1);
+        corrigidos++;
+        mudou = true;
+      } else {
+        naoRecuperados++;
+      }
+    }
+  }
+  if (mudou) {
+    faixa.setNumberFormat('@');
+    faixa.setValues(valores);
+  }
+  return { ok: true, corrigidos: corrigidos, naoRecuperados: naoRecuperados };
+}
+
 /** Última linha preenchida considerando um conjunto de colunas (1-indexado). */
 function _ultimaLinhaColunas(sh, cols) {
   var maxRows = sh.getMaxRows();

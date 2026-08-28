@@ -474,3 +474,44 @@ Corrigido em `Associacao.gs`:
   leitura).
 
 Testado com `teste20.js` e regressão completa (`teste.js`–`teste18.js`).
+
+## Bahia: itens "/1" aparecendo como "sem cadastro na ASSOCIAÇÃO" (resolvido)
+
+Reportado pelo usuário (Bahia): na Análise de Estoque, vários itens com o
+código terminando em `/1` (ex.: `6254/1`, `6271/1`, `4550/1`, `6265/1`,
+`5440/1`, `5861/1`, `6281/1`, `5279/1`) apareciam como "— sem cadastro na
+ASSOCIAÇÃO", mesmo o item existindo — inclusive o MESMO código sem o `/1`
+(`5279`) aparecia com descrição normalmente.
+
+Mesma causa-raiz da seção acima ("Salvar dava 'Código não encontrado'"): um
+código "cru" (número/número, sem sufixo com letra — `/PET`, `COR`, `CABO`,
+`B`, `BT`...) vira `Date` sozinho quando o Sheets grava a célula sem ela
+estar travada em texto puro (ex.: `6254/1` → 01/01/6254). Só que daquela vez
+o reparo (`.setNumberFormat('@')` em `registrarItensNovos`) tratou a causa
+para CADASTROS NOVOS dali em diante, mas deixou dois furos:
+
+1. Linhas da ASSOCIAÇÃO já gravadas em `Date` **antes** do reparo continuam
+   corrompidas na planilha pra sempre — nada refazia essas células.
+2. `_criarLocalizadorDescricao` (Analise.gs) — quem decide "sem cadastro na
+   ASSOCIAÇÃO" — casa o código do ESTOQUE contra as colunas B-G (o[s]
+   nome[s] padrão). Pra um código "cru" sem sufixo, `_transformarFio`
+   devolve o PRÓPRIO código como nome (coluna B = coluna A), então a coluna
+   B corrompe junto com a A. Essa função lia B-G direto (`row[c]`), sem a
+   reconstrução via `_itemDeCelula` que `detectarItensNovos`/
+   `corrigirAssociacao` já usavam pra coluna A — uma célula em `Date` nunca
+   bate por texto com nada, então o item cai sempre no "sem cadastro",
+   mesmo já cadastrado.
+
+Corrigido:
+
+- `Associacao.gs` — nova `repararAssociacao(token)`: reconstrói (mesmo
+  critério de `repararItensPendencia`: só quando o dia é 1) e devolve a
+  texto puro qualquer célula em `Date` nas colunas A-G da ASSOCIAÇÃO — não
+  só a leitura, a célula na planilha mesmo, pra também curar a fórmula
+  nativa (PEDIDO DE FIO, coluna E) que `_criarLocalizadorDescricao`
+  reproduz. Só master; botão "Corrigir cadastro da Associação" na tela
+  Análise de Estoque (`App.html`), ao lado de "Analisar estoque".
+- `Analise.gs` — `_criarLocalizadorDescricao` passa a ler a coluna A e as
+  colunas B-G via `_itemDeCelula`, igual ao resto do projeto — reconstrói
+  na hora mesmo se a linha ainda não tiver sido reparada (ou pra outra
+  unidade), em vez de depender só do botão.
