@@ -3993,7 +3993,7 @@ function viewRelatorio(alvo) {
         (podeEditar(['master'])
           ? '<button class="btn-principal" id="btn-config-chegada">Dias de recebimento</button>' +
             '<button class="btn-principal" id="btn-reparar-itens" ' +
-              'title="Conserta itens que a planilha converteu em data (ex.: 5108/1 → 01/01/5108) ' +
+              'title="Conserta item e descrição que a planilha converteu em data (ex.: 5108/1 → 01/01/5108) ' +
               'e unifica as linhas duplicadas que isso causou">Corrigir itens duplicados/data</button>'
           : '') +
       '</div>' +
@@ -4053,7 +4053,7 @@ function repararItensDaLista() {
   var msg = document.getElementById('rel-msg');
   confirmarModal(
     'Corrigir itens da lista?',
-    'Isso vai devolver ao formato de texto os itens que a planilha gravou como data ' +
+    'Isso vai devolver ao formato de texto o item e a descrição que a planilha gravou como data ' +
     '(ex.: <b>5108/1</b> virou <b>01/01/5108</b>) e <b>unificar as linhas duplicadas</b> do mesmo item ' +
     'com a mesma data limite — fica a mais recente. Vale para a empresa que está aberta agora.',
     'Corrigir', 'Cancelar',

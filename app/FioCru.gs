@@ -550,7 +550,7 @@ function obterListaFioParaTingir(token) {
       // célula pro cliente — data corrompida ou erro de fórmula na planilha
       // faz a resposta inteira voltar nula e derruba a tela.
       item: _itemDeCelula(r.ITEM),
-      descricao: _textoCelula(r.DESCRICAO),
+      descricao: _itemDeCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       tipoFio: _textoCelula(r.TIPO_FIO),
       maquinas: _textoCelula(r.MAQUINAS),

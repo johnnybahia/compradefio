@@ -143,7 +143,12 @@ function obterListaTingimento(token) {
     return {
       linha: r.__row,
       item: _itemDeCelula(r.ITEM),
-      descricao: _textoCelula(r.DESCRICAO),
+      // `_itemDeCelula`, não `_textoCelula`: quando a produção não tem
+      // descrição cadastrada, o valor gravado às vezes é o próprio código
+      // cru da cor (ex.: "5440/1"), que o Sheets pode converter em data
+      // (ver `_prepararAbaCompra`, em Analise.gs) — sem isso, a descrição
+      // aparece como "01/01/5440" em vez do código.
+      descricao: _itemDeCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       maquinas: _textoCelula(r.MAQUINAS),
       total: total,
@@ -241,7 +246,12 @@ function _montarLinhasRelatorio(cfg) {
       linha: r.__row,
       dataSolicitado: _soData(r.GERADO_EM),
       item: _itemDeCelula(r.ITEM),
-      descricao: _textoCelula(r.DESCRICAO),
+      // `_itemDeCelula`, não `_textoCelula`: quando a produção não tem
+      // descrição cadastrada, o valor gravado às vezes é o próprio código
+      // cru da cor (ex.: "5440/1"), que o Sheets pode converter em data
+      // (ver `_prepararAbaCompra`, em Analise.gs) — sem isso, a descrição
+      // aparece como "01/01/5440" em vez do código.
+      descricao: _itemDeCelula(r.DESCRICAO),
       cliente: _textoCelula(r.CLIENTE),
       maquinas: _textoCelula(r.MAQUINAS),
       total: _numeroCelula(r.SUGERIDO),
@@ -873,7 +883,10 @@ function enviarUrgenciaTingimento(token, params) {
     var obsAtual = String(r.OBS == null ? '' : r.OBS).trim();
     var novaObs = obsAtual ? (obsAtual + ' | ' + nota) : nota;
     atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, it.linha, 'OBS', novaObs);
-    detalhes.push({ item: r.ITEM, descricao: r.DESCRICAO, cliente: r.CLIENTE, dataUrgencia: dataUrg, qtdUrgencia: qtdUrg });
+    detalhes.push({
+      item: _itemDeCelula(r.ITEM), descricao: _itemDeCelula(r.DESCRICAO), cliente: _textoCelula(r.CLIENTE),
+      dataUrgencia: dataUrg, qtdUrgencia: qtdUrg
+    });
   });
   if (!detalhes.length) throw new Error('Os itens marcados não foram encontrados (recarregue a tela e tente de novo).');
 
