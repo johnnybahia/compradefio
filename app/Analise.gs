@@ -364,7 +364,7 @@ function obterRelacaoDeCompra(token) {
   var linhas = registros.map(function (r) {
     var o = { __row: r.__row };
     RELACAO_COMPRA_HEADERS.forEach(function (h) {
-      if (h === 'ITEM') o[h] = _itemDeCelula(r[h]);
+      if (h === 'ITEM' || h === 'DESCRICAO') o[h] = _itemDeCelula(r[h]);
       else if (h === 'DATA_LIMITE') o[h] = _soData(r[h]);
       else if (h === 'GERADO_EM') o[h] = _dataHoraCelula(r[h]);
       else if (numericas[h]) o[h] = _numeroCelula(r[h]);
@@ -400,6 +400,13 @@ function _prepararAbaCompra(nomeAba) {
   // "mesmo item + mesma data limite = atualiza" para de casar, duplicando a
   // linha em cada geração de compra. Ver `repararItensPendencia`.
   sh.getRange(1, 1, sh.getMaxRows(), 1).setNumberFormat('@');
+  // Coluna DESCRICAO também: quando a produção não tem descrição cadastrada
+  // (ver `_criarLocalizadorDescricao`, motivo "cadastrado, sem descrição na
+  // produção"), o valor gravado às vezes é o próprio código cru da cor (ex.:
+  // "5440/1") — sem essa trava, vira a mesma armadilha da coluna ITEM: o
+  // Sheets converte pra data (01/01/5440) e a descrição aparece como data no
+  // Relatório/Tingimento em vez do texto. Ver `repararItensPendencia`.
+  sh.getRange(1, 2, sh.getMaxRows(), 1).setNumberFormat('@');
   var largura = sh.getLastColumn();
   var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
   var igual = atuais.length === RELACAO_COMPRA_HEADERS.length &&
@@ -440,9 +447,11 @@ function _prepararAbaCompra(nomeAba) {
 
 /**
  * Repara a lista pendente (PENDENCIA_COMPRA) de duas coisas causadas pelo
- * mesmo problema — código de item convertido em data pelo Sheets (ex.: "5108/1"
- * virou 01/01/5108):
- *   1. devolve o item pra forma de texto ("ano/mês" → "5108/1");
+ * mesmo problema — código convertido em data pelo Sheets (ex.: "5108/1"
+ * virou 01/01/5108), tanto na coluna ITEM quanto na DESCRICAO (que às vezes
+ * é o próprio código cru da cor, quando a produção não tem descrição
+ * cadastrada — ver `_prepararAbaCompra`):
+ *   1. devolve item e descrição pra forma de texto ("ano/mês" → "5108/1");
  *   2. unifica linhas DUPLICADAS do mesmo item + mesma data limite, que só
  *      existem porque o upsert não conseguia casar item-data com item-texto
  *      (ver `gerarRelacaoDeCompra`) — fica a linha mais recente do grupo.
@@ -458,16 +467,18 @@ function repararItensPendencia(token) {
 
   var corrigidos = 0, naoRecuperados = 0;
   regs.forEach(function (r) {
-    if (!(r.ITEM instanceof Date)) return;
-    var d = r.ITEM;
-    // "5108/1" foi lido como 1º de janeiro do ano 5108 → volta a "5108/1".
-    // Só reconstrói quando o dia é 1; fora desse padrão não há como inferir.
-    if (d.getDate() === 1) {
-      r.ITEM = d.getFullYear() + '/' + (d.getMonth() + 1);
-      corrigidos++;
-    } else {
-      naoRecuperados++;
-    }
+    ['ITEM', 'DESCRICAO'].forEach(function (campo) {
+      if (!(r[campo] instanceof Date)) return;
+      var d = r[campo];
+      // "5108/1" foi lido como 1º de janeiro do ano 5108 → volta a "5108/1".
+      // Só reconstrói quando o dia é 1; fora desse padrão não há como inferir.
+      if (d.getDate() === 1) {
+        r[campo] = d.getFullYear() + '/' + (d.getMonth() + 1);
+        corrigidos++;
+      } else {
+        naoRecuperados++;
+      }
+    });
   });
 
   // Unifica duplicados por [item + data limite] — mantém a ÚLTIMA linha (a mais

@@ -553,3 +553,44 @@ só que agora aplicada também na comparação de CÓDIGO:
 Não desfaz duplicata que já exista na planilha (`Salvar` grava na PRIMEIRA
 linha que bater) — se sobrar uma linha duplicada de antes deste reparo,
 precisa apagar a de mais na mão.
+
+## Relação de compra: DESCRIÇÃO saindo como data (ex.: "01/01/5440") (resolvido)
+
+Reportado (Bahia e Ceará): na Relação de compra/Relatório/Tingimento, um
+item às vezes aparecia com a DESCRIÇÃO igual a "01/01/5440" em vez de um
+texto — mesmos códigos "crus" do relato anterior (`5440/1`, `5861/1`,
+`6281/1`). Ao lado, itens normais (`858`, `6270`, `5279`) mostravam a
+descrição de verdade.
+
+Causa: quando a produção não tem uma descrição própria cadastrada pro
+item (PEDIDO DE FIO, coluna M vazia ou só com a cor de novo — motivo
+"cadastrado, sem descrição na produção" de `_criarLocalizadorDescricao`),
+o valor gravado na coluna DESCRICAO de PENDENCIA_COMPRA pode ser o
+PRÓPRIO código cru da cor (ex.: "5440/1"). Igual ITEM, é um código
+"número/número sem sufixo com letra" — exatamente o formato que o Sheets
+converte sozinho em `Date` ao gravar. `_prepararAbaCompra` só travava a
+coluna ITEM (1) em texto puro (`.setNumberFormat('@')`); a DESCRICAO (2)
+ficava exposta ao mesmo problema. E toda leitura dessa coluna usava
+`_textoCelula` (que só formata a Date como dd/MM/aaaa) em vez de
+`_itemDeCelula` (que reconstrói "ano/mês" → código original) — então
+mesmo reparando a célula, a tela continuaria mostrando a data até reler
+certo.
+
+Corrigido:
+
+- `Analise.gs`, `_prepararAbaCompra` — trava também a coluna DESCRICAO (2)
+  em texto puro, mesmo critério já usado na coluna ITEM.
+- `Analise.gs`, `repararItensPendencia` — repara ITEM **e** DESCRICAO (não
+  só ITEM) nas linhas já gravadas; botão "Corrigir itens duplicados/data"
+  (Relatório) passa a curar os dois.
+- `Analise.gs` (`obterRelacaoDeCompra`), `Consultas.gs`
+  (`obterListaTingimento`, `_montarLinhasRelatorio`,
+  `enviarUrgenciaTingimento`), `FioCru.gs` (`obterListaFioParaTingir`) e
+  `EstoqueUnidades.gs` (`compararEstoqueEntreUnidades`) — todo lugar que lia
+  DESCRICAO de PENDENCIA_COMPRA passa a usar `_itemDeCelula`, reconstruindo
+  o código na hora mesmo pra linha ainda não reparada.
+
+Isso não inventa uma descrição de verdade que nunca existiu — só evita que
+a AUSÊNCIA de descrição vire uma DATA sem sentido; quando a produção nunca
+descreveu o item em PEDIDO DE FIO, a tela volta a mostrar o próprio código
+da cor (como já mostrava antes de virar data), não um texto explicativo.

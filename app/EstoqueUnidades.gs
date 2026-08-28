@@ -220,8 +220,10 @@ function compararEstoqueEntreUnidades(token) {
     return {
       linha: r.__row,
       item: item,
-      // _textoCelula/_numeroCelula: nada de valor cru de célula na resposta.
-      descricao: _textoCelula(r.DESCRICAO),
+      // _itemDeCelula/_textoCelula/_numeroCelula: nada de valor cru de célula
+      // na resposta (DESCRICAO pode ser o próprio código cru da cor, que o
+      // Sheets converte em data — ver `_prepararAbaCompra`, em Analise.gs).
+      descricao: _itemDeCelula(r.DESCRICAO),
       tipoFio: _textoCelula(r.TIPO_FIO),
       saldoAqui: _numeroCelula(r.SALDO),
       saldoCriticoAqui: _saldoCritico(r),
