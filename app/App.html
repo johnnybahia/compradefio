@@ -304,6 +304,14 @@ function viewAnalise(alvo) {
         '</div>' +
         '<button class="btn-principal" id="btn-analisar">Analisar estoque</button>' +
       '</div>' +
+      (podeEditar(['master'])
+        ? '<div style="margin:0 0 12px">' +
+            '<button class="btn-principal" id="btn-reparar-associacao" ' +
+              'title="Conserta códigos que a planilha ASSOCIAÇÃO converteu em data (ex.: 6254/1 → 01/01/6254) — ' +
+              'motivo mais comum de um item aparecer como \'sem cadastro na ASSOCIAÇÃO\' mesmo já cadastrado">' +
+              'Corrigir cadastro da Associação</button>' +
+          '</div>'
+        : '') +
       '<div id="analise-msg"></div>' +
     '</section>' +
     '<section class="painel" id="painel-pendencias" style="display:none">' +
@@ -362,6 +370,8 @@ function viewAnalise(alvo) {
   document.getElementById('btn-analisar').onclick = analisarEstoque;
   document.getElementById('btn-prosseguir').onclick = prosseguirCompra;
   document.getElementById('btn-excluir-relacao').onclick = excluirRelacao;
+  var btnRepAssoc = document.getElementById('btn-reparar-associacao');
+  if (btnRepAssoc) btnRepAssoc.onclick = repararAssociacaoDaLista;
   document.getElementById('kg-base').addEventListener('input', function () {
     estadoAnalise.kgBase = document.getElementById('kg-base').value;
     reaplicarDestaque();
@@ -390,6 +400,41 @@ function viewAnalise(alvo) {
   renderChegadasDuvida(estadoAnalise.chegadasEmDuvida);
   carregarUltimaRelacao();
   carregarPendencias();
+}
+
+/** Conserta, na unidade ATIVA, códigos da ASSOCIAÇÃO que a planilha converteu em
+ * data (ver `repararAssociacao`, no servidor) — o motivo mais comum de um item
+ * aparecer como "sem cadastro na ASSOCIAÇÃO" mesmo já estando cadastrado. */
+function repararAssociacaoDaLista() {
+  var msg = document.getElementById('analise-msg');
+  confirmarModal(
+    'Corrigir cadastro da Associação?',
+    'Isso vai devolver ao formato de texto os códigos que a planilha ASSOCIAÇÃO gravou como data ' +
+    '(ex.: <b>6254/1</b> virou <b>01/01/6254</b>) — motivo mais comum de um item aparecer como ' +
+    '"sem cadastro na ASSOCIAÇÃO" mesmo já cadastrado. Vale para a empresa que está aberta agora.',
+    'Corrigir', 'Cancelar',
+    function (ok) {
+      if (!ok) return;
+      var btn = document.getElementById('btn-reparar-associacao');
+      btn.disabled = true;
+      msg.innerHTML = '<div class="aviso"><span class="carregando">Corrigindo…</span></div>';
+      chamar('repararAssociacao', sessao.token)
+        .then(function (r) {
+          btn.disabled = false;
+          var partes = [];
+          if (r.corrigidos) partes.push(r.corrigidos + ' código(s) corrigido(s)');
+          if (r.naoRecuperados) partes.push(r.naoRecuperados + ' célula(s) em data que não deu pra recuperar (ajuste na planilha)');
+          msg.innerHTML = '<div class="aviso ok">' +
+            (partes.length ? partes.join(' · ') : 'Nada a corrigir.') +
+            ' Analise o estoque de novo para atualizar a lista.</div>';
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          var m = tratarErro(err);
+          if (m) msg.innerHTML = '<div class="aviso erro">' + m + '</div>';
+        });
+    }
+  );
 }
 
 /** Carrega a aba de pendências de embarque a qualquer momento (sem precisar rodar a análise). */

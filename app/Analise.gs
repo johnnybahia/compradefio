@@ -611,10 +611,16 @@ function _criarLocalizadorDescricao() {
     if (largura > 1) {
       var va = shA.getRange(2, 1, shA.getLastRow() - 1, largura).getValues();
       va.forEach(function (row) {
-        var a = row[0];
-        if (a === '' || a == null) return;
+        // `_itemDeCelula` recupera código/nome mesmo se a célula virou Date
+        // (Sheets convertendo sozinho um código "cru" tipo "6254/1" ao
+        // gravar sem coluna travada em texto — ver `repararAssociacao`, em
+        // Associacao.gs). Sem isso, uma linha já corrompida nunca bate por
+        // texto com o código do ESTOQUE e o item aparece pra sempre como
+        // "sem cadastro na ASSOCIAÇÃO", mesmo já estando cadastrado.
+        var a = _itemDeCelula(row[0]);
+        if (!a) return;
         for (var c = 1; c < largura; c++) {
-          var k = _norm(row[c]);
+          var k = _norm(_itemDeCelula(row[c]));
           if (!k) continue;
           if (!assocMaps[c - 1][k]) assocMaps[c - 1][k] = [];
           if (assocMaps[c - 1][k].indexOf(a) === -1) assocMaps[c - 1][k].push(a);
