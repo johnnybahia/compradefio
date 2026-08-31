@@ -606,7 +606,7 @@ function confirmarModal(titulo, texto, rotuloDestaque, rotuloSecundario, callbac
     '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;' +
       'padding:26px 26px 22px;box-shadow:0 20px 50px rgba(0,0,0,.28)">' +
       '<h3 style="margin:0 0 10px;color:#0B4576;font-size:17px">' + titulo + '</h3>' +
-      '<p style="margin:0 0 22px;color:#475569;font-size:14px;line-height:1.5">' + texto + '</p>' +
+      '<div style="margin:0 0 22px;color:#475569;font-size:14px;line-height:1.5">' + texto + '</div>' +
       '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
         '<button id="modal-btn-secundario" style="padding:10px 16px;border:1px solid #D8E0E8;' +
           'border-radius:8px;background:#fff;cursor:pointer;font-size:14px">' + rotuloSecundario + '</button>' +
@@ -1202,6 +1202,10 @@ var pedidoInfo = { numero: null, data: null };
 // Lista carregada da PENDENCIA_COMPRA (já vem ordenada por data limite do servidor);
 // mantida aqui para reordenar na hora quando o usuário edita uma data, sem recarregar a tela.
 var estadoTingimento = { linhas: [], kgBaseParcial: '' };
+// Trava enquanto uma remoção de linha está em andamento (ver `removerLinhaTingimento`):
+// evita clicar em remover de outro item durante a demora da chamada ao servidor e
+// acabar excluindo o item errado antes da tela atualizar.
+var tingimentoRemovendo = false;
 
 function viewTingimento(alvo) {
   // Master/Tingimento editam (obs, data, e-mail do Pedido de Fio). Programação
@@ -1679,22 +1683,47 @@ function enviarUrgenciaSelecionada() {
 }
 
 /** Remove uma linha da lista pendente (PENDENCIA_COMPRA), com confirmação —
- * ação sem volta, diferente de um simples ajuste de campo. */
+ * ação sem volta, diferente de um simples ajuste de campo. A confirmação mostra
+ * os dados do item (não só um "tem certeza?" genérico) e, enquanto a remoção
+ * está em andamento, trava os outros botões de remover — pra não deixar
+ * excluir um item errado por engano durante a demora da chamada ao servidor. */
 function removerLinhaTingimento(btn) {
   var linha = Number(btn.getAttribute('data-linha'));
-  if (!linha) return;
-  if (!window.confirm('Remover este item da lista pendente? Ele não foi baixado por embarque — ' +
-    'essa ação só tira da lista, não pode ser desfeita.')) return;
-  btn.disabled = true;
-  chamar('removerItemPendente', sessao.token, linha)
-    .then(function () {
-      estadoTingimento.linhas = estadoTingimento.linhas.filter(function (l) { return l.linha !== linha; });
-      renderTingimento(estadoTingimento.linhas);
-    })
-    .catch(function (err) {
-      btn.disabled = false;
-      tratarErro(err);
-    });
+  if (!linha || tingimentoRemovendo) return;
+  var alvo = null;
+  estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
+  var detalhes =
+    '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;' +
+      'padding:10px 12px;margin:10px 0;font-size:13px;line-height:1.6">' +
+      '<div><b>Item:</b> ' + escAttr(alvo ? alvo.item : '—') + '</div>' +
+      '<div><b>Descrição:</b> ' + escAttr(alvo && alvo.descricao ? alvo.descricao : '—') + '</div>' +
+      '<div><b>Cliente:</b> ' + escAttr(alvo && alvo.cliente ? alvo.cliente : '—') + '</div>' +
+      '<div><b>Total pendente:</b> ' + num(alvo ? alvo.total : '') + ' kg</div>' +
+      '<div><b>Data limite:</b> ' + escAttr(alvo && alvo.dataLimite ? alvo.dataLimite : '—') + '</div>' +
+    '</div>';
+  confirmarModal(
+    'Remover item da lista pendente?',
+    detalhes + 'Ele não foi baixado por embarque — essa ação só tira da lista, ' +
+      '<b>não pode ser desfeita</b>. Confira os dados acima antes de confirmar.',
+    'Remover', 'Cancelar',
+    function (ok) {
+      if (!ok) return;
+      tingimentoRemovendo = true;
+      var botoes = document.querySelectorAll('.btn-remover-linha');
+      Array.prototype.forEach.call(botoes, function (b) { b.disabled = true; });
+      chamar('removerItemPendente', sessao.token, linha)
+        .then(function () {
+          tingimentoRemovendo = false;
+          estadoTingimento.linhas = estadoTingimento.linhas.filter(function (l) { return l.linha !== linha; });
+          renderTingimento(estadoTingimento.linhas);
+        })
+        .catch(function (err) {
+          tingimentoRemovendo = false;
+          Array.prototype.forEach.call(botoes, function (b) { b.disabled = false; });
+          tratarErro(err);
+        });
+    }
+  );
 }
 
 /* --------------------------- régua de navegação --------------------- */
