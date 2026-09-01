@@ -23,29 +23,19 @@ function include(nome) {
 /**
  * Envio de e-mail do sistema, centralizado (Pedido de Fio, urgência,
  * confirmação/cancelamento de embarque — ver chamadas em Consultas.gs e
- * Embarque.gs). Com `CONFIG.EMAIL_REMETENTE` configurado (alias já
- * verificado em "Enviar e-mail como" no Gmail), usa GmailApp pra sair
- * de fato por esse endereço; sem ele, cai pra MailApp (endereço real da
- * conta que fez o deploy) — assim nada quebra antes do alias existir.
+ * Embarque.gs). O endereço remetente é sempre o da conta que fez o deploy
+ * do Web App (`executeAs: USER_DEPLOYING`, ver appsscript.json); só o nome
+ * de exibição é customizado (`CONFIG.NOME_REMETENTE_EMAIL`).
  * @param {Object} opcoes { to, subject, htmlBody, attachments }
  */
 function _enviarEmailSistema(opcoes) {
-  if (CONFIG.EMAIL_REMETENTE) {
-    GmailApp.sendEmail(opcoes.to, opcoes.subject, '', {
-      htmlBody: opcoes.htmlBody,
-      from: CONFIG.EMAIL_REMETENTE,
-      name: CONFIG.NOME_REMETENTE_EMAIL,
-      attachments: opcoes.attachments || []
-    });
-  } else {
-    MailApp.sendEmail({
-      to: opcoes.to,
-      subject: opcoes.subject,
-      htmlBody: opcoes.htmlBody,
-      name: CONFIG.NOME_REMETENTE_EMAIL,
-      attachments: opcoes.attachments || []
-    });
-  }
+  MailApp.sendEmail({
+    to: opcoes.to,
+    subject: opcoes.subject,
+    htmlBody: opcoes.htmlBody,
+    name: CONFIG.NOME_REMETENTE_EMAIL,
+    attachments: opcoes.attachments || []
+  });
 }
 
 /**
