@@ -91,3 +91,37 @@ function diagnostico() {
   Logger.log(texto);
   return texto;
 }
+
+/**
+ * Dispara um e-mail de teste (mesmo modelo da urgência de Tingimento) só
+ * para o endereço configurado na Propriedade do Script `EMAIL_TESTE` — não
+ * mexe em PENDENCIA_COMPRA nem usa a lista real de destinatários
+ * (EMAILS_COMPRA). Rode pelo editor (Executar → testarEnvioUrgencia) pra
+ * confirmar, sem afetar produção, que o e-mail sai certo depois de trocar a
+ * conta que executa o Web App (ver NOME_REMETENTE_EMAIL em Config.gs).
+ * Configure antes: Configurações do projeto → Propriedades do script →
+ * EMAIL_TESTE = endereço que deve receber o teste (ex.: o do master).
+ */
+function testarEnvioUrgencia() {
+  var emailTeste = PropertiesService.getScriptProperties().getProperty('EMAIL_TESTE');
+  if (!emailTeste) {
+    throw new Error(
+      'Configure a Propriedade do Script EMAIL_TESTE (Configurações do projeto → ' +
+      'Propriedades do script) com o e-mail que deve receber o teste.'
+    );
+  }
+  var dataFmt = Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm');
+  var detalhesTeste = [{
+    item: 'TESTE-000', descricao: 'Item fictício — só para testar o envio de e-mail',
+    cliente: '(teste)', dataUrgencia: '', qtdUrgencia: ''
+  }];
+  _enviarEmailSistema({
+    to: emailTeste,
+    subject: '[TESTE] Disparo de urgência — Tingimento',
+    htmlBody: _urgenciaTingimentoHTML(
+      detalhesTeste, CONFIG.getUnidadeInfo().rotulo.toUpperCase(), 'teste', dataFmt
+    )
+  });
+  Logger.log('E-mail de teste enviado para ' + emailTeste + '.');
+  return { ok: true, enviadoPara: emailTeste };
+}
