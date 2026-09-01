@@ -9,6 +9,16 @@ var CONFIG = {
   APP_NOME: 'Marfim · Relatório de Tingimento',
 
   /**
+   * Nome de exibição usado como remetente em todo e-mail disparado pelo
+   * sistema (Pedido de Fio, urgência, confirmação/cancelamento de embarque).
+   * O endereço real de quem envia continua sendo o da conta que fez o
+   * deploy do Web App (`executeAs: USER_DEPLOYING`, ver appsscript.json) —
+   * isto só troca o nome que aparece em destaque na caixa de entrada do
+   * destinatário, não o endereço.
+   */
+  NOME_REMETENTE_EMAIL: 'Solicitação de tingimento',
+
+  /**
    * Logo usado na tela (splash, login, topo) e nos e-mails (Pedido de Fio,
    * Confirmação de Embarque) — URL externa direta, mesma ideia (e mesmo
    * arquivo) do outro projeto Marfim: sem precisar manter um arquivo "Logo"
