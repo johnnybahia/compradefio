@@ -742,9 +742,8 @@ function enviarRelatorioCompra(token, numeroManual, dataFimAnalise) {
     .setName('Pedido de Fio Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
 
   var assunto = 'Pedido de Fio Marfim ' + unidade + ' nº ' + numero + ' - ' + dataFmt;
-  MailApp.sendEmail({
+  _enviarEmailSistema({
     to: lista.join(','),
-    name: CONFIG.NOME_REMETENTE_EMAIL,
     subject: assunto,
     htmlBody: '<p style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">Segue em anexo o Pedido ' +
       'de Fio Marfim ' + unidade + ' nº <b>' + numero + '</b>, emitido em <b>' + dataFmt + '</b>.</p>',
@@ -893,9 +892,8 @@ function enviarUrgenciaTingimento(token, params) {
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm');
-  MailApp.sendEmail({
+  _enviarEmailSistema({
     to: lista.join(','),
-    name: CONFIG.NOME_REMETENTE_EMAIL,
     subject: 'URGENTE · Prioridade de tingimento ' + unidade + ' — ' + detalhes.length + ' item(ns)',
     htmlBody: _urgenciaTingimentoHTML(detalhes, unidade, s.usuario, dataFmt)
   });

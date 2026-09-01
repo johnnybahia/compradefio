@@ -11,12 +11,26 @@ var CONFIG = {
   /**
    * Nome de exibição usado como remetente em todo e-mail disparado pelo
    * sistema (Pedido de Fio, urgência, confirmação/cancelamento de embarque).
-   * O endereço real de quem envia continua sendo o da conta que fez o
-   * deploy do Web App (`executeAs: USER_DEPLOYING`, ver appsscript.json) —
-   * isto só troca o nome que aparece em destaque na caixa de entrada do
-   * destinatário, não o endereço.
+   * Vale tanto enviando pelo endereço real quanto pelo alias abaixo — troca
+   * só o nome exibido, nunca o endereço.
    */
   NOME_REMETENTE_EMAIL: 'Solicitação de tingimento',
+
+  /**
+   * Alias verificado em "Enviar e-mail como" no Gmail da conta que fez o
+   * deploy do Web App (Configurações → Contas e importação) — é o único jeito
+   * de trocar de fato o endereço que aparece como remetente, já que o Web App
+   * sempre executa como essa conta (`executeAs: USER_DEPLOYING`, ver
+   * appsscript.json). Usado via GmailApp (ver `_enviarEmailSistema`, em
+   * Codigo.gs), que exige o escopo `gmail.send` no manifesto.
+   * Deixe '' (vazio) até terminar a verificação no Gmail — enquanto vazio,
+   * o envio cai automaticamente para MailApp (endereço real, comportamento
+   * de sempre). Só troque para 'tingimentomarfim@gmail.com' DEPOIS que esse
+   * endereço aparecer como "verificado" na lista do Gmail — preenchendo
+   * antes disso, o envio de e-mail passa a falhar (GmailApp recusa remetente
+   * não verificado).
+   */
+  EMAIL_REMETENTE: '',
 
   /**
    * Logo usado na tela (splash, login, topo) e nos e-mails (Pedido de Fio,
