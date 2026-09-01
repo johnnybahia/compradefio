@@ -9,14 +9,19 @@ var CONFIG = {
   APP_NOME: 'Marfim · Relatório de Tingimento',
 
   /**
-   * Nome de exibição usado como remetente em todo e-mail disparado pelo
-   * sistema (Pedido de Fio, urgência, confirmação/cancelamento de embarque).
-   * O endereço real de quem envia é sempre o da conta que fez o deploy do
-   * Web App (`executeAs: USER_DEPLOYING`, ver appsscript.json) — pra trocar
-   * o endereço de verdade, é preciso reimplantar o Web App logado com a
-   * conta desejada (ver README.md), não dá pra fazer só por config.
+   * Nome de exibição padrão usado como remetente nos e-mails do sistema
+   * (Pedido de Fio, urgência de tingimento — ver `_enviarEmailSistema` em
+   * Codigo.gs). O endereço real de quem envia é sempre o da conta que fez o
+   * deploy do Web App (`executeAs: USER_DEPLOYING`, ver appsscript.json) —
+   * pra trocar o endereço de verdade, é preciso reimplantar o Web App
+   * logado com a conta desejada (ver README.md), não dá pra fazer só por
+   * config; isto aqui só troca o nome exibido.
    */
   NOME_REMETENTE_EMAIL: 'Solicitação de tingimento',
+
+  /** Nome de exibição usado nos e-mails de confirmação/cancelamento de
+   * embarque (mesmo endereço real de sempre — ver NOME_REMETENTE_EMAIL). */
+  NOME_REMETENTE_EMBARQUE: 'Embarque de fio tingido',
 
   /**
    * Logo usado na tela (splash, login, topo) e nos e-mails (Pedido de Fio,

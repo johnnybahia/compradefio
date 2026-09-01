@@ -1364,6 +1364,7 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     .setName('Confirmacao de Embarque Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
   _enviarEmailSistema({
     to: lista.join(','),
+    nome: CONFIG.NOME_REMETENTE_EMBARQUE,
     subject: 'Confirmação de Embarque ' + unidade + ' nº ' + numero + ' - ' + dataFmt,
     htmlBody: '<p style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">Segue em anexo a Confirmação ' +
       'de Embarque ' + unidade + ' nº <b>' + numero + '</b>, de <b>' + dataFmt + '</b> — com os itens ' +
@@ -1917,6 +1918,7 @@ function cancelarEmbarque(token, numero, avisarEmail, devolverPendencia) {
       var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
       _enviarEmailSistema({
         to: lista.join(','),
+        nome: CONFIG.NOME_REMETENTE_EMBARQUE,
         subject: 'CANCELAMENTO de Embarque ' + unidade + ' nº ' + numero,
         htmlBody: _cancelamentoEmbarqueHTML(numero, itensRestaurar, unidade, s.usuario)
       });

@@ -25,15 +25,17 @@ function include(nome) {
  * confirmação/cancelamento de embarque — ver chamadas em Consultas.gs e
  * Embarque.gs). O endereço remetente é sempre o da conta que fez o deploy
  * do Web App (`executeAs: USER_DEPLOYING`, ver appsscript.json); só o nome
- * de exibição é customizado (`CONFIG.NOME_REMETENTE_EMAIL`).
- * @param {Object} opcoes { to, subject, htmlBody, attachments }
+ * de exibição é customizado — `opcoes.nome`, com `CONFIG.NOME_REMETENTE_EMAIL`
+ * como padrão quando não informado (ver `CONFIG.NOME_REMETENTE_EMBARQUE`
+ * para o nome usado nos e-mails de embarque).
+ * @param {Object} opcoes { to, subject, htmlBody, attachments, nome }
  */
 function _enviarEmailSistema(opcoes) {
   MailApp.sendEmail({
     to: opcoes.to,
     subject: opcoes.subject,
     htmlBody: opcoes.htmlBody,
-    name: CONFIG.NOME_REMETENTE_EMAIL,
+    name: opcoes.nome || CONFIG.NOME_REMETENTE_EMAIL,
     attachments: opcoes.attachments || []
   });
 }
