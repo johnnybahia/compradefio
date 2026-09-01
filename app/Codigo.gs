@@ -21,6 +21,24 @@ function include(nome) {
 }
 
 /**
+ * Envio de e-mail do sistema, centralizado (Pedido de Fio, urgência,
+ * confirmação/cancelamento de embarque — ver chamadas em Consultas.gs e
+ * Embarque.gs). O endereço remetente é sempre o da conta que fez o deploy
+ * do Web App (`executeAs: USER_DEPLOYING`, ver appsscript.json); só o nome
+ * de exibição é customizado (`CONFIG.NOME_REMETENTE_EMAIL`).
+ * @param {Object} opcoes { to, subject, htmlBody, attachments }
+ */
+function _enviarEmailSistema(opcoes) {
+  MailApp.sendEmail({
+    to: opcoes.to,
+    subject: opcoes.subject,
+    htmlBody: opcoes.htmlBody,
+    name: CONFIG.NOME_REMETENTE_EMAIL,
+    attachments: opcoes.attachments || []
+  });
+}
+
+/**
  * Informações do sistema para a interface (nome do app, papéis, rótulos).
  * Não exige sessão — apenas dados estáticos usados para montar a tela.
  */
@@ -72,4 +90,38 @@ function diagnostico() {
   var texto = linhas.join('\n');
   Logger.log(texto);
   return texto;
+}
+
+/**
+ * Dispara um e-mail de teste (mesmo modelo da urgência de Tingimento) só
+ * para o endereço configurado na Propriedade do Script `EMAIL_TESTE` — não
+ * mexe em PENDENCIA_COMPRA nem usa a lista real de destinatários
+ * (EMAILS_COMPRA). Rode pelo editor (Executar → testarEnvioUrgencia) pra
+ * confirmar, sem afetar produção, que o e-mail sai certo depois de trocar a
+ * conta que executa o Web App (ver NOME_REMETENTE_EMAIL em Config.gs).
+ * Configure antes: Configurações do projeto → Propriedades do script →
+ * EMAIL_TESTE = endereço que deve receber o teste (ex.: o do master).
+ */
+function testarEnvioUrgencia() {
+  var emailTeste = PropertiesService.getScriptProperties().getProperty('EMAIL_TESTE');
+  if (!emailTeste) {
+    throw new Error(
+      'Configure a Propriedade do Script EMAIL_TESTE (Configurações do projeto → ' +
+      'Propriedades do script) com o e-mail que deve receber o teste.'
+    );
+  }
+  var dataFmt = Utilities.formatDate(new Date(), 'America/Fortaleza', 'dd/MM/yyyy HH:mm');
+  var detalhesTeste = [{
+    item: 'TESTE-000', descricao: 'Item fictício — só para testar o envio de e-mail',
+    cliente: '(teste)', dataUrgencia: '', qtdUrgencia: ''
+  }];
+  _enviarEmailSistema({
+    to: emailTeste,
+    subject: '[TESTE] Disparo de urgência — Tingimento',
+    htmlBody: _urgenciaTingimentoHTML(
+      detalhesTeste, CONFIG.getUnidadeInfo().rotulo.toUpperCase(), 'teste', dataFmt
+    )
+  });
+  Logger.log('E-mail de teste enviado para ' + emailTeste + '.');
+  return { ok: true, enviadoPara: emailTeste };
 }
