@@ -490,6 +490,11 @@ function _consumoCruPorItens(itens) {
       };
     }
     acum[k][chave].peso += Number(r.QUANTIDADE) || 0;
+    // Saldo HISTÓRICO da NF logo após ESTA baixa (não o saldo atual da NF —
+    // ver comentário abaixo). `_lerBaixasFioCru` devolve as linhas na ordem
+    // em que foram gravadas (sempre em append, nunca reescritas), então a
+    // última linha lida pra este item+NF é a mais recente: fica valendo.
+    acum[k][chave].saldoApos = _numeroCelula(r.SALDO_NF_APOS);
   });
 
   Object.keys(acum).forEach(function (k) {
@@ -506,7 +511,14 @@ function _consumoCruPorItens(itens) {
         // (e de que nota) aquele fio entrou.
         precoUnitario: (lote && lote.precoUnitario) ? lote.precoUnitario : '',
         quantidadeNf: lote ? lote.quantidade : '',
-        saldoApos: lote ? lote.saldo : ''
+        // Saldo da NF logo após ESTA baixa (histórico, gravado na hora —
+        // `g.saldoApos`), NUNCA o saldo ATUAL da NF (`lote.saldo`): a NF pode
+        // ter sido zerada depois por baixas de OUTROS itens/embarques, e aí
+        // todo relatório antigo que a cita passaria a mostrar "0", como se
+        // cada embarque tivesse zerado ela de novo (bug reportado: baixa
+        // saindo de uma NF "já zerada"). Só cai pro saldo atual se por algum
+        // motivo a linha de baixa não tiver o histórico gravado (dado legado).
+        saldoApos: g.saldoApos !== '' && g.saldoApos != null ? g.saldoApos : (lote ? lote.saldo : '')
       });
     });
     res[k] = lista;
