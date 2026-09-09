@@ -334,6 +334,29 @@ function _baixarFioCru(tipoFio, quantidade, item, usuario) {
   if (!tipoFio) return { ok: false, mensagem: 'Item sem tipo de fio identificado — não é possível dar baixa no fio crú.' };
   if (quantidade <= 0) return { ok: false, mensagem: 'Informe uma quantidade tingida maior que zero.' };
 
+  // Trava a leitura do saldo + gravação da baixa: duas baixas disparadas quase
+  // juntas (ex.: vários itens do mesmo embarque, um atrás do outro) podiam
+  // ler o MESMO saldo antes da primeira gravar o resultado — a segunda então
+  // calculava em cima de um número desatualizado e "perdia" o desconto da
+  // primeira, inflando o saldo salvo (SALDO_NF_APOS). Foi assim que uma NF já
+  // esgotada voltou a aparecer com saldo em baixas seguintes.
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    return { ok: false, mensagem: 'Sistema ocupado dando baixa em outro lançamento agora — tente de novo em alguns segundos.' };
+  }
+  try {
+    return _baixarFioCruSemLock(tipoFio, quantidade, item, usuario);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Corpo de `_baixarFioCru`, SEM travar o lock — chame só de dentro de quem
+ * já garantiu exclusividade (a própria `_baixarFioCru`, ou `_ajustarBaixaFioCru`
+ * no ramo positivo, que delega pra `_baixarFioCru` — nunca aninhe o lock). */
+function _baixarFioCruSemLock(tipoFio, quantidade, item, usuario) {
   var tipoFioResolvido = _resolverTipoFioEstoque(tipoFio);
   var todos = _saldosFioCru()
     .filter(function (l) {
@@ -420,32 +443,47 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
     return { ok: true, tipoFio: baixa.tipoFio, diferenca: diferenca, lotes: baixa.lotes };
   }
 
-  var porItem = _lerBaixasFioCru()
-    .filter(function (r) { return _norm(r.ITEM) === _norm(item) && (Number(r.QUANTIDADE) || 0) > 0; })
-    .sort(function (a, b) {
-      var da = a.DATA_HORA instanceof Date ? a.DATA_HORA.getTime() : 0;
-      var db = b.DATA_HORA instanceof Date ? b.DATA_HORA.getTime() : 0;
-      return db - da; // mais recente primeiro
-    });
+  // Mesmo motivo do lock em `_baixarFioCru`: este ramo também lê o saldo
+  // atual (`_saldosFioCru()`) e grava em seguida — precisa da mesma exclusão
+  // mútua pra não perder o resultado de uma baixa/crédito concorrente. Ramo
+  // POSITIVO (acima) não trava aqui: já delega pra `_baixarFioCru`, que trava
+  // sozinha — travar os dois aninhado faria a chamada esperar o próprio lock.
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    return { ok: false, mensagem: 'Sistema ocupado ajustando outra baixa agora — tente de novo em alguns segundos.' };
+  }
+  try {
+    var porItem = _lerBaixasFioCru()
+      .filter(function (r) { return _norm(r.ITEM) === _norm(item) && (Number(r.QUANTIDADE) || 0) > 0; })
+      .sort(function (a, b) {
+        var da = a.DATA_HORA instanceof Date ? a.DATA_HORA.getTime() : 0;
+        var db = b.DATA_HORA instanceof Date ? b.DATA_HORA.getTime() : 0;
+        return db - da; // mais recente primeiro
+      });
 
-  var restante = -diferenca;
-  var agora = new Date();
-  var linhas = [], resultado = [];
-  for (var i = 0; i < porItem.length && restante > 0.001; i++) {
-    var r = porItem[i];
-    var credito = Math.min(Number(r.QUANTIDADE) || 0, restante);
-    restante -= credito;
-    var chaveLote = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
-    var loteAtual = _saldosFioCru().filter(function (l) { return l.chave === chaveLote; })[0];
-    var saldoApos = (loteAtual ? loteAtual.saldo : 0) + credito;
-    linhas.push([agora, r.TIPO_FIO, r.NF, r.DATA_NF, item, -credito, saldoApos, usuario || '']);
-    resultado.push({ tipoFio: r.TIPO_FIO, nf: r.NF, fornecedor: loteAtual ? (loteAtual.fornecedor || '') : '', dataNf: _soData(r.DATA_NF), quantidadeBaixada: -credito, saldoApos: saldoApos });
+    var restante = -diferenca;
+    var agora = new Date();
+    var linhas = [], resultado = [];
+    for (var i = 0; i < porItem.length && restante > 0.001; i++) {
+      var r = porItem[i];
+      var credito = Math.min(Number(r.QUANTIDADE) || 0, restante);
+      restante -= credito;
+      var chaveLote = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
+      var loteAtual = _saldosFioCru().filter(function (l) { return l.chave === chaveLote; })[0];
+      var saldoApos = (loteAtual ? loteAtual.saldo : 0) + credito;
+      linhas.push([agora, r.TIPO_FIO, r.NF, r.DATA_NF, item, -credito, saldoApos, usuario || '']);
+      resultado.push({ tipoFio: r.TIPO_FIO, nf: r.NF, fornecedor: loteAtual ? (loteAtual.fornecedor || '') : '', dataNf: _soData(r.DATA_NF), quantidadeBaixada: -credito, saldoApos: saldoApos });
+    }
+    if (linhas.length) {
+      var sh = _prepararFioCruBaixas();
+      sh.getRange(sh.getLastRow() + 1, 1, linhas.length, FIO_CRU_BAIXAS_HEADERS.length).setValues(linhas);
+    }
+    return { ok: true, tipoFio: tipoFio, diferenca: diferenca, lotes: resultado };
+  } finally {
+    lock.releaseLock();
   }
-  if (linhas.length) {
-    var sh = _prepararFioCruBaixas();
-    sh.getRange(sh.getLastRow() + 1, 1, linhas.length, FIO_CRU_BAIXAS_HEADERS.length).setValues(linhas);
-  }
-  return { ok: true, tipoFio: tipoFio, diferenca: diferenca, lotes: resultado };
 }
 
 /**
@@ -964,15 +1002,28 @@ function ajustarSaldoFioCru(token, linha, delta, motivo) {
   motivo = String(motivo || '').trim();
   if (!motivo) throw new Error('Informe o motivo do ajuste.');
 
-  var lote = _saldosFioCru().filter(function (l) { return l.linha === linha; })[0];
-  if (!lote) throw new Error('Lote não encontrado — a lista pode ter mudado, recarregue a tela.');
+  // Mesma trava de `_baixarFioCru`: lê o saldo atual e grava em seguida —
+  // sem lock, um ajuste manual concorrente com uma baixa podia calcular em
+  // cima de um saldo desatualizado e inflar o valor gravado.
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    throw new Error('Sistema ocupado dando baixa em outro lançamento agora — tente de novo em alguns segundos.');
+  }
+  try {
+    var lote = _saldosFioCru().filter(function (l) { return l.linha === linha; })[0];
+    if (!lote) throw new Error('Lote não encontrado — a lista pode ter mudado, recarregue a tela.');
 
-  var saldoApos = lote.saldo + delta;
-  var sh = _aba(CONFIG.SHEETS.FIO_CRU_AJUSTES, FIO_CRU_AJUSTES_HEADERS);
-  sh.getRange(sh.getLastRow() + 1, 1, 1, FIO_CRU_AJUSTES_HEADERS.length).setValues([[
-    new Date(), lote.tipoFio, lote.nf, lote.data || '', delta, motivo, saldoApos, s.usuario || ''
-  ]]);
-  return { ok: true, saldoApos: saldoApos };
+    var saldoApos = lote.saldo + delta;
+    var sh = _aba(CONFIG.SHEETS.FIO_CRU_AJUSTES, FIO_CRU_AJUSTES_HEADERS);
+    sh.getRange(sh.getLastRow() + 1, 1, 1, FIO_CRU_AJUSTES_HEADERS.length).setValues([[
+      new Date(), lote.tipoFio, lote.nf, lote.data || '', delta, motivo, saldoApos, s.usuario || ''
+    ]]);
+    return { ok: true, saldoApos: saldoApos };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Histórico de ajustes manuais de saldo (mais recente primeiro), pra tela de administração.
