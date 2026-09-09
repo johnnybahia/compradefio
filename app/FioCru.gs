@@ -225,6 +225,61 @@ function _saldosFioCru() {
   });
 }
 
+/**
+ * Saldo de CADA lote logo após CADA baixa/ajuste, recalculado por REPLAY
+ * cronológico — nunca lendo a coluna SALDO_NF_APOS gravada em cada linha.
+ *
+ * Existe por causa de um bug de concorrência já corrigido (ver o lock em
+ * `_baixarFioCru`/`_ajustarBaixaFioCru`/`ajustarSaldoFioCru`): duas baixas
+ * gravadas quase juntas podiam ler o saldo ao mesmo tempo e uma "perder" o
+ * desconto da outra — o SALDO_NF_APOS que ficou gravado em algumas linhas
+ * ANTIGAS está errado. A QUANTIDADE de cada linha em si nunca mentiu (é um
+ * fato — quanto foi baixado/ajustado naquele lançamento); só a "foto" do
+ * saldo que a linha carrega ficou desatualizada. Replay pega a quantidade
+ * ORIGINAL de cada lote e aplica toda baixa/ajuste NA ORDEM em que
+ * aconteceram de verdade, recalculando o saldo do zero — corrige a EXIBIÇÃO
+ * de qualquer linha antiga sem precisar editar uma vírgula na planilha.
+ *
+ * Empate no mesmo DATA_HORA (baixas em lote, gravadas no mesmo segundo)
+ * desempata pela ORDEM DE GRAVAÇÃO na planilha (__row) — é a ordem real de
+ * execução, mais confiável que o timestamp quando duas ações têm o mesmo
+ * segundo.
+ *
+ * @return {Object} { porBaixaLinha: {__row -> saldo}, porAjusteLinha: {__row -> saldo} }
+ */
+function _replaySaldoFioCru() {
+  var quantidadeOriginal = {}; // chave -> quantidade do lote
+  _lerLotesFioCru().forEach(function (l) { quantidadeOriginal[l.chave] = l.quantidade; });
+
+  var eventosPorChave = {}; // chave -> [{ordem, linha, tipo, delta}]
+  function registrarEvento(chave, ordem, linha, tipo, delta) {
+    if (!chave) return;
+    if (!eventosPorChave[chave]) eventosPorChave[chave] = [];
+    eventosPorChave[chave].push({ ordem: ordem, linha: linha, tipo: tipo, delta: delta });
+  }
+  _lerBaixasFioCru().forEach(function (r) {
+    var ordem = r.DATA_HORA instanceof Date ? r.DATA_HORA.getTime() : 0;
+    registrarEvento(_chaveLoteFioCru(r.TIPO_FIO, r.NF), ordem, r.__row, 'baixa', -(Number(r.QUANTIDADE) || 0));
+  });
+  lerRegistros(CONFIG.SHEETS.FIO_CRU_AJUSTES).forEach(function (r) {
+    var ordem = r.DATA_HORA instanceof Date ? r.DATA_HORA.getTime() : 0;
+    registrarEvento(_chaveLoteFioCru(r.TIPO_FIO, r.NF), ordem, r.__row, 'ajuste', Number(r.QUANTIDADE) || 0);
+  });
+
+  var porBaixaLinha = {}, porAjusteLinha = {};
+  Object.keys(eventosPorChave).forEach(function (chave) {
+    var saldo = quantidadeOriginal[chave] || 0;
+    eventosPorChave[chave]
+      .sort(function (a, b) { return (a.ordem - b.ordem) || (a.linha - b.linha); })
+      .forEach(function (ev) {
+        saldo += ev.delta;
+        if (ev.tipo === 'baixa') porBaixaLinha[ev.linha] = saldo;
+        else porAjusteLinha[ev.linha] = saldo;
+      });
+  });
+  return { porBaixaLinha: porBaixaLinha, porAjusteLinha: porAjusteLinha };
+}
+
 /** Associação tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de
  * fio crú: normalizado(TIPO_FIO_BASE) → TIPO_FIO_ESTOQUE. Universal (ver
  * `_ssAssociacaoFioCru`) — não depende da unidade ativa. */
@@ -511,6 +566,7 @@ function _consumoCruPorItens(itens) {
 
   var porChaveLote = {}; // saldo atual + fornecedor de cada lote
   _saldosFioCru().forEach(function (l) { porChaveLote[l.chave] = l; });
+  var replay = _replaySaldoFioCru().porBaixaLinha; // __row -> saldo, recalculado do zero (ver comentário abaixo)
 
   var acum = {}; // item -> chaveLote -> { tipoFio, nf, dataNf, peso }
   _lerBaixasFioCru().forEach(function (r) {
@@ -532,7 +588,7 @@ function _consumoCruPorItens(itens) {
     // ver comentário abaixo). `_lerBaixasFioCru` devolve as linhas na ordem
     // em que foram gravadas (sempre em append, nunca reescritas), então a
     // última linha lida pra este item+NF é a mais recente: fica valendo.
-    acum[k][chave].saldoApos = _numeroCelula(r.SALDO_NF_APOS);
+    acum[k][chave].saldoApos = replay[r.__row];
   });
 
   Object.keys(acum).forEach(function (k) {
@@ -549,13 +605,16 @@ function _consumoCruPorItens(itens) {
         // (e de que nota) aquele fio entrou.
         precoUnitario: (lote && lote.precoUnitario) ? lote.precoUnitario : '',
         quantidadeNf: lote ? lote.quantidade : '',
-        // Saldo da NF logo após ESTA baixa (histórico, gravado na hora —
-        // `g.saldoApos`), NUNCA o saldo ATUAL da NF (`lote.saldo`): a NF pode
-        // ter sido zerada depois por baixas de OUTROS itens/embarques, e aí
-        // todo relatório antigo que a cita passaria a mostrar "0", como se
-        // cada embarque tivesse zerado ela de novo (bug reportado: baixa
-        // saindo de uma NF "já zerada"). Só cai pro saldo atual se por algum
-        // motivo a linha de baixa não tiver o histórico gravado (dado legado).
+        // Saldo da NF logo após ESTA baixa, recalculado por REPLAY
+        // (`g.saldoApos`, de `_replaySaldoFioCru` — imune a qualquer
+        // SALDO_NF_APOS gravado errado por uma corrida antiga, ver
+        // `_replaySaldoFioCru`), NUNCA o saldo ATUAL da NF (`lote.saldo`): a
+        // NF pode ter sido zerada depois por baixas de OUTROS itens/
+        // embarques, e aí todo relatório antigo que a cita passaria a
+        // mostrar "0", como se cada embarque tivesse zerado ela de novo
+        // (bug reportado: baixa saindo de uma NF "já zerada"). Só cai pro
+        // saldo atual se por algum motivo o replay não achar a linha (não
+        // deve acontecer, é só defesa).
         saldoApos: g.saldoApos !== '' && g.saldoApos != null ? g.saldoApos : (lote ? lote.saldo : '')
       });
     });
@@ -1032,13 +1091,15 @@ function ajustarSaldoFioCru(token, linha, delta, motivo) {
 function listarAjustesFioCru(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var regs = lerRegistros(CONFIG.SHEETS.FIO_CRU_AJUSTES);
+  var replay = _replaySaldoFioCru().porAjusteLinha; // __row -> saldo recalculado (ver _replaySaldoFioCru)
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
       dataHora: _dataHoraCelula(r.DATA_HORA),
       tipoFio: _textoCelula(r.TIPO_FIO), nf: _textoCelula(r.NF), dataNf: _soData(r.DATA_NF),
       quantidade: _numeroCelula(r.QUANTIDADE), motivo: _textoCelula(r.MOTIVO),
-      saldoApos: _numeroCelula(r.SALDO_NF_APOS), usuario: _textoCelula(r.USUARIO)
+      saldoApos: replay.hasOwnProperty(r.__row) ? replay[r.__row] : _numeroCelula(r.SALDO_NF_APOS),
+      usuario: _textoCelula(r.USUARIO)
     };
   }).reverse();
   return { ok: true, linhas: linhas };
@@ -1050,13 +1111,15 @@ function listarAjustesFioCru(token) {
 function listarBaixasFioCru(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
   var regs = _lerBaixasFioCru();
+  var replay = _replaySaldoFioCru().porBaixaLinha; // __row -> saldo recalculado (ver _replaySaldoFioCru)
   var linhas = regs.map(function (r) {
     return {
       linha: r.__row,
       dataHora: _dataHoraCelula(r.DATA_HORA),
       tipoFio: _textoCelula(r.TIPO_FIO), nf: _textoCelula(r.NF), dataNf: _soData(r.DATA_NF),
       item: _textoCelula(r.ITEM), quantidade: _numeroCelula(r.QUANTIDADE),
-      saldoApos: _numeroCelula(r.SALDO_NF_APOS), usuario: _textoCelula(r.USUARIO)
+      saldoApos: replay.hasOwnProperty(r.__row) ? replay[r.__row] : _numeroCelula(r.SALDO_NF_APOS),
+      usuario: _textoCelula(r.USUARIO)
     };
   }).reverse();
   return { ok: true, linhas: linhas };
