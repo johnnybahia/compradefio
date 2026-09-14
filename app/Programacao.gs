@@ -1,10 +1,11 @@
 /**
  * Programacao.gs
  * Tela "Programação de Embarque": lista sozinha, toda vez que é aberta, as
- * cores (itens da aba ESTOQUE) com saldo crítico — negativo ou abaixo do
- * limite desta unidade (CONFIG.UNIDADES[].limiteSaldoCritico: 20 no Ceará,
- * 10 na Bahia) — para o master/Programação preencherem a data que precisam
- * daquele embarque.
+ * cores (itens da aba ESTOQUE que batem com algum tipo de fio da BASE
+ * TINGIMENTO) com saldo crítico — negativo ou abaixo do limite desta unidade
+ * (CONFIG.UNIDADES[].limiteSaldoCritico: 20 no Ceará, 10 na Bahia), já
+ * descontado o que está embarcado e a caminho — para o master/Programação
+ * preencherem a data que precisam daquele embarque.
  *
  * Essa data é a nova fonte de DATA_LIMITE usada pela Análise de Compra (ver
  * `_criarLocalizadorDataLimite`, Analise.gs) — substitui a antiga planilha
@@ -28,6 +29,23 @@ function _prepararProgramacaoEmbarque() {
   var sh = _aba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, PROGRAMACAO_DATA_EMBARQUE_HEADERS);
   sh.getRange(1, 1, sh.getMaxRows(), 1).setNumberFormat('@');
   return sh;
+}
+
+/**
+ * Trava de execução da aba PROGRAMACAO_DATA_EMBARQUE (mesmo padrão de
+ * `_travaEmbarque`, em Embarque.gs). Evita duas gravações quase simultâneas
+ * do MESMO item novo criarem linhas duplicadas, e evita que a limpeza feita
+ * por `listarCoresCriticas` reescreva a aba por cima de uma gravação
+ * concorrente de `salvarDataEmbarqueItem`.
+ */
+function _travaProgramacaoEmbarque() {
+  var lock = LockService.getScriptLock();
+  var pegou = false;
+  try { pegou = lock.tryLock(15000); } catch (e) { pegou = false; }
+  if (!pegou) {
+    throw new Error('Muita gente mexendo na Programação de Embarque agora. Tente de novo em alguns segundos.');
+  }
+  return lock;
 }
 
 /** norm(item) → { item, dataNecessaria, usuario, atualizadoEm, row }. */
@@ -73,33 +91,60 @@ function listarCoresCriticas(token) {
   _prepararProgramacaoEmbarque();
 
   var porItem = _saldoAtualPorItem();
+  // O que já está embarcado e a caminho conta a favor do saldo — mesmo
+  // critério da Análise de Compra ("soma ao saldo pra não pedir compra à
+  // toa"; ver `listarItensParaAnalise`, Analise.gs) — senão uma cor que já
+  // tem reposição chegando aparece como crítica à toa aqui.
+  var emViagem = _emViagemPorItem();
+  var tipoFioDe = _criarLocalizadorTipoFio();
   var descricaoDe = _criarLocalizadorDescricao();
-  var salvas = _lerDatasProgramacao();
 
   var criticoSet = {};
-  var itens = [];
+  var base = [];
   Object.keys(porItem).forEach(function (k) {
     var r = porItem[k];
-    if (r.saldo >= limite) return;
+    if (!tipoFioDe(r.item)) return; // não é uma cor de fio (ex.: código de outro controle)
+    var saldoAjustado = r.saldo + (emViagem[k] || 0);
+    if (saldoAjustado >= limite) return;
     criticoSet[k] = true;
-    var salvo = salvas[k];
-    itens.push({
-      item: r.item,
-      descricao: descricaoDe(r.item).descricao,
-      saldo: r.saldo,
-      negativo: r.saldo < 0,
+    base.push({ chave: k, item: r.item, saldo: saldoAjustado, negativo: saldoAjustado < 0 });
+  });
+
+  // Datas já salvas. Se alguma cor salva não está mais crítica, limpa — mas
+  // só entra na trava (e relê antes de escrever) quando isso é realmente
+  // necessário, pra não serializar toda leitura da tela por causa de uma
+  // limpeza que normalmente não acontece.
+  var salvas = _lerDatasProgramacao();
+  var chaves = Object.keys(salvas);
+  var precisaLimpar = chaves.some(function (k) { return !criticoSet[k]; });
+  if (precisaLimpar) {
+    var lock = _travaProgramacaoEmbarque();
+    try {
+      salvas = _lerDatasProgramacao(); // relê: pode ter mudado entre a leitura acima e a trava
+      chaves = Object.keys(salvas);
+      var restantes = chaves.filter(function (k) { return criticoSet[k]; }).map(function (k) { return salvas[k]; });
+      if (restantes.length !== chaves.length) {
+        reescreverAba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, PROGRAMACAO_DATA_EMBARQUE_HEADERS,
+          restantes.map(function (l) { return [l.item, l.dataNecessaria, l.usuario, l.atualizadoEm]; }));
+      }
+      salvas = {};
+      restantes.forEach(function (l) { salvas[_norm(l.item)] = l; });
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  var itens = base.map(function (b) {
+    var salvo = salvas[b.chave];
+    return {
+      item: b.item,
+      descricao: descricaoDe(b.item).descricao,
+      saldo: b.saldo,
+      negativo: b.negativo,
       dataNecessaria: salvo ? salvo.dataNecessaria : ''
-    });
+    };
   });
   itens.sort(function (a, b) { return a.saldo - b.saldo; });
-
-  // Limpa cores que saíram da condição crítica desde a última leitura.
-  var chaves = Object.keys(salvas);
-  var restantes = chaves.filter(function (k) { return criticoSet[k]; }).map(function (k) { return salvas[k]; });
-  if (restantes.length !== chaves.length) {
-    reescreverAba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, PROGRAMACAO_DATA_EMBARQUE_HEADERS,
-      restantes.map(function (l) { return [l.item, l.dataNecessaria, l.usuario, l.atualizadoEm]; }));
-  }
 
   return { ok: true, limite: limite, itens: itens };
 }
@@ -116,27 +161,32 @@ function salvarDataEmbarqueItem(token, item, data) {
   item = String(item == null ? '' : item).trim();
   if (!item) throw new Error('Informe a cor.');
   data = String(data == null ? '' : data).trim();
+  if (data && !_parseDataBR(data)) throw new Error('Data inválida (use dd/mm/aaaa).');
 
   _prepararProgramacaoEmbarque();
-  var linhaExistente = null;
-  lerRegistros(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).forEach(function (r) {
-    if (_norm(_itemDeCelula(r.ITEM)) === _norm(item)) linhaExistente = r.__row;
-  });
+  var lock = _travaProgramacaoEmbarque();
+  try {
+    var linhaExistente = null;
+    lerRegistros(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).forEach(function (r) {
+      if (_norm(_itemDeCelula(r.ITEM)) === _norm(item)) linhaExistente = r.__row;
+    });
 
-  if (!data) {
-    if (linhaExistente) _aba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).deleteRow(linhaExistente);
-    return { ok: true, apagado: true };
-  }
-  if (!_parseDataBR(data)) throw new Error('Data inválida (use dd/mm/aaaa).');
+    if (!data) {
+      if (linhaExistente) _aba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).deleteRow(linhaExistente);
+      return { ok: true, apagado: true };
+    }
 
-  if (linhaExistente) {
-    atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'DATA_NECESSARIA', data);
-    atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'USUARIO', s.usuario || '');
-    atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'ATUALIZADO_EM', new Date());
-  } else {
-    acrescentarRegistro(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE,
-      { ITEM: item, DATA_NECESSARIA: data, USUARIO: s.usuario || '', ATUALIZADO_EM: new Date() },
-      PROGRAMACAO_DATA_EMBARQUE_HEADERS);
+    if (linhaExistente) {
+      atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'DATA_NECESSARIA', data);
+      atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'USUARIO', s.usuario || '');
+      atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'ATUALIZADO_EM', new Date());
+    } else {
+      acrescentarRegistro(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE,
+        { ITEM: item, DATA_NECESSARIA: data, USUARIO: s.usuario || '', ATUALIZADO_EM: new Date() },
+        PROGRAMACAO_DATA_EMBARQUE_HEADERS);
+    }
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
   }
-  return { ok: true };
 }

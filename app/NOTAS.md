@@ -640,3 +640,42 @@ Implementado:
 precisam ser preenchidas de novo, na tela nova, por quem conhece esses
 prazos — não existe como recuperar isso automaticamente (a planilha externa
 não é mais lida).
+
+### Revisão antes de publicar: 4 riscos corrigidos
+
+Numa segunda passada (pedida pelo usuário: "sem bugs?"), a primeira versão
+tinha 4 problemas reais — nenhum de sintaxe, todos de comportamento:
+
+1. **Falso positivo por não descontar "em viagem".** A Análise de Compra soma
+   o que já está embarcado e a caminho ao saldo antes de decidir se é crítico
+   ("pra não pedir compra à toa" — texto da própria tela; ver
+   `listarItensParaAnalise`). A primeira versão de `listarCoresCriticas` usava
+   o saldo bruto do ESTOQUE, sem esse desconto — uma cor com saldo negativo
+   mas já reposta (embarque a caminho) aparecia como crítica à toa.
+   **Corrigido:** soma `_emViagemPorItem()` (Embarque.gs) ao saldo antes de
+   comparar com o limite, mesmo critério da Análise. Não força a reconciliação
+   de chegadas (`_atualizarChegadasEmbarque`, que pede um período) antes —
+   usa a SITUAÇÃO que já estiver gravada em EMBARQUES no momento; fica
+   levemente desatualizado só se a Análise de Compra não rodar há muito tempo.
+2. **Corrida em `salvarDataEmbarqueItem`.** Era um lê-depois-grava sem trava —
+   duas gravações quase simultâneas do MESMO item novo (sem linha ainda)
+   podiam criar linhas duplicadas. **Corrigido:** `_travaProgramacaoEmbarque`
+   (LockService, mesmo padrão de `_travaEmbarque`, Embarque.gs) em volta de
+   toda a função.
+3. **Corrida na limpeza.** A limpeza de linhas obsoletas (dentro de
+   `listarCoresCriticas`) reescrevia a aba inteira a partir de uma leitura já
+   feita — se rodasse no instante em que outro usuário salvava a data de um
+   item diferente, essa gravação se perdia. **Corrigido:** só entra na mesma
+   trava (e relê antes de escrever) quando existe algo pra limpar de verdade —
+   leitura comum (sem limpeza) continua sem trava, pra não serializar toda
+   abertura da tela à toa.
+4. **Sem filtro por tipo de fio.** Qualquer código do ESTOQUE com saldo baixo
+   entrava na lista, mesmo não sendo uma cor de fio de verdade (a Análise tem
+   esse filtro/rank; a tela nova não tinha). **Corrigido:** novo
+   `_criarLocalizadorTipoFio()` (`Tingimento.gs`, mesmo critério de casamento
+   de `_lotesTingimentoDoItem` — caso especial → padrão da BASE TINGIMENTO →
+   reserva do poliéster —, mas lendo a base só uma vez em vez de uma vez por
+   item) filtra fora quem não bate com nenhum tipo de fio. Diferente da
+   Análise de Compra (que mantém e só rebaixa esses itens na ordenação), aqui
+   eles são **excluídos** — o pedido foi por "os fios", não por "tudo que tem
+   saldo baixo no estoque".
