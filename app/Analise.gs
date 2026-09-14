@@ -46,7 +46,7 @@ var RELACAO_COMPRA_HEADERS = [
   'CONSUMO_MEDIO', // consumo médio mensal (saídas dos últimos 3 meses ÷ 3)
   'MAQUINAS',      // máquinas de tingimento escolhidas (ex.: "80 + 27")
   'SUGERIDO',      // total do tingimento em kg (soma das máquinas)
-  'DATA_LIMITE',   // data limite de embarque (PRIORIDADES DE FIO)
+  'DATA_LIMITE',   // data limite de embarque (tela Programação de Embarque)
   'OBS',           // observação digitada no painel de tingimento
   'EM_ABERTO',     // já solicitado e ainda não recebido
   'A_COMPRAR',     // diferença final a pedir (SUGERIDO - EM_ABERTO)
@@ -215,11 +215,11 @@ function listarItensParaAnalise(token, params) {
 }
 
 /**
- * Reconsulta a DATA LIMITE DE EMBARQUE de UM item, direto da aba PEDIDO DE FIO
- * — sem rodar a análise inteira de novo. Essa data vem de outra planilha
- * (PRIORIDADES DE FIO) e pode ser alterada por alguém enquanto a lista já
- * analisada continua aberta na tela; o botão de atualizar (na Análise de
- * Compra) chama esta função para trazer só o valor mais recente daquele item.
+ * Reconsulta a DATA LIMITE DE EMBARQUE de UM item, direto da aba
+ * PROGRAMACAO_DATA_EMBARQUE — sem rodar a análise inteira de novo. Essa data
+ * pode ser alterada por alguém na tela "Programação de Embarque" enquanto a
+ * lista já analisada continua aberta aqui; o botão de atualizar (na Análise
+ * de Compra) chama esta função para trazer só o valor mais recente daquele item.
  * @return {Object} { ok, dataLimite: 'dd/MM/aaaa' | '' }
  */
 function consultarDataLimiteItem(token, item) {
@@ -676,37 +676,19 @@ function _criarLocalizadorDescricao() {
 }
 
 /**
- * Cria o localizador da DATA LIMITE DE EMBARQUE, reproduzindo a fórmula da
- * coluna F de PEDIDO DE FIO: procura o código do item na coluna A da
- * PRIORIDADES DE FIO (importada nas colunas K/L) e devolve a data (coluna B).
+ * Cria o localizador da DATA LIMITE DE EMBARQUE a partir da aba
+ * PROGRAMACAO_DATA_EMBARQUE — preenchida na tela "Programação de Embarque"
+ * (ver Programacao.gs) pelo master/Programação, cor a cor. Substitui a fonte
+ * antiga (planilha externa PRIORIDADES DE FIO, importada nas colunas K/L de
+ * PEDIDO DE FIO), que não é mais consultada.
  * Devolve uma função dataLimite(codigo) → string 'dd/MM/aaaa' ('' se não há).
  */
 function _criarLocalizadorDataLimite() {
-  var mapa = {};
-  var sh = _aba(CONFIG.SHEETS.PEDIDO_FIO);
-  if (sh && sh.getLastRow() > 1) {
-    var vals = sh.getRange(1, 11, sh.getLastRow(), 2).getValues(); // colunas K, L
-    vals.forEach(function (row) {
-      var k = _norm(row[0]); // K = código (CORES)
-      var l = row[1];        // L = data limite
-      if (k && k !== 'cores' && l !== '' && l != null && !(k in mapa)) mapa[k] = l;
-    });
-  }
+  var mapa = _lerDatasProgramacao();
   return function (codigo) {
-    var k = _norm(codigo);
-    return _formatarDataLimite(k in mapa ? mapa[k] : '');
+    var r = mapa[_norm(codigo)];
+    return r ? r.dataNecessaria : '';
   };
-}
-
-/** Formata a data limite (Date ou serial) como dd/MM/aaaa; '' quando vazio. */
-function _formatarDataLimite(v) {
-  if (v === '' || v == null) return '';
-  var d = v;
-  if (typeof v === 'number') d = new Date(Math.round((v - 25569) * 86400000)); // serial do Sheets → Date
-  if (d instanceof Date && !isNaN(d.getTime())) {
-    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM/yyyy');
-  }
-  return String(v);
 }
 
 /** Normaliza texto para comparação (minúsculas, sem acento, sem espaços extras). */

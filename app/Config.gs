@@ -42,8 +42,10 @@ var CONFIG = {
   UNIDADES: [
     // cnpjPadrao (só dígitos) identifica a filial ao importar NF de fio crú;
     // pode ser sobrescrito por CNPJ_CEARA/CNPJ_BAHIA nas Propriedades do script.
-    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA', propCnpj: 'CNPJ_CEARA', cnpjPadrao: '19542918000190' },
-    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA', propCnpj: 'CNPJ_BAHIA', cnpjPadrao: '05645301000196' }
+    // limiteSaldoCritico: usado na tela "Programação de Embarque" (ver
+    // Programacao.gs) — cor com saldo abaixo disso entra na lista.
+    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA', propCnpj: 'CNPJ_CEARA', cnpjPadrao: '19542918000190', limiteSaldoCritico: 20 },
+    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA', propCnpj: 'CNPJ_BAHIA', cnpjPadrao: '05645301000196', limiteSaldoCritico: 10 }
   ],
 
   /** Unidade usada quando o login ainda não escolheu nenhuma. */
@@ -160,7 +162,8 @@ var CONFIG = {
     ASSOCIACAO_FIO_CRU: 'ASSOCIACAO_FIO_CRU', // tipo de fio (BASE TINGIMENTO) → descrição usada no estoque de fio crú
     FIO_CRU_AJUSTES: 'FIO_CRU_AJUSTES', // ajustes manuais de saldo (ex.: contagem física), nunca altera a QUANTIDADE original da NF
     MAPA_FIO_CRU: 'MAPA_FIO_CRU', // aprendizado: descrição do produto na NF → tipo de fio do estoque (universal)
-    EQUIVALENCIA_UNIDADES: 'EQUIVALENCIA_UNIDADES' // aprendizado: item de uma unidade ↔ item equivalente na outra (comparar estoque entre unidades)
+    EQUIVALENCIA_UNIDADES: 'EQUIVALENCIA_UNIDADES', // aprendizado: item de uma unidade ↔ item equivalente na outra (comparar estoque entre unidades)
+    PROGRAMACAO_DATA_EMBARQUE: 'PROGRAMACAO_DATA_EMBARQUE' // data que a Programação precisa de cada cor com saldo crítico (ver Programacao.gs) — substitui a antiga PRIORIDADES DE FIO
   },
 
   /** Duração da sessão (token de login), em horas. */

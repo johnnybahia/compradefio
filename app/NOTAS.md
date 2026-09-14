@@ -594,3 +594,49 @@ Isso não inventa uma descrição de verdade que nunca existiu — só evita que
 a AUSÊNCIA de descrição vire uma DATA sem sentido; quando a produção nunca
 descreveu o item em PEDIDO DE FIO, a tela volta a mostrar o próprio código
 da cor (como já mostrava antes de virar data), não um texto explicativo.
+
+## Nova tela "Programação de Embarque" (substitui a planilha PRIORIDADES DE FIO)
+
+Pedido do usuário: uma aba nova, só para master/Programação, que se atualiza
+sozinha todo dia com as cores em saldo crítico — negativo ou abaixo de um
+limite por unidade (**20 kg no Ceará, 10 kg na Bahia**) — para o responsável
+preencher ali mesmo a **data que precisa do embarque** de cada cor.
+
+Antes, essa data (`DATA_LIMITE`) vinha de uma planilha externa —
+**PRIORIDADES DE FIO** —, importada nas colunas K/L de `PEDIDO DE FIO` e lida
+por `_criarLocalizadorDataLimite` (`Analise.gs`). Por pedido explícito do
+usuário ("desativa pedido de fio"), essa leitura foi **desligada por
+completo**: a função agora lê só a aba nova `PROGRAMACAO_DATA_EMBARQUE`
+(`Programacao.gs`) — não há mais fallback para K/L. Item que só tinha data em
+PRIORIDADES DE FIO fica sem data até alguém preencher na tela nova (não dá
+pra migrar automaticamente sem acesso à planilha externa).
+
+Implementado:
+- `CONFIG.UNIDADES[].limiteSaldoCritico` (`Config.gs`) — 20 (Ceará) / 10
+  (Bahia), o limite que decide quem entra na lista.
+- `Programacao.gs` (arquivo novo):
+  - `listarCoresCriticas` — saldo mais recente por item (mesmo critério de
+    `_lerEstoque`/`listarItensParaAnalise`), filtra pelo limite da unidade
+    ativa, classifica `negativo` (saldo < 0, vermelho) vs saldo baixo (0 até
+    o limite, amarelo), junta a data já salva.
+  - `salvarDataEmbarqueItem` — grava/apaga a data de uma cor (upsert por
+    item). Só master/Programação.
+  - **Sem histórico de propósito**: toda leitura de `listarCoresCriticas`
+    limpa da aba qualquer cor que não está mais em condição crítica — junto
+    some a data que tinha sido preenchida. Se a mesma cor voltar a ficar
+    crítica depois, reaparece na lista **em branco** (confirmado com o
+    usuário: cada "crise" de saldo é um pedido novo, não é pra arrastar a
+    data de uma rodada anterior).
+- `_criarLocalizadorDataLimite` (`Analise.gs`) passa a ler daqui — efeito
+  colateral: a Análise de Compra e o Tingimento (que já mostravam/editavam
+  `DATA_LIMITE`) automaticamente passam a refletir o que for preenchido nesta
+  tela nova, sem mudar nada nesses dois fluxos.
+- Menu novo "Programação de Embarque" (`App.html`), para os papéis `master` e
+  `programacao` — "atualiza sozinha" quer dizer que a tela relê o saldo do
+  ESTOQUE ao vivo toda vez que abre (sem precisar clicar em nada, diferente
+  da Análise de Compra); não há gatilho agendado.
+
+**Ponto em aberto:** cores que hoje só tinham prazo em PRIORIDADES DE FIO
+precisam ser preenchidas de novo, na tela nova, por quem conhece esses
+prazos — não existe como recuperar isso automaticamente (a planilha externa
+não é mais lida).

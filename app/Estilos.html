@@ -281,6 +281,17 @@
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   table.dados tbody tr.destaque-saldo-baixo:hover { background: #EAD9FB; }
+  /* Programação de Embarque: vermelho = saldo negativo, amarelo = saldo baixo (ver Programacao.gs). */
+  table.dados tbody tr.linha-saldo-negativo {
+    background: #FCEDEC;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.dados tbody tr.linha-saldo-negativo:hover { background: #F9E2E0; }
+  table.dados tbody tr.linha-saldo-baixo {
+    background: #FCF3CF;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.dados tbody tr.linha-saldo-baixo:hover { background: #F9E9B0; }
   .qtd-input-grande {
     width: 90px; padding: 7px 8px; font-size: 14px; font-weight: 600;
     border: 1px solid var(--borda); border-radius: 6px; text-align: right;
