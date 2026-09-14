@@ -230,7 +230,12 @@
   }
   table.dados thead th {
     background: #F3F7FB; color: var(--azul-esc); font-weight: 600;
-    position: sticky; top: 60px; z-index: 5; /* logo abaixo do cabeçalho fixo (.topo, 60px) */
+    /* Gruda em top:0, mesma referência do cabeçalho do app (.topo, também
+       sticky) — como .topo tem z-index maior, ele cobre o cabeçalho da
+       tabela quando os dois coincidem no topo (em vez de "flutuar" no meio
+       da lista, que é o que dava com um top:60px fixo — a altura de .topo
+       não é sempre 60px, ex. quando o menu quebra linha). */
+    position: sticky; top: 0; z-index: 5;
   }
   table.dados tbody tr:hover { background: #F7FAFD; }
   table.dados tbody tr.destaque {
@@ -329,13 +334,9 @@
   .carregando { display: inline-block; color: var(--texto-fraco); font-size: 13px; }
 
   @media (max-width: 640px) {
-    .topo { height: auto; flex-wrap: wrap; padding: 10px 14px; gap: 10px; }
+    .topo { flex-wrap: wrap; padding: 10px 14px; gap: 10px; }
     .topo nav { order: 3; width: 100%; }
     main.conteudo { padding: 16px; }
-    /* .topo tem altura variável aqui (quebra em várias linhas) — sem um valor
-       fixo de "top" pra calcular, desliga o sticky do cabeçalho da tabela
-       nesse tamanho, pra nunca sobrepor o cabeçalho fixo do app. */
-    table.dados thead th { position: static; }
   }
 
   /* Impressão: mostra só o relatório (tabela), sem topo/menu/botões. */
