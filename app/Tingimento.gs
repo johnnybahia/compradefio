@@ -235,6 +235,39 @@ function _lotesTingimentoDoItem(item) {
 }
 
 /**
+ * Localizador leve do TIPO DE FIO de um item — mesmo critério de casamento de
+ * `_lotesTingimentoDoItem` (caso especial → padrão mais longo da BASE
+ * TINGIMENTO → reserva do poliéster), mas lendo a BASE TINGIMENTO só UMA VEZ
+ * (não uma vez por item, como `_lotesTingimentoDoItem`/`_tipoFioAtualDoItem`
+ * fazem) — para quem precisa classificar muitos itens de uma vez. Devolve ''
+ * quando o código não bate com nada, ou seja, não é uma cor de fio (mesmo
+ * critério usado por `_rankPrioridadeCompra`, em Analise.gs). Usado pela tela
+ * "Programação de Embarque" (Programacao.gs).
+ */
+function _criarLocalizadorTipoFio() {
+  var base = _lerBaseTingimento();
+  var poliester = null;
+  base.forEach(function (b) { if (b.patternNorm === 'poliester') poliester = b; });
+
+  return function (item) {
+    var it = _norm(item);
+    var caso = _casoEspecialTingimento(it);
+    if (caso) {
+      var temBaseEmprestada = base.some(function (b) { return b.patternNorm === _norm(caso.baseTingimento); });
+      if (temBaseEmprestada) return caso.tipoFio;
+    }
+    var achado = null;
+    base.forEach(function (b) {
+      if (b.patternNorm && it.indexOf(b.patternNorm) !== -1) {
+        if (!achado || b.patternNorm.length > achado.patternNorm.length) achado = b;
+      }
+    });
+    if (!achado && poliester && /^\d+( lavado)?$/.test(it)) achado = poliester;
+    return achado ? achado.tipoFio : '';
+  };
+}
+
+/**
  * Tipo de fio ATUAL de um item, batendo com a BASE TINGIMENTO agora — nunca
  * o que ficou gravado em PENDENCIA_COMPRA.TIPO_FIO na hora da análise
  * (Gerar compra). Esse valor gravado é um INSTANTÂNEO: se alguém cadastra

@@ -125,6 +125,7 @@ function podeEditar(papeisComEdicao) {
 /* Menu por papel. O master enxerga tudo; cada operador só o que é dele. */
 var MENUS = {
   master: [
+    { id: 'progembarque', rotulo: 'Programação de Embarque', render: viewProgramacaoEmbarque },
     { id: 'analise',    rotulo: 'Análise de Compra',  render: viewAnalise },
     { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
     { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
@@ -168,6 +169,7 @@ var MENUS = {
   // Programação: só VÊ Tingimento, Quantidade Tingida e Relatório (não edita).
   // Exceção: pode marcar prioridade e disparar a urgência na tela de Tingimento.
   programacao: [
+    { id: 'progembarque', rotulo: 'Programação de Embarque', render: viewProgramacaoEmbarque },
     { id: 'tingimento', rotulo: 'Tingimento',          render: viewTingimento },
     { id: 'qtdtingida', rotulo: 'Quantidade Tingida',  render: viewQuantidadeTingida },
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
@@ -261,6 +263,81 @@ function tratarErro(err) {
   var msg = (err && err.message) ? err.message : String(err);
   if (/sess[aã]o expirada/i.test(msg)) { sair(); return null; }
   return msg;
+}
+
+/* ------------------- view: Programação de Embarque ------------------ */
+// Lista sozinha, toda vez que a tela abre, as cores com saldo crítico
+// (negativo ou abaixo do limite desta unidade) — não depende de o usuário
+// clicar em nada pra atualizar (ver `listarCoresCriticas`, Programacao.gs).
+var estadoProgramacaoEmbarque = { itens: [], limite: null };
+
+function viewProgramacaoEmbarque(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>Programação de Embarque</h2>' +
+      blocoAjuda(
+        'Lista automática das cores com saldo crítico do estoque — sempre o saldo mais recente, sem ' +
+        'precisar analisar nada antes. <span style="color:#C0392B;font-weight:600">Vermelho</span>: ' +
+        'saldo negativo. <span style="color:#9A7D0A;font-weight:600">Amarelo</span>: saldo baixo, dentro ' +
+        'do limite desta unidade. Preencha a <b>data que precisa do embarque</b> de cada cor — é a mesma ' +
+        'data usada na Análise de Compra e no Tingimento (substitui a antiga planilha PRIORIDADES DE ' +
+        'FIO). Quando a cor sair dessa condição a linha some e a data se apaga; se ela voltar a ficar ' +
+        'crítica depois, reaparece em branco.'
+      ) +
+      '<div id="prog-embarque-msg"></div>' +
+      '<div class="tabela-wrap" id="tabela-prog-embarque"></div>' +
+    '</section>';
+  carregarProgramacaoEmbarque();
+}
+
+function carregarProgramacaoEmbarque() {
+  var wrap = document.getElementById('tabela-prog-embarque');
+  wrap.innerHTML = '<div class="vazio">Carregando…</div>';
+  chamar('listarCoresCriticas', sessao.token).then(function (r) {
+    estadoProgramacaoEmbarque = { itens: (r && r.itens) || [], limite: r ? r.limite : null };
+    renderProgramacaoEmbarque();
+  }).catch(function (err) {
+    wrap.innerHTML = '';
+    var m = tratarErro(err);
+    if (m) document.getElementById('prog-embarque-msg').innerHTML = '<div class="aviso erro">' + m + '</div>';
+  });
+}
+
+function renderProgramacaoEmbarque() {
+  var wrap = document.getElementById('tabela-prog-embarque');
+  var itens = estadoProgramacaoEmbarque.itens;
+  if (!itens.length) {
+    wrap.innerHTML = '<div class="vazio">Nenhuma cor em condição crítica no momento (limite desta ' +
+      'unidade: ' + num(estadoProgramacaoEmbarque.limite) + ' kg).</div>';
+    return;
+  }
+  var body = itens.map(function (it) {
+    return '<tr class="' + (it.negativo ? 'linha-saldo-negativo' : 'linha-saldo-baixo') + '">' +
+      '<td class="col-item">' + escAttr(it.item) + '</td>' +
+      '<td>' + (it.descricao ? escAttr(it.descricao) : '<span class="sem-desc">sem descrição</span>') + '</td>' +
+      '<td style="text-align:right">' + num(it.saldo) + '</td>' +
+      '<td><input type="date" class="data-input" data-item="' + escAttr(it.item) +
+        '" value="' + brParaISO(it.dataNecessaria) + '"></td>' +
+    '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<table class="dados"><thead><tr>' +
+      '<th style="width:15%">Cor</th><th style="width:45%">Descrição</th>' +
+      '<th style="text-align:right;width:15%">Saldo</th><th style="width:25%">Data que precisa do embarque</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+  Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
+    inp.addEventListener('change', function () {
+      var item = inp.getAttribute('data-item');
+      var novaData = isoParaBR(inp.value);
+      inp.style.borderColor = '#CBD5E1';
+      chamar('salvarDataEmbarqueItem', sessao.token, item, novaData).then(function () {
+        inp.style.borderColor = '#1F9D55';
+      }).catch(function (err) {
+        inp.style.borderColor = '#D0342C';
+        tratarErro(err);
+      });
+    });
+  });
 }
 
 /* -------------------------- view: análise ------------------------- */
