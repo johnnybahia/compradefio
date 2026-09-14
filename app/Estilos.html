@@ -111,6 +111,7 @@
     background: var(--azul); color: #fff;
     display: flex; align-items: center; gap: 16px;
     padding: 0 20px; height: 60px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+    position: sticky; top: 0; z-index: 40; /* nunca some atrás de uma lista longa ao rolar */
   }
   .topo .marca { display: flex; align-items: center; gap: 10px; }
   .topo .marca img { height: 30px; background: #fff; padding: 3px 6px; border-radius: 6px; }
@@ -229,7 +230,7 @@
   }
   table.dados thead th {
     background: #F3F7FB; color: var(--azul-esc); font-weight: 600;
-    position: sticky; top: 0;
+    position: sticky; top: 60px; z-index: 5; /* logo abaixo do cabeçalho fixo (.topo, 60px) */
   }
   table.dados tbody tr:hover { background: #F7FAFD; }
   table.dados tbody tr.destaque {
@@ -331,6 +332,10 @@
     .topo { height: auto; flex-wrap: wrap; padding: 10px 14px; gap: 10px; }
     .topo nav { order: 3; width: 100%; }
     main.conteudo { padding: 16px; }
+    /* .topo tem altura variável aqui (quebra em várias linhas) — sem um valor
+       fixo de "top" pra calcular, desliga o sticky do cabeçalho da tabela
+       nesse tamanho, pra nunca sobrepor o cabeçalho fixo do app. */
+    table.dados thead th { position: static; }
   }
 
   /* Impressão: mostra só o relatório (tabela), sem topo/menu/botões. */

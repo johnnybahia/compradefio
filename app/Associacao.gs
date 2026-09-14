@@ -198,7 +198,17 @@ function _transformarFio(codigo) {
  */
 function detectarItensNovos(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  return { ok: true, novos: _detectarItensNovosInterno() };
+}
 
+/**
+ * Mesma lógica de `detectarItensNovos`, sem checar sessão — para uso interno
+ * de outra função que já validou o chamador com um conjunto de papéis
+ * diferente/mais amplo (ex.: `listarCoresCriticas`, em Programacao.gs, que
+ * também é usada pelo papel Programação, não só master).
+ * @return {Array} [{ codigo, nomes }]
+ */
+function _detectarItensNovosInterno() {
   // Códigos já cadastrados (coluna A da ASSOCIAÇÃO), normalizados p/ comparação.
   // `_itemDeCelula` (Consultas.gs) recupera o código de uma célula que virou
   // Date (Sheets convertendo sozinho um código "cru" tipo "6271/1" ao gravar
@@ -238,7 +248,7 @@ function detectarItensNovos(token) {
       novos.push({ codigo: String(cod).trim(), nomes: nomes });
     });
   }
-  return { ok: true, novos: novos };
+  return novos;
 }
 
 /**
@@ -259,7 +269,16 @@ function detectarItensNovos(token) {
  */
 function registrarItensNovos(token) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
-  var novos = detectarItensNovos(token).novos;
+  return _registrarItensNovosInterno();
+}
+
+/**
+ * Mesma lógica de `registrarItensNovos`, sem checar sessão — ver
+ * `_detectarItensNovosInterno` (motivo é o mesmo: uso por `listarCoresCriticas`,
+ * em Programacao.gs).
+ */
+function _registrarItensNovosInterno() {
+  var novos = _detectarItensNovosInterno();
   if (!novos.length) {
     return { ok: true, adicionados: 0, itens: [], mensagem: 'Nenhum item novo a cadastrar.' };
   }

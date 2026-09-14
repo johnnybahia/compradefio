@@ -679,3 +679,48 @@ tinha 4 problemas reais — nenhum de sintaxe, todos de comportamento:
    Análise de Compra (que mantém e só rebaixa esses itens na ordenação), aqui
    eles são **excluídos** — o pedido foi por "os fios", não por "tudo que tem
    saldo baixo no estoque".
+
+### Feedback de uso: descrição sumida, cabeçalho escondido, janela de 2 semanas
+
+Reportado pelo usuário depois de olhar a tela de verdade: (1) a coluna
+Descrição vinha vazia pra várias cores; (2) o cabeçalho do app (onde ficam as
+abas/menu) sumia da tela; (3) pedido novo — a lista deve considerar sempre as
+últimas 2 semanas, mantendo quem já tem data preenchida mesmo fora dessa janela.
+
+1. **Descrição vazia — causa real.** `listarItensParaAnalise` (Análise de
+   Compra) chama `registrarItensNovos` ANTES de montar a lista — cadastra
+   sozinho, na ASSOCIAÇÃO, qualquer código que apareceu na produção
+   (PEDIDO DE FIO) e ainda não tinha cadastro, com um nome palpite. Uma cor
+   crítica cujo código é recente (nunca passou por uma rodada de Análise)
+   ficava sem NENHUMA descrição aqui, porque `listarCoresCriticas` pulava
+   esse passo. **Corrigido:** `registrarItensNovos`/`detectarItensNovos`
+   (`Associacao.gs`) foram divididos em uma versão pública (só master, igual
+   antes) e uma interna sem checagem de sessão (`_registrarItensNovosInterno`/
+   `_detectarItensNovosInterno`) — `listarCoresCriticas` chama a interna,
+   porque a pública travaria pro papel Programação (não é master). Também
+   passou a expor `motivo` (por que não tem descrição — "sem cadastro" vs.
+   "cadastrado, sem descrição na produção") e a tela mostra esse motivo em vez
+   de um genérico "sem descrição", igual ao padrão já usado na Análise de
+   Compra (`App.html`, linha ~988).
+2. **Cabeçalho sumindo ao rolar.** `.topo` (o cabeçalho com as abas/menu,
+   `Index.html`) nunca foi `sticky` — ele rola junto com a página como
+   qualquer elemento normal. Isso sempre existiu em toda tela do sistema, só
+   que a lista de cores críticas (sem filtro de período até aqui) provavelmente
+   era grande o bastante pra exigir rolar bastante, e a tabela TEM cabeçalho
+   sticky (`table.dados thead th`) — rolando, o cabeçalho da TABELA gruda no
+   topo por cima de onde o cabeçalho do APP (com as abas) já tinha ido embora
+   rolando, dando a impressão de "cabeçalho escondido". **Corrigido:** `.topo`
+   agora é `position: sticky; top: 0` (nunca mais sai da tela rolando) e o
+   cabeçalho da tabela passou a colar em `top: 60px` (logo abaixo do cabeçalho
+   do app), não mais em `top: 0` — os dois ficam visíveis ao mesmo tempo.
+   Abaixo de 640px de largura (`.topo` quebra em várias linhas, altura
+   variável) o cabeçalho da tabela volta a ser normal (sem sticky), porque não
+   dá pra calcular um `top` fixo pra ele nesse tamanho — evita sobrepor o
+   cabeçalho do app por engano.
+3. **Janela de 2 semanas.** `PROGRAMACAO_JANELA_DIAS = 14` (`Programacao.gs`)
+   — uma cor só entra na lista se teve lançamento no ESTOQUE nesse período,
+   OU já tem uma data preenchida (aí entra mesmo sem movimento recente, pra
+   não sumir um item que a Programação já está acompanhando, ex.: já tingido,
+   só esperando o embarque). Sai da lista (e a data se apaga) só quando o
+   saldo deixar de ser crítico — a janela de dias não é, sozinha, motivo de
+   limpeza.

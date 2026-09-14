@@ -276,13 +276,15 @@ function viewProgramacaoEmbarque(alvo) {
     '<section class="painel">' +
       '<h2>Programação de Embarque</h2>' +
       blocoAjuda(
-        'Lista automática das cores com saldo crítico do estoque — sempre o saldo mais recente, sem ' +
-        'precisar analisar nada antes. <span style="color:#C0392B;font-weight:600">Vermelho</span>: ' +
-        'saldo negativo. <span style="color:#9A7D0A;font-weight:600">Amarelo</span>: saldo baixo, dentro ' +
-        'do limite desta unidade. Preencha a <b>data que precisa do embarque</b> de cada cor — é a mesma ' +
-        'data usada na Análise de Compra e no Tingimento (substitui a antiga planilha PRIORIDADES DE ' +
-        'FIO). Quando a cor sair dessa condição a linha some e a data se apaga; se ela voltar a ficar ' +
-        'crítica depois, reaparece em branco.'
+        'Lista automática das cores com saldo crítico do estoque, com lançamento nas <b>últimas 2 ' +
+        'semanas</b> — sempre o saldo mais recente, sem precisar analisar nada antes. ' +
+        '<span style="color:#C0392B;font-weight:600">Vermelho</span>: saldo negativo. ' +
+        '<span style="color:#9A7D0A;font-weight:600">Amarelo</span>: saldo baixo, dentro do limite desta ' +
+        'unidade. Preencha a <b>data que precisa do embarque</b> de cada cor — é a mesma data usada na ' +
+        'Análise de Compra e no Tingimento (substitui a antiga planilha PRIORIDADES DE FIO). Uma cor que ' +
+        'já tem data preenchida continua na lista mesmo sem lançamento recente — só sai quando o saldo ' +
+        'deixar de ser crítico; aí a data também se apaga, e se ela voltar a ficar crítica depois, ' +
+        'reaparece em branco.'
       ) +
       '<div id="prog-embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-prog-embarque"></div>' +
@@ -307,14 +309,15 @@ function renderProgramacaoEmbarque() {
   var wrap = document.getElementById('tabela-prog-embarque');
   var itens = estadoProgramacaoEmbarque.itens;
   if (!itens.length) {
-    wrap.innerHTML = '<div class="vazio">Nenhuma cor em condição crítica no momento (limite desta ' +
-      'unidade: ' + num(estadoProgramacaoEmbarque.limite) + ' kg).</div>';
+    wrap.innerHTML = '<div class="vazio">Nenhuma cor em condição crítica nas últimas 2 semanas ' +
+      '(limite desta unidade: ' + num(estadoProgramacaoEmbarque.limite) + ' kg).</div>';
     return;
   }
   var body = itens.map(function (it) {
     return '<tr class="' + (it.negativo ? 'linha-saldo-negativo' : 'linha-saldo-baixo') + '">' +
       '<td class="col-item">' + escAttr(it.item) + '</td>' +
-      '<td>' + (it.descricao ? escAttr(it.descricao) : '<span class="sem-desc">sem descrição</span>') + '</td>' +
+      '<td>' + (it.descricao ? escAttr(it.descricao)
+        : '<span class="sem-desc">— ' + escAttr(it.motivo || 'sem descrição') + '</span>') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
       '<td><input type="date" class="data-input" data-item="' + escAttr(it.item) +
         '" value="' + brParaISO(it.dataNecessaria) + '"></td>' +

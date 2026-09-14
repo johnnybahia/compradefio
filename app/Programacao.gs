@@ -2,7 +2,8 @@
  * Programacao.gs
  * Tela "Programação de Embarque": lista sozinha, toda vez que é aberta, as
  * cores (itens da aba ESTOQUE que batem com algum tipo de fio da BASE
- * TINGIMENTO) com saldo crítico — negativo ou abaixo do limite desta unidade
+ * TINGIMENTO, com lançamento nas últimas PROGRAMACAO_JANELA_DIAS dias) com
+ * saldo crítico — negativo ou abaixo do limite desta unidade
  * (CONFIG.UNIDADES[].limiteSaldoCritico: 20 no Ceará, 10 na Bahia), já
  * descontado o que está embarcado e a caminho — para o master/Programação
  * preencherem a data que precisam daquele embarque.
@@ -14,10 +15,18 @@
  *
  * A lista não guarda histórico: quando uma cor deixa de estar em condição
  * crítica, sua linha (e a data preenchida) é apagada daqui — se ela voltar a
- * ficar crítica depois, reaparece na lista em branco, como uma necessidade nova.
+ * ficar crítica depois, reaparece na lista em branco, como uma necessidade
+ * nova. Exceção: uma cor que JÁ tem data preenchida continua aparecendo
+ * mesmo sem lançamento recente no ESTOQUE (só sai quando o saldo deixar de
+ * ser crítico) — pra não sumir da lista um item que a Programação já está
+ * acompanhando só porque ele não teve movimento nesses dias (ex.: já tingido,
+ * parado esperando o embarque).
  */
 
 var PROGRAMACAO_DATA_EMBARQUE_HEADERS = ['ITEM', 'DATA_NECESSARIA', 'USUARIO', 'ATUALIZADO_EM'];
+
+/** Janela de "movimento recente" para uma cor entrar na lista (2 semanas). */
+var PROGRAMACAO_JANELA_DIAS = 14;
 
 /**
  * Garante que a aba existe e trava a coluna ITEM em texto puro — senão o
@@ -83,12 +92,20 @@ function _saldoAtualPorItem() {
  * Lista as cores em condição crítica na unidade ativa, com a data já
  * preenchida (se houver), e limpa da aba PROGRAMACAO_DATA_EMBARQUE qualquer
  * cor que não está mais crítica — ver docstring do arquivo.
- * @return {Object} { ok, limite, itens: [{item, descricao, saldo, negativo, dataNecessaria}] }
+ * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, negativo, dataNecessaria}] }
  */
 function listarCoresCriticas(token) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
   var limite = CONFIG.getUnidadeInfo(s.unidade).limiteSaldoCritico;
   _prepararProgramacaoEmbarque();
+
+  // Mantém a ASSOCIAÇÃO em dia (mesmo passo que `listarItensParaAnalise` já
+  // faz) — sem isso, uma cor crítica cujo código é novo na produção (ainda
+  // não passou pela Análise de Compra) aparecia sem NENHUMA descrição aqui,
+  // mesmo tendo uma perfeitamente disponível em PEDIDO DE FIO. Usa a versão
+  // interna (sem checar sessão de novo) porque a pública é só-master, e esta
+  // tela também é usada pelo papel Programação.
+  _registrarItensNovosInterno();
 
   var porItem = _saldoAtualPorItem();
   // O que já está embarcado e a caminho conta a favor do saldo — mesmo
@@ -99,6 +116,10 @@ function listarCoresCriticas(token) {
   var tipoFioDe = _criarLocalizadorTipoFio();
   var descricaoDe = _criarLocalizadorDescricao();
 
+  var salvasIniciais = _lerDatasProgramacao();
+  var corte = new Date();
+  corte = new Date(corte.getFullYear(), corte.getMonth(), corte.getDate() - PROGRAMACAO_JANELA_DIAS);
+
   var criticoSet = {};
   var base = [];
   Object.keys(porItem).forEach(function (k) {
@@ -106,6 +127,11 @@ function listarCoresCriticas(token) {
     if (!tipoFioDe(r.item)) return; // não é uma cor de fio (ex.: código de outro controle)
     var saldoAjustado = r.saldo + (emViagem[k] || 0);
     if (saldoAjustado >= limite) return;
+    var recente = r.data.getTime() >= corte.getTime();
+    // Sem movimento nas últimas 2 semanas, só entra se já tem data preenchida
+    // (ver docstring do arquivo) — senão fica de fora, pra não acumular
+    // código parado há tempos.
+    if (!recente && !salvasIniciais[k]) return;
     criticoSet[k] = true;
     base.push({ chave: k, item: r.item, saldo: saldoAjustado, negativo: saldoAjustado < 0 });
   });
@@ -114,16 +140,21 @@ function listarCoresCriticas(token) {
   // só entra na trava (e relê antes de escrever) quando isso é realmente
   // necessário, pra não serializar toda leitura da tela por causa de uma
   // limpeza que normalmente não acontece.
-  var salvas = _lerDatasProgramacao();
+  var salvas = salvasIniciais;
   var chaves = Object.keys(salvas);
   var precisaLimpar = chaves.some(function (k) { return !criticoSet[k]; });
   if (precisaLimpar) {
     var lock = _travaProgramacaoEmbarque();
     try {
-      salvas = _lerDatasProgramacao(); // relê: pode ter mudado entre a leitura acima e a trava
-      chaves = Object.keys(salvas);
-      var restantes = chaves.filter(function (k) { return criticoSet[k]; }).map(function (k) { return salvas[k]; });
-      if (restantes.length !== chaves.length) {
+      var salvasFrescas = _lerDatasProgramacao(); // relê: pode ter mudado entre a leitura acima e a trava
+      // Mantém quem está crítico OU quem apareceu/mudou depois da leitura
+      // inicial (pode ter sido salvo agora mesmo por outra pessoa, num item
+      // que nossa decisão de "crítico" não viu) — nunca apaga o que não foi
+      // considerado na decisão; sobra pra próxima leitura reavaliar.
+      var restantes = Object.keys(salvasFrescas).filter(function (k) {
+        return criticoSet[k] || !salvasIniciais[k];
+      }).map(function (k) { return salvasFrescas[k]; });
+      if (restantes.length !== Object.keys(salvasFrescas).length) {
         reescreverAba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, PROGRAMACAO_DATA_EMBARQUE_HEADERS,
           restantes.map(function (l) { return [l.item, l.dataNecessaria, l.usuario, l.atualizadoEm]; }));
       }
@@ -136,9 +167,11 @@ function listarCoresCriticas(token) {
 
   var itens = base.map(function (b) {
     var salvo = salvas[b.chave];
+    var d = descricaoDe(b.item);
     return {
       item: b.item,
-      descricao: descricaoDe(b.item).descricao,
+      descricao: d.descricao,
+      motivo: d.motivo,
       saldo: b.saldo,
       negativo: b.negativo,
       dataNecessaria: salvo ? salvo.dataNecessaria : ''
