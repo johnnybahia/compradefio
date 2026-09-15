@@ -319,7 +319,7 @@ function renderProgramacaoEmbarque() {
       '<td>' + (it.descricao ? escAttr(it.descricao)
         : '<span class="sem-desc">— ' + escAttr(it.motivo || 'sem descrição') + '</span>') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
-      '<td><input type="date" class="data-input" data-item="' + escAttr(it.item) +
+      '<td><input type="date" class="data-input" readonly data-item="' + escAttr(it.item) +
         '" value="' + brParaISO(it.dataNecessaria) + '"></td>' +
     '</tr>';
   }).join('');
