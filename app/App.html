@@ -305,6 +305,15 @@ function carregarProgramacaoEmbarque() {
   });
 }
 
+/** Horas entre agora e 00:00 do dia informado (ISO 'aaaa-MM-dd'). Negativo
+ * quando o dia já começou/passou. Infinity se `isoStr` não for uma data. */
+function _horasAteMeiaNoite(isoStr) {
+  var m = String(isoStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return Infinity;
+  var alvo = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return (alvo.getTime() - Date.now()) / 3600000;
+}
+
 function renderProgramacaoEmbarque() {
   var wrap = document.getElementById('tabela-prog-embarque');
   var itens = estadoProgramacaoEmbarque.itens;
@@ -336,16 +345,42 @@ function renderProgramacaoEmbarque() {
     inp.addEventListener('keydown', function (e) {
       if (e.key !== 'Tab') e.preventDefault();
     });
+    // Guarda o valor antes da troca, pra poder reverter se o usuário cancelar
+    // o aviso de prazo curto (ver `change` abaixo).
+    inp.addEventListener('focus', function () {
+      inp.setAttribute('data-valor-anterior', inp.value);
+    });
     inp.addEventListener('change', function () {
       var item = inp.getAttribute('data-item');
-      var novaData = isoParaBR(inp.value);
-      inp.style.borderColor = '#CBD5E1';
-      chamar('salvarDataEmbarqueItem', sessao.token, item, novaData).then(function () {
-        inp.style.borderColor = '#1F9D55';
-      }).catch(function (err) {
-        inp.style.borderColor = '#D0342C';
-        tratarErro(err);
-      });
+      var valorAnterior = inp.getAttribute('data-valor-anterior') || '';
+      function salvar() {
+        var novaData = isoParaBR(inp.value);
+        inp.style.borderColor = '#CBD5E1';
+        chamar('salvarDataEmbarqueItem', sessao.token, item, novaData).then(function () {
+          inp.style.borderColor = '#1F9D55';
+        }).catch(function (err) {
+          inp.style.borderColor = '#D0342C';
+          tratarErro(err);
+        });
+      }
+      // Menos de 48h reais até o início do dia escolhido (garantidas em
+      // qualquer hora do dia de hoje) — avisa, mas não bloqueia: quem
+      // confirmar sabe que o prazo é apertado; quem cancelar volta pro valor
+      // anterior sem salvar nada.
+      if (inp.value && _horasAteMeiaNoite(inp.value) < 48) {
+        confirmarModal(
+          'Prazo curto demais?',
+          'A data escolhida (<b>' + escAttr(isoParaBR(inp.value)) + '</b>) está a menos de ' +
+          '<b>48 horas</b> de agora — pode não dar tempo de preparar e embarcar esse item. ' +
+          'Confira se é a data certa antes de confirmar.',
+          'Confirmar mesmo assim', 'Cancelar',
+          function (ok) {
+            if (ok) { salvar(); } else { inp.value = valorAnterior; }
+          }
+        );
+      } else {
+        salvar();
+      }
     });
   });
 }
