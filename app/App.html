@@ -319,7 +319,7 @@ function renderProgramacaoEmbarque() {
       '<td>' + (it.descricao ? escAttr(it.descricao)
         : '<span class="sem-desc">— ' + escAttr(it.motivo || 'sem descrição') + '</span>') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
-      '<td><input type="date" class="data-input" readonly data-item="' + escAttr(it.item) +
+      '<td><input type="date" class="data-input" data-item="' + escAttr(it.item) +
         '" value="' + brParaISO(it.dataNecessaria) + '"></td>' +
     '</tr>';
   }).join('');
@@ -329,6 +329,13 @@ function renderProgramacaoEmbarque() {
       '<th style="text-align:right;width:15%">Saldo</th><th style="width:25%">Data que precisa do embarque</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
+    // Bloqueia digitação (a causa dos erros de data) sem tirar o campo do
+    // navegador: `readonly` desativaria também o ícone/abertura do calendário
+    // no Chrome, então em vez disso barra o teclado e deixa o clique livre —
+    // é o clique que abre o seletor. Tab continua liberado pra navegação.
+    inp.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab') e.preventDefault();
+    });
     inp.addEventListener('change', function () {
       var item = inp.getAttribute('data-item');
       var novaData = isoParaBR(inp.value);
