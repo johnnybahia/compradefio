@@ -67,7 +67,7 @@ var RELACAO_COMPRA_HEADERS = [
                             // Confirmar Embarque — ela só vê e só pode confirmar exatamente o que
                             // foi liberado (ver `liberarParaEmbarque`, em Consultas.gs, e o filtro
                             // em `carregarListaConfirmarEmbarque`, no cliente).
-  'TINGIDO_BASELINE'       // quanto do histórico de tingido do item já foi EMBARCADO até aqui —
+  'TINGIDO_BASELINE',      // quanto do histórico de tingido do item já foi EMBARCADO até aqui —
                             // avança exatamente pela quantidade confirmada em cada embarque (ver
                             // `_baixarPendenciaCompraPorEmbarque`, em Embarque.gs), nunca pelo
                             // total tingido inteiro — assim, se sobrar uma parte tingida mas ainda
@@ -75,6 +75,12 @@ var RELACAO_COMPRA_HEADERS = [
                             // próxima vez, em vez de sumir junto com o que já embarcou. O "Já
                             // tingido" mostrado pro usuário é sempre o total histórico MENOS este
                             // valor (ver `obterListaFioParaTingir`, em FioCru.gs).
+  'ID_LINHA'               // identificador estável da linha (UUID), independente da posição na
+                            // planilha. Gerado uma vez (`gerarRelacaoDeCompra`) e preservado em
+                            // toda substituição — é o que a tela de Tingimento manda de volta pra
+                            // remover/editar/marcar urgência num item, em vez da posição física
+                            // (que desloca a cada exclusão e pode apontar pro item errado depois
+                            // de mais de uma remoção sem recarregar a tela).
 ];
 
 /**
@@ -292,17 +298,24 @@ function gerarRelacaoDeCompra(token, params) {
 
   // Linha atual (se houver) de cada [código + data limite] já pendente, pra
   // decidir substituir em vez de duplicar. Mesma data (inclusive as duas
-  // vazias) = mesmo pedido; data diferente = pedido à parte.
+  // vazias) = mesmo pedido; data diferente = pedido à parte. Guarda também o
+  // ID_LINHA já gravado: a substituição PRECISA preservar esse ID (é o que a
+  // tela de Tingimento usa pra remover/editar o item certo) — gerar um novo a
+  // cada correção de compra quebraria essa identidade.
   var linhaPorChave = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
     var chave = _chaveItemData(_itemDeCelula(r.ITEM), r.DATA_LIMITE);
-    if (chave) linhaPorChave[chave] = r.__row;
+    if (chave) linhaPorChave[chave] = { row: r.__row, id: r.ID_LINHA };
   });
 
   // EM_ABERTO/A_COMPRAR ficam vazios por ora (uso futuro); STATUS nasce ABERTO.
   var novas = [];
   var substituidas = 0;
   itens.forEach(function (it) {
+    var existente = linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
+    // Preserva o ID_LINHA já gravado numa substituição; gera um novo só pra
+    // linha que está entrando pela primeira vez.
+    var idLinha = (existente && existente.id) ? existente.id : Utilities.getUuid();
     var linha = [
       it.item || '',
       it.descricao || '',
@@ -324,11 +337,11 @@ function gerarRelacaoDeCompra(token, params) {
       '',                       // EMBARQUE_QTD_RASCUNHO (rascunho nasce vazio)
       '',                       // EMBARQUE_OBS_RASCUNHO (rascunho nasce vazio)
       '',                       // PRONTO_EMBARQUE (nasce vazio — ainda não confirmado pelo Tingimento)
-      ''                        // TINGIDO_BASELINE (nasce vazio — linha nova, sem saldo residual)
+      '',                       // TINGIDO_BASELINE (nasce vazio — linha nova, sem saldo residual)
+      idLinha                   // ID_LINHA
     ];
-    var linhaExistente = linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
-    if (linhaExistente) {
-      sh.getRange(linhaExistente, 1, 1, RELACAO_COMPRA_HEADERS.length).setValues([linha]);
+    if (existente) {
+      sh.getRange(existente.row, 1, 1, RELACAO_COMPRA_HEADERS.length).setValues([linha]);
       substituidas++;
     } else {
       novas.push(linha);
