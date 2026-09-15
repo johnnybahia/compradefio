@@ -142,6 +142,7 @@ function obterListaTingimento(token) {
     var viagem = emViagem[_norm(_itemDeCelula(r.ITEM))] || [];
     return {
       linha: r.__row,
+      id: r.ID_LINHA,
       item: _itemDeCelula(r.ITEM),
       // `_itemDeCelula`, não `_textoCelula`: quando a produção não tem
       // descrição cadastrada, o valor gravado às vezes é o próprio código
@@ -854,12 +855,12 @@ function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
  * (quando informada — NÃO altera a data limite original, é só pra sinalizar).
  * Usado pelo papel Programação e pelo master (botão dedicado "Enviar urgência"
  * na tela de Tingimento).
- * @param {Object} params { itens: [{linha, dataUrgencia}] }
+ * @param {Object} params { itens: [{id, dataUrgencia}] }
  */
 function enviarUrgenciaTingimento(token, params) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
   params = params || {};
-  var marcados = (params.itens || []).filter(function (it) { return it && it.linha; });
+  var marcados = (params.itens || []).filter(function (it) { return it && it.id; });
   if (!marcados.length) throw new Error('Marque ao menos um item como prioridade antes de enviar.');
 
   var lista = _destinatariosCompra().split(/[;,]/)
@@ -869,12 +870,14 @@ function enviarUrgenciaTingimento(token, params) {
     throw new Error('Não há e-mails de destino configurados (mesma lista da tela de Tingimento).');
   }
 
-  var porLinha = {};
-  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) { porLinha[r.__row] = r; });
+  // Identifica cada item pelo ID_LINHA (estável), não pela posição — a
+  // posição desloca a cada remoção e podia marcar urgência no item errado.
+  var porId = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) { porId[r.ID_LINHA] = r; });
 
   var detalhes = [];
   marcados.forEach(function (it) {
-    var r = porLinha[it.linha];
+    var r = porId[it.id];
     if (!r) return;
     var dataUrg = String(it.dataUrgencia == null ? '' : it.dataUrgencia).trim();
     var qtdUrg = Number(it.qtdUrgencia) || 0;
@@ -882,7 +885,7 @@ function enviarUrgenciaTingimento(token, params) {
       (dataUrg ? ' (prioridade para ' + dataUrg + ')' : '');
     var obsAtual = String(r.OBS == null ? '' : r.OBS).trim();
     var novaObs = obsAtual ? (obsAtual + ' | ' + nota) : nota;
-    atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, it.linha, 'OBS', novaObs);
+    atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, r.__row, 'OBS', novaObs);
     detalhes.push({
       item: _itemDeCelula(r.ITEM), descricao: _itemDeCelula(r.DESCRICAO), cliente: _textoCelula(r.CLIENTE),
       dataUrgencia: dataUrg, qtdUrgencia: qtdUrg
@@ -905,18 +908,18 @@ function enviarUrgenciaTingimento(token, params) {
  * "URGENTE ..." da OBS, sem apagar o resto). Usado pelo master e Programação
  * pra desfazer uma urgência marcada por engano. Não "desenvia" o e-mail — só
  * limpa o registro na observação.
- * @param {Object} params { linhas: [numeroLinha, ...] }
+ * @param {Object} params { ids: [idLinha, ...] }
  */
 function limparUrgenciaTingimento(token, params) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
   params = params || {};
-  var linhas = (params.linhas || []).map(function (n) { return parseInt(n, 10); }).filter(function (n) { return n; });
-  if (!linhas.length) throw new Error('Nenhum item informado para limpar.');
-  var porLinha = {};
-  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) { porLinha[r.__row] = r; });
+  var ids = (params.ids || []).map(function (v) { return String(v == null ? '' : v).trim(); }).filter(Boolean);
+  if (!ids.length) throw new Error('Nenhum item informado para limpar.');
+  var porId = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) { porId[r.ID_LINHA] = r; });
   var limpos = 0;
-  linhas.forEach(function (linha) {
-    var r = porLinha[linha];
+  ids.forEach(function (id) {
+    var r = porId[id];
     if (!r) return;
     var obs = String(r.OBS == null ? '' : r.OBS);
     // Remove os trechos que começam com "URGENTE" (separados por " | ").
@@ -925,7 +928,7 @@ function limparUrgenciaTingimento(token, params) {
     });
     var nova = partes.join(' | ').trim();
     if (nova !== obs.trim()) {
-      atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, 'OBS', nova);
+      atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, r.__row, 'OBS', nova);
       limpos++;
     }
   });
@@ -1068,14 +1071,18 @@ function salvarRascunhoEmbarque(token, linha, campo, valor) {
 var CAMPOS_TINGIMENTO_EDITAVEIS = ['OBS', 'DATA_LIMITE'];
 
 /** Salva um campo editável do painel de tingimento (na lista pendente,
- * PENDENCIA_COMPRA — enviar por e-mail não move nem trava esses campos). */
-function salvarCampoTingimento(token, linha, campo, valor) {
+ * PENDENCIA_COMPRA — enviar por e-mail não move nem trava esses campos).
+ * Identifica a linha pelo ID_LINHA (estável), não pela posição na planilha —
+ * a posição desloca a cada exclusão e podia levar a editar o item errado. */
+function salvarCampoTingimento(token, id, campo, valor) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
-  linha = parseInt(linha, 10);
-  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  id = String(id == null ? '' : id).trim();
+  if (!id) throw new Error('Item inválido — recarregue a tela e tente de novo.');
   if (CAMPOS_TINGIMENTO_EDITAVEIS.indexOf(campo) === -1) throw new Error('Campo não editável: ' + campo);
   _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que a coluna existe (planilha antiga pode não ter)
-  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, linha, campo, valor == null ? '' : String(valor));
+  var alvo = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(function (r) { return r.ID_LINHA === id; })[0];
+  if (!alvo) throw new Error('Item não encontrado — a lista pode ter mudado, recarregue a tela.');
+  atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, alvo.__row, campo, valor == null ? '' : String(valor));
   return { ok: true };
 }
 
@@ -1086,17 +1093,23 @@ function salvarCampoTingimento(token, linha, campo, valor) {
  * `_baixarPendenciaCompraPorEmbarque`, em Embarque.gs) e o master decide que
  * não vale mais a pena esperar por aquele tanto. Ação pontual (uma linha só)
  * — para zerar a lista inteira, ver `excluirRelacaoDeCompra`.
+ *
+ * Identifica o item pelo ID_LINHA (estável), não pela posição na planilha
+ * (`__row`): a posição desloca a cada linha removida, e o cliente guarda a
+ * lista em cache — se um segundo item fosse removido em seguida sem
+ * recarregar a tela, a posição enviada podia já apontar pra OUTRO item, que
+ * seria excluído em silêncio.
  */
-function removerItemPendente(token, linha) {
+function removerItemPendente(token, id) {
   exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
-  linha = parseInt(linha, 10);
-  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  id = String(id == null ? '' : id).trim();
+  if (!id) throw new Error('Item inválido — recarregue a tela e tente de novo.');
   var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
-  var existe = regs.some(function (r) { return r.__row === linha; });
+  var existe = regs.some(function (r) { return r.ID_LINHA === id; });
   if (!existe) throw new Error('Item não encontrado — a lista pode ter mudado, recarregue a tela.');
 
   var linhasFinais = regs
-    .filter(function (r) { return r.__row !== linha; })
+    .filter(function (r) { return r.ID_LINHA !== id; })
     .map(function (r) {
       return RELACAO_COMPRA_HEADERS.map(function (h) { return r[h] == null ? '' : r[h]; });
     });

@@ -58,3 +58,36 @@ function _migrarRelacaoParaPendencia(unidadeId) {
     unidadeId, novas.length, antigos.length, jaPendentes);
   return { unidade: unidadeId, migrados: novas.length, jaPendentes: jaPendentes };
 }
+
+/**
+ * Preenche o ID_LINHA (identificador estável, UUID) de toda linha de
+ * PENDENCIA_COMPRA que ainda não tem — necessário depois que a coluna
+ * ID_LINHA foi adicionada a RELACAO_COMPRA_HEADERS, pra que remover/editar/
+ * marcar urgência num item passasse a identificá-lo por esse ID em vez da
+ * posição física na planilha (a posição desloca a cada linha removida e
+ * podia acabar agindo sobre o item errado).
+ *
+ * Como rodar: no editor do Apps Script, escolha `migrarIdLinhaPendenciaCeara`
+ * (ou `...Bahia`) e clique em Executar — uma vez para cada unidade, ANTES de
+ * liberar a tela de Tingimento pros usuários (sem isso, a linha ainda sem
+ * ID_LINHA não é encontrada quando alguém tenta remover/editar/marcar
+ * urgência nela — a tela mostra "Item não encontrado — recarregue a tela").
+ * Idempotente: rodar de novo não mexe nas linhas que já têm ID_LINHA.
+ */
+function migrarIdLinhaPendenciaCeara() { return _migrarIdLinhaPendencia('CEARA'); }
+function migrarIdLinhaPendenciaBahia() { return _migrarIdLinhaPendencia('BAHIA'); }
+
+function _migrarIdLinhaPendencia(unidadeId) {
+  _definirUnidadeAtiva(unidadeId);
+  _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA); // garante que a coluna ID_LINHA existe
+  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  var preenchidos = 0;
+  regs.forEach(function (r) {
+    if (String(r.ID_LINHA || '').trim()) return; // já tem ID — não mexe
+    atualizarCelula(CONFIG.SHEETS.PENDENCIA_COMPRA, r.__row, 'ID_LINHA', Utilities.getUuid());
+    preenchidos++;
+  });
+  Logger.log('%s: %s de %s linha(s) de PENDENCIA_COMPRA receberam ID_LINHA novo.',
+    unidadeId, preenchidos, regs.length);
+  return { unidade: unidadeId, preenchidos: preenchidos, total: regs.length };
+}

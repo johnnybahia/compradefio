@@ -1524,16 +1524,16 @@ function renderTingimento(linhas) {
 
   var body = linhas.map(function (l, i) {
     var dataCel = editavelTing
-      ? '<input type="date" class="data-input" data-linha="' + l.linha + '" value="' + brParaISO(l.dataLimite) + '">'
+      ? '<input type="date" class="data-input" data-id="' + escAttr(l.id) + '" value="' + brParaISO(l.dataLimite) + '">'
       : (l.dataLimite || '—');
     var obsCel = editavelTing
-      ? '<input class="obs-input" data-linha="' + l.linha + '" value="' + escAttr(l.obs) + '" placeholder="anotação…">'
+      ? '<input class="obs-input" data-id="' + escAttr(l.id) + '" value="' + escAttr(l.obs) + '" placeholder="anotação…">'
       : (l.obs ? escAttr(l.obs) : '—');
     var prioridadeCel = '';
     if (priorizar) {
       var temUrg = String(l.obs || '').toUpperCase().indexOf('URGENTE') !== -1;
       prioridadeCel = '<td class="no-print" style="text-align:center;white-space:nowrap">' +
-        '<input type="checkbox" class="chk-prioridade" data-linha="' + l.linha + '"' + (l.prioridade ? ' checked' : '') + '>' +
+        '<input type="checkbox" class="chk-prioridade" data-id="' + escAttr(l.id) + '"' + (l.prioridade ? ' checked' : '') + '>' +
         (l.prioridade && (l.dataUrgencia || l.qtdUrgencia)
           ? '<div style="font-size:11px;color:#B91C1C">' +
               (l.qtdUrgencia ? l.qtdUrgencia + ' kg' : '') +
@@ -1542,7 +1542,7 @@ function renderTingimento(linhas) {
             '</div>'
           : '') +
         (temUrg
-          ? '<div><button type="button" class="btn-atualizar-data btn-limpar-urg" data-linha="' + l.linha +
+          ? '<div><button type="button" class="btn-atualizar-data btn-limpar-urg" data-id="' + escAttr(l.id) +
             '" title="Tirar o URGENTE da observação deste item">limpar urgência</button></div>'
           : '') +
       '</td>';
@@ -1559,7 +1559,7 @@ function renderTingimento(linhas) {
       '<td>' + obsCel + '</td>' +
       (editavelTing
         ? '<td class="no-print" style="text-align:center">' +
-            '<button type="button" class="btn-remover-linha" data-linha="' + l.linha + '" ' +
+            '<button type="button" class="btn-remover-linha" data-id="' + escAttr(l.id) + '" ' +
               'title="Remover este item da lista pendente (sem receber embarque — resíduo que não vale mais esperar)">✕</button>' +
           '</td>'
         : '') +
@@ -1583,11 +1583,11 @@ function renderTingimento(linhas) {
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
       inp.addEventListener('change', function () {
-        var linha = Number(inp.getAttribute('data-linha'));
+        var id = inp.getAttribute('data-id');
         var novaData = isoParaBR(inp.value);
         salvarCampoTing(inp, 'DATA_LIMITE', novaData, function () {
           var alvo = null;
-          estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
+          estadoTingimento.linhas.forEach(function (l) { if (l.id === id) alvo = l; });
           if (alvo) alvo.dataLimite = novaData;
           estadoTingimento.linhas = ordenarTingimentoPorDataLimite(estadoTingimento.linhas);
           renderTingimento(estadoTingimento.linhas);
@@ -1601,9 +1601,9 @@ function renderTingimento(linhas) {
   if (priorizar) {
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-prioridade'), function (chk) {
       chk.addEventListener('change', function () {
-        var linha = Number(chk.getAttribute('data-linha'));
+        var id = chk.getAttribute('data-id');
         var alvo = null;
-        estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
+        estadoTingimento.linhas.forEach(function (l) { if (l.id === id) alvo = l; });
         if (!alvo) return;
         if (chk.checked) {
           abrirModalDataUrgencia(alvo.item, function (confirmado, dataBR, qtdKg) {
@@ -1618,7 +1618,7 @@ function renderTingimento(linhas) {
       });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.btn-limpar-urg'), function (btn) {
-      btn.addEventListener('click', function () { limparUrgenciaItem(Number(btn.getAttribute('data-linha'))); });
+      btn.addEventListener('click', function () { limparUrgenciaItem(btn.getAttribute('data-id')); });
     });
   }
   reaplicarDestaqueTingimento();
@@ -1648,10 +1648,10 @@ function reaplicarDestaqueTingimento() {
 
 /** Tira o "URGENTE" da observação de um item (desfaz a urgência marcada por
  * engano) — o e-mail já enviado não volta, só o registro na observação. */
-function limparUrgenciaItem(linha) {
+function limparUrgenciaItem(id) {
   var msg = document.getElementById('ting-msg');
   msg.innerHTML = '<div class="aviso"><span class="carregando">Limpando urgência…</span></div>';
-  chamar('limparUrgenciaTingimento', sessao.token, { linhas: [linha] })
+  chamar('limparUrgenciaTingimento', sessao.token, { ids: [id] })
     .then(function () {
       return chamar('obterListaTingimento', sessao.token).then(function (rr) {
         estadoTingimento.linhas = rr.linhas || [];
@@ -1740,7 +1740,7 @@ function enviarUrgenciaSelecionada() {
       if (btn) btn.disabled = true;
       msg.innerHTML = '<div class="aviso"><span class="carregando">Enviando urgência…</span></div>';
       var itens = marcados.map(function (l) {
-        return { linha: l.linha, dataUrgencia: l.dataUrgencia || '', qtdUrgencia: l.qtdUrgencia || '' };
+        return { id: l.id, dataUrgencia: l.dataUrgencia || '', qtdUrgencia: l.qtdUrgencia || '' };
       });
       chamar('enviarUrgenciaTingimento', sessao.token, { itens: itens })
         .then(function (r) {
@@ -1768,10 +1768,10 @@ function enviarUrgenciaSelecionada() {
  * está em andamento, trava os outros botões de remover — pra não deixar
  * excluir um item errado por engano durante a demora da chamada ao servidor. */
 function removerLinhaTingimento(btn) {
-  var linha = Number(btn.getAttribute('data-linha'));
-  if (!linha || tingimentoRemovendo) return;
+  var id = btn.getAttribute('data-id');
+  if (!id || tingimentoRemovendo) return;
   var alvo = null;
-  estadoTingimento.linhas.forEach(function (l) { if (l.linha === linha) alvo = l; });
+  estadoTingimento.linhas.forEach(function (l) { if (l.id === id) alvo = l; });
   var detalhes =
     '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;' +
       'padding:10px 12px;margin:10px 0;font-size:13px;line-height:1.6">' +
@@ -1791,11 +1791,16 @@ function removerLinhaTingimento(btn) {
       tingimentoRemovendo = true;
       var botoes = document.querySelectorAll('.btn-remover-linha');
       Array.prototype.forEach.call(botoes, function (b) { b.disabled = true; });
-      chamar('removerItemPendente', sessao.token, linha)
+      chamar('removerItemPendente', sessao.token, id)
         .then(function () {
           tingimentoRemovendo = false;
-          estadoTingimento.linhas = estadoTingimento.linhas.filter(function (l) { return l.linha !== linha; });
-          renderTingimento(estadoTingimento.linhas);
+          // Recarrega do servidor (em vez de só filtrar localmente) pra
+          // refletir também exclusões/alterações feitas por outro usuário
+          // enquanto esta tela estava aberta.
+          return chamar('obterListaTingimento', sessao.token).then(function (rr) {
+            estadoTingimento.linhas = rr.linhas || [];
+            renderTingimento(estadoTingimento.linhas);
+          });
         })
         .catch(function (err) {
           tingimentoRemovendo = false;
@@ -2579,7 +2584,7 @@ function isoParaBR(s) {
 
 function salvarCampoTing(inp, campo, valor, aoSalvar) {
   inp.style.borderColor = '#CBD5E1';
-  chamar('salvarCampoTingimento', sessao.token, inp.getAttribute('data-linha'), campo, valor)
+  chamar('salvarCampoTingimento', sessao.token, inp.getAttribute('data-id'), campo, valor)
     .then(function () {
       inp.style.borderColor = '#1F9D55';
       if (aoSalvar) aoSalvar();
