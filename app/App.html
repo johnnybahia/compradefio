@@ -2265,7 +2265,7 @@ function carregarListaConfirmarEmbarque() {
       // pelo Tingimento" filtrando o que ela pode ver.
       estadoConfirmarEmbarque.linhas = (r.linhas || []).map(function (l) {
         var o = {
-          linha: l.linha, item: l.item, descricao: l.descricao, cliente: l.cliente,
+          linha: l.linha, idLinha: l.idLinha || '', item: l.item, descricao: l.descricao, cliente: l.cliente,
           tipoFio: l.tipoFio, total: Number(l.total) || 0, tingido: l.tingido || 0,
           dataSolicitado: l.dataSolicitado || '',
           selecionado: false, doEstoque: false,
@@ -2527,7 +2527,7 @@ function confirmarEmbarqueSelecionado(forcarDuplicado) {
       };
       var itens = selecionados.map(function (l) {
         return {
-          item: l.item, quantidade: Number(l.quantidade), doEstoque: !!l.doEstoque,
+          item: l.item, idLinha: l.idLinha || '', quantidade: Number(l.quantidade), doEstoque: !!l.doEstoque,
           volumes: l.volumes,
           // "Completo" marcado dispensa digitação; senão vai o texto digitado.
           obs: l.completo ? 'COMPLETO' : String(l.obs || '').trim()
@@ -2868,7 +2868,7 @@ function renderQuantidadeTingida() {
         abrirModalCorrigirTingido(alvo.item, alvo.tingido || 0, function (novoTotal) {
           var msg = document.getElementById('qt-msg');
           btn.disabled = true;
-          chamar('corrigirQuantidadeTingida', sessao.token, alvo.item, novoTotal)
+          chamar('corrigirQuantidadeTingida', sessao.token, alvo.item, novoTotal, alvo.idLinha || '')
             .then(function () {
               btn.disabled = false;
               alvo.tingido = novoTotal;
@@ -2951,7 +2951,7 @@ function lancarQuantidadeTingidaFio(idx, inp, btn) {
   }
 
   btn.disabled = true; inp.disabled = true;
-  chamar('registrarQuantidadeTingida', sessao.token, { item: alvo.item, quantidade: quantidade })
+  chamar('registrarQuantidadeTingida', sessao.token, { item: alvo.item, quantidade: quantidade, idLinha: alvo.idLinha || '' })
     .then(function (r) {
       btn.disabled = false; inp.disabled = false;
       inp.value = ''; inp.style.borderColor = '';

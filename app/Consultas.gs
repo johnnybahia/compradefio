@@ -1015,7 +1015,7 @@ function liberarParaEmbarque(token, linha, quantidade, volumes) {
   var linhaAtual = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(function (r) { return r.__row === linha; })[0];
   if (!linhaAtual) throw new Error('Item não encontrado — a lista pode ter mudado, recarregue a tela.');
   var baseline = Number(linhaAtual.TINGIDO_BASELINE) || 0;
-  var dyedTotal = Math.max(0, (_tingidoPorItem()[_norm(linhaAtual.ITEM)] || 0) - baseline);
+  var dyedTotal = Math.max(0, _tingidoDaLinha(_tingidoPorItem(), linhaAtual.ID_LINHA, linhaAtual.ITEM) - baseline);
   if (qtd > dyedTotal + 0.01) {
     throw new Error('Não é possível liberar ' + qtd + 'kg — só há ' + dyedTotal + 'kg tingido(s) e ainda não ' +
       'embarcado(s) desse item.');
