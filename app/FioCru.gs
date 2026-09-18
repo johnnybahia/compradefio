@@ -544,9 +544,9 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
 /**
  * Consumo de fio crú POR ITEM, lido do razão de baixas (FIO_CRU_BAIXAS): quais
  * NFs alimentaram o tingimento de cada item e quanto saiu de cada uma (líquido
- * — correções negativas já descontadas), com o saldo do lote logo após a
- * baixa mais recente que ALGUM item deste grupo causou nele (ver
- * `saldoFinalPorChave`, ancorado pela chave do lote — não pelo item).
+ * — correções negativas já descontadas), com o saldo ATUAL do lote (ver
+ * comentário abaixo sobre por que é o atual, e não um saldo histórico
+ * congelado).
  *
  * Existe porque o relatório de Confirmação de Embarque precisa mostrar as NFs
  * consumidas mesmo quando a confirmação em si não gerou baixa nova — que é o
@@ -568,19 +568,8 @@ function _consumoCruPorItens(itens) {
 
   var porChaveLote = {}; // saldo atual + fornecedor de cada lote
   _saldosFioCru().forEach(function (l) { porChaveLote[l.chave] = l; });
-  var replay = _replaySaldoFioCru().porBaixaLinha; // __row -> saldo, recalculado do zero (ver comentário abaixo)
 
   var acum = {}; // item -> chaveLote -> { tipoFio, nf, dataNf, peso }
-  // Saldo final de CADA lote (chave), ancorado pela chave — não pelo item.
-  // `_lerBaixasFioCru` devolve as linhas na ordem em que foram gravadas
-  // (sempre em append, nunca reescritas), então sobrescrever a cada linha,
-  // de QUALQUER item do grupo, deixa aqui o saldo real após a baixa mais
-  // recente que qualquer um desses itens causou naquele lote — nunca o saldo
-  // "congelado" de um item que bateu nele mais cedo (bug: numa NF consumida
-  // por 2+ itens do mesmo embarque, pegar o saldo do primeiro item a tocá-la
-  // mostrava um saldo bem maior que o real, e a NF que na verdade zerou
-  // aparecia como "Em uso" em vez de "Finalizando" no PDF de confirmação).
-  var saldoFinalPorChave = {};
   _lerBaixasFioCru().forEach(function (r) {
     var k = _norm(r.ITEM);
     if (!querido[k]) return;
@@ -596,7 +585,6 @@ function _consumoCruPorItens(itens) {
       };
     }
     acum[k][chave].peso += Number(r.QUANTIDADE) || 0;
-    saldoFinalPorChave[chave] = replay[r.__row];
   });
 
   Object.keys(acum).forEach(function (k) {
@@ -613,18 +601,17 @@ function _consumoCruPorItens(itens) {
         // (e de que nota) aquele fio entrou.
         precoUnitario: (lote && lote.precoUnitario) ? lote.precoUnitario : '',
         quantidadeNf: lote ? lote.quantidade : '',
-        // Saldo do LOTE logo após a baixa mais recente que qualquer item
-        // deste grupo causou nele (`saldoFinalPorChave`, ancorado pela chave
-        // — ver comentário acima), recalculado por REPLAY (`_replaySaldoFioCru`
-        // — imune a qualquer SALDO_NF_APOS gravado errado por uma corrida
-        // antiga). NUNCA o saldo ATUAL da NF (`lote.saldo`): a NF pode ter
-        // sido zerada depois por baixas de OUTROS itens/embarques, e aí todo
-        // relatório antigo que a cita passaria a mostrar "0", como se cada
-        // embarque tivesse zerado ela de novo (bug reportado: baixa saindo
-        // de uma NF "já zerada"). Só cai pro saldo atual se por algum motivo
-        // o replay não achar a linha (não deve acontecer, é só defesa).
-        saldoApos: saldoFinalPorChave[chave] !== '' && saldoFinalPorChave[chave] != null
-          ? saldoFinalPorChave[chave] : (lote ? lote.saldo : '')
+        // Saldo ATUAL do lote (`lote.saldo`, de `_saldosFioCru()` — soma
+        // direta de todas as baixas já gravadas, não um instantâneo
+        // histórico de quando ESTE item tocou a NF): a Confirmação de
+        // Embarque é gerada uma vez só, na hora, logo após a baixa desta
+        // própria confirmação — então "atual" aqui é o estado real da NF
+        // NESTE momento, não daqui a semanas. Usar o saldo "congelado" de
+        // quando o item foi tingido (que pode ter sido dias/semanas antes
+        // da confirmação, com dezenas de outras baixas no meio) fazia uma
+        // NF já esgotada por OUTROS itens continuar aparecendo como "em
+        // uso" com saldo antigo no PDF (bug reportado).
+        saldoApos: lote ? lote.saldo : ''
       });
     });
     res[k] = lista;
