@@ -44,7 +44,21 @@ var FIO_CRU_ENTRADAS_HEADERS = [
   'TIPO_FIO', 'NF', 'FORNECEDOR', 'QUANTIDADE', 'PRECO_UNITARIO', 'DATA', 'SITUACAO', 'INICIO_BAIXA',
   'EDITADO_EM', 'EDITADO_POR'
 ];
-var FIO_CRU_BAIXAS_HEADERS = ['DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'ITEM', 'QUANTIDADE', 'SALDO_NF_APOS', 'USUARIO'];
+var FIO_CRU_BAIXAS_HEADERS = [
+  'DATA_HORA', 'TIPO_FIO', 'NF', 'DATA_NF', 'ITEM', 'QUANTIDADE', 'SALDO_NF_APOS', 'USUARIO',
+  // ID_LINHA (opcional — vazio em baixas gravadas antes desta coluna existir):
+  // o ID_LINHA (UUID) da linha de PENDENCIA_COMPRA que gerou esta baixa — ver
+  // `RELACAO_COMPRA_HEADERS`, em Analise.gs. Existe porque o código do item
+  // (coluna ITEM) NÃO é único — o mesmo código de cor/estilo é reaproveitado
+  // por pedidos/clientes diferentes ao longo do tempo (ex.: "2427 30-2" em
+  // dois pedidos simultâneos) — casar baixas só pelo texto do item misturava
+  // o consumo de pedidos diferentes que só coincidem no código (bug
+  // reportado: "já tingido" e "consumo no estoque de fio crú" somando
+  // pedidos errados juntos). Toda função que soma/busca baixa por item agora
+  // prefere ID_LINHA quando disponível; só cai no texto do item pra baixas
+  // antigas sem essa coluna (ver `_migrarIdLinhaFioCruBaixas`, em Migracao.gs).
+  'ID_LINHA'
+];
 
 /**
  * Lê FIO_CRU_BAIXAS já com o ITEM reconstruído (ver `_itemDeCelula`, em
@@ -75,6 +89,18 @@ function _prepararFioCruBaixas() {
   var sh = _aba(CONFIG.SHEETS.FIO_CRU_BAIXAS, FIO_CRU_BAIXAS_HEADERS);
   var colItem = FIO_CRU_BAIXAS_HEADERS.indexOf('ITEM') + 1; // 1-based
   sh.getRange(1, colItem, sh.getMaxRows(), 1).setNumberFormat('@');
+  // Acrescenta no fim as colunas do cabeçalho atual que ainda não existirem
+  // (ex.: ID_LINHA, adicionada depois da primeira versão) — mesmo padrão de
+  // `_prepararFioCruEntradas`, sem apagar nada de quem já tem a aba criada.
+  var largura = sh.getLastColumn();
+  var atuais = largura ? sh.getRange(1, 1, 1, largura).getValues()[0].map(function (h) { return String(h).trim(); }) : [];
+  FIO_CRU_BAIXAS_HEADERS.forEach(function (h) {
+    if (atuais.indexOf(h) === -1) {
+      atuais.push(h);
+      sh.getRange(1, atuais.length).setValue(h)
+        .setFontWeight('bold').setBackground('#0F5FA0').setFontColor('#FFFFFF');
+    }
+  });
   return sh;
 }
 var ASSOCIACAO_FIO_CRU_HEADERS = ['TIPO_FIO_BASE', 'TIPO_FIO_ESTOQUE'];
@@ -381,9 +407,14 @@ function salvarAssociacaoFioCru(token, tipoFioBase, tipoFioEstoque) {
 /**
  * Dá baixa de `quantidade` no fio crú do tipo informado (ver regra no topo
  * do arquivo). Grava uma linha de histórico por lote afetado.
+ * @param {string} idLinha  ID_LINHA (UUID) da linha de PENDENCIA_COMPRA que
+ *   gerou esta baixa — opcional (vazio em `lancarItemManualEmbarque`, que não
+ *   tem uma linha pendente associada). Gravado junto pra quem lê depois poder
+ *   somar por pedido, não só por texto do item (ver comentário em
+ *   `FIO_CRU_BAIXAS_HEADERS`).
  * @return {Object} { ok, mensagem?, tipoFio, quantidade, lotes:[{nf,dataNf,quantidadeBaixada,saldoApos}] }
  */
-function _baixarFioCru(tipoFio, quantidade, item, usuario) {
+function _baixarFioCru(tipoFio, quantidade, item, usuario, idLinha) {
   tipoFio = String(tipoFio || '').trim();
   quantidade = Number(quantidade) || 0;
   if (!tipoFio) return { ok: false, mensagem: 'Item sem tipo de fio identificado — não é possível dar baixa no fio crú.' };
@@ -402,7 +433,7 @@ function _baixarFioCru(tipoFio, quantidade, item, usuario) {
     return { ok: false, mensagem: 'Sistema ocupado dando baixa em outro lançamento agora — tente de novo em alguns segundos.' };
   }
   try {
-    return _baixarFioCruSemLock(tipoFio, quantidade, item, usuario);
+    return _baixarFioCruSemLock(tipoFio, quantidade, item, usuario, idLinha);
   } finally {
     lock.releaseLock();
   }
@@ -411,7 +442,7 @@ function _baixarFioCru(tipoFio, quantidade, item, usuario) {
 /** Corpo de `_baixarFioCru`, SEM travar o lock — chame só de dentro de quem
  * já garantiu exclusividade (a própria `_baixarFioCru`, ou `_ajustarBaixaFioCru`
  * no ramo positivo, que delega pra `_baixarFioCru` — nunca aninhe o lock). */
-function _baixarFioCruSemLock(tipoFio, quantidade, item, usuario) {
+function _baixarFioCruSemLock(tipoFio, quantidade, item, usuario, idLinha) {
   var tipoFioResolvido = _resolverTipoFioEstoque(tipoFio);
   var todos = _saldosFioCru()
     .filter(function (l) {
@@ -455,7 +486,7 @@ function _baixarFioCruSemLock(tipoFio, quantidade, item, usuario) {
     var lote = todos.filter(function (l) { return l.chave === chave; })[0];
     var qtd = porChave[chave];
     var saldoApos = lote.saldo - qtd;
-    linhas.push([agora, lote.tipoFio, lote.nf, lote.data || '', item || '', qtd, saldoApos, usuario || '']);
+    linhas.push([agora, lote.tipoFio, lote.nf, lote.data || '', item || '', qtd, saldoApos, usuario || '', idLinha || '']);
     resultado.push({ tipoFio: lote.tipoFio, nf: lote.nf, fornecedor: lote.fornecedor || '', dataNf: _soData(lote.data), quantidadeBaixada: qtd, saldoApos: saldoApos });
   });
   // Ordena o retorno pela mesma ordem FIFO (mais antiga primeiro), pra ficar
@@ -483,17 +514,30 @@ function _baixarFioCruSemLock(tipoFio, quantidade, item, usuario) {
  *   - diferença NEGATIVA (valor novo é menor): credita de volta, desfazendo
  *     primeiro a baixa MAIS RECENTE deste item, depois a anterior, e assim
  *     por diante (LIFO) — como uma baixa negativa no histórico.
+ * @param {string} idLinha  ID_LINHA da linha de PENDENCIA_COMPRA (ver
+ *   `_baixarFioCru`) — usado pra achar SÓ o "já tingido"/as baixas DESTE
+ *   pedido, não de outro pedido que reaproveite o mesmo código de item.
  * @return {Object} { ok, mensagem?, tipoFio, diferenca, lotes:[{nf,dataNf,quantidadeBaixada,saldoApos}] }
  */
-function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
+function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario, idLinha) {
   item = String(item || '').trim();
   novoTotal = Number(novoTotal) || 0;
-  var atual = _tingidoPorItem()[_norm(item)] || 0;
+  var tingidoMapa = _tingidoPorItem();
+  // Usa a soma por ID_LINHA quando existe alguma baixa gravada com esse ID —
+  // senão (pedido novo sem baixa ainda, OU baixas antigas sem ID_LINHA que a
+  // migração não conseguiu resolver por ambiguidade — ver
+  // `_migrarIdLinhaFioCruBaixas`, em Migracao.gs) cai no texto do item, igual
+  // sempre foi. As duas etapas abaixo (achar "atual" e escolher que linhas
+  // entram no crédito LIFO) usam o MESMO critério, pra nunca creditar de
+  // volta uma baixa que não entrou na conta do "atual".
+  var idLinhaNorm = _norm(idLinha);
+  var usarIdLinha = !!(idLinhaNorm && tingidoMapa.porIdLinha[idLinhaNorm] != null);
+  var atual = usarIdLinha ? tingidoMapa.porIdLinha[idLinhaNorm] : (tingidoMapa.porTexto[_norm(item)] || 0);
   var diferenca = novoTotal - atual;
   if (Math.abs(diferenca) < 0.001) return { ok: true, tipoFio: tipoFio, diferenca: 0, lotes: [] };
 
   if (diferenca > 0) {
-    var baixa = _baixarFioCru(tipoFio, diferenca, item, usuario);
+    var baixa = _baixarFioCru(tipoFio, diferenca, item, usuario, idLinha);
     if (!baixa.ok) return baixa;
     return { ok: true, tipoFio: baixa.tipoFio, diferenca: diferenca, lotes: baixa.lotes };
   }
@@ -511,7 +555,12 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
   }
   try {
     var porItem = _lerBaixasFioCru()
-      .filter(function (r) { return _norm(r.ITEM) === _norm(item) && (Number(r.QUANTIDADE) || 0) > 0; })
+      .filter(function (r) {
+        if ((Number(r.QUANTIDADE) || 0) <= 0) return false;
+        return usarIdLinha
+          ? _norm(r.ID_LINHA) === idLinhaNorm
+          : !_norm(r.ID_LINHA) && _norm(r.ITEM) === _norm(item);
+      })
       .sort(function (a, b) {
         var da = a.DATA_HORA instanceof Date ? a.DATA_HORA.getTime() : 0;
         var db = b.DATA_HORA instanceof Date ? b.DATA_HORA.getTime() : 0;
@@ -528,7 +577,7 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
       var chaveLote = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
       var loteAtual = _saldosFioCru().filter(function (l) { return l.chave === chaveLote; })[0];
       var saldoApos = (loteAtual ? loteAtual.saldo : 0) + credito;
-      linhas.push([agora, r.TIPO_FIO, r.NF, r.DATA_NF, item, -credito, saldoApos, usuario || '']);
+      linhas.push([agora, r.TIPO_FIO, r.NF, r.DATA_NF, item, -credito, saldoApos, usuario || '', usarIdLinha ? idLinha : '']);
       resultado.push({ tipoFio: r.TIPO_FIO, nf: r.NF, fornecedor: loteAtual ? (loteAtual.fornecedor || '') : '', dataNf: _soData(r.DATA_NF), quantidadeBaixada: -credito, saldoApos: saldoApos });
     }
     if (linhas.length) {
@@ -554,37 +603,70 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario) {
  * Quantidade Tingida), então confirmar a mesma quantidade dá diferença zero
  * (ver `_ajustarBaixaFioCru`) e não haveria nada a listar.
  *
- * @param {Array} itens nomes dos itens de interesse
- * @return {Object} normalizado(item) → [{ tipoFio, nf, fornecedor, dataNf, peso, saldoApos }]
+ * Casa cada baixa por ID_LINHA quando dá (sem ambiguidade — mesmo critério de
+ * `_tingidoDaLinha`: só usa ID_LINHA pra uma entrada quando já existe alguma
+ * baixa gravada com esse ID; senão cai no texto do item). Sem isso, o mesmo
+ * código de item reaproveitado por outro pedido (ex.: "2427 30-2" em dois
+ * pedidos simultâneos) entrava na soma junto — o consumo mostrado no PDF
+ * passava do total realmente tingido nesta confirmação (bug reportado).
+ *
+ * @param {Array} itens [{item, idLinha}] (idLinha opcional — cai no texto do
+ *   item quando ausente, ex.: `lancarItemManualEmbarque`, que não tem
+ *   pendência associada; string pura também aceita, mesmo efeito)
+ * @return {Object} chave (idLinha quando informado, senão normalizado(item) —
+ *   quem chama monta a MESMA chave com `it.idLinha || _norm(it.item)`, sem
+ *   precisar saber se por baixo casou por ID_LINHA ou por texto) →
+ *   [{ tipoFio, nf, fornecedor, dataNf, peso, saldoApos }]
  */
 function _consumoCruPorItens(itens) {
-  var querido = {};
-  (itens || []).forEach(function (it) {
-    var k = _norm(typeof it === 'string' ? it : it.item);
-    if (k) querido[k] = true;
-  });
+  var entradas = (itens || []).map(function (it) {
+    var item = String((typeof it === 'string' ? it : it.item) || '').trim();
+    var idLinha = _norm(typeof it === 'string' ? '' : (it.idLinha || ''));
+    return { item: item, itemNorm: _norm(item), idLinha: idLinha, chave: idLinha || _norm(item) };
+  }).filter(function (e) { return e.itemNorm; });
   var res = {};
-  if (!Object.keys(querido).length) return res;
+  if (!entradas.length) return res;
+
+  var idLinhasComBaixa = {};
+  _lerBaixasFioCru().forEach(function (r) {
+    var rid = _norm(r.ID_LINHA);
+    if (rid) idLinhasComBaixa[rid] = true;
+  });
+
+  // Cada entrada casa as baixas por ID_LINHA quando ela já tem alguma baixa
+  // gravada (sem ambiguidade); senão (pedido novo, ou baixas antigas sem
+  // ID_LINHA que a migração não resolveu — ver `_migrarIdLinhaFioCruBaixas`,
+  // em Migracao.gs) cai no texto do item — mesmo critério de `_tingidoDaLinha`.
+  // A CHAVE DE SAÍDA (`e.chave`, acima) não depende disso: é sempre
+  // idLinha-ou-texto, pra quem chama reconstruir sem precisar saber qual dos
+  // dois casamentos rolou por baixo.
+  var porIdLinha = {}, porTexto = {}; // idLinha/itemNorm -> entrada
+  entradas.forEach(function (e) {
+    if (e.idLinha && idLinhasComBaixa[e.idLinha]) porIdLinha[e.idLinha] = e;
+    else porTexto[e.itemNorm] = e;
+  });
 
   var porChaveLote = {}; // saldo atual + fornecedor de cada lote
   _saldosFioCru().forEach(function (l) { porChaveLote[l.chave] = l; });
 
-  var acum = {}; // item -> chaveLote -> { tipoFio, nf, dataNf, peso }
+  var acum = {}; // e.chave -> chaveLote -> { tipoFio, nf, dataNf, peso }
   _lerBaixasFioCru().forEach(function (r) {
-    var k = _norm(r.ITEM);
-    if (!querido[k]) return;
-    var chave = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
-    if (!chave) return;
+    var rid = _norm(r.ID_LINHA);
+    var entrada = rid ? porIdLinha[rid] : porTexto[_norm(r.ITEM)];
+    if (!entrada) return;
+    var chaveLote = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
+    if (!chaveLote) return;
+    var k = entrada.chave;
     if (!acum[k]) acum[k] = {};
-    if (!acum[k][chave]) {
-      acum[k][chave] = {
-        // Este resultado só vai pra tela/PDF (o casamento usa `chave`), então
-        // a NF já sai como texto — ver `_textoCelula`.
-        chave: chave, nf: _textoCelula(r.NF), dataNf: _soData(r.DATA_NF), peso: 0,
+    if (!acum[k][chaveLote]) {
+      acum[k][chaveLote] = {
+        // Este resultado só vai pra tela/PDF (o casamento usa `chaveLote`),
+        // então a NF já sai como texto — ver `_textoCelula`.
+        chave: chaveLote, nf: _textoCelula(r.NF), dataNf: _soData(r.DATA_NF), peso: 0,
         tipoFio: _textoCelula(r.TIPO_FIO).trim()
       };
     }
-    acum[k][chave].peso += Number(r.QUANTIDADE) || 0;
+    acum[k][chaveLote].peso += Number(r.QUANTIDADE) || 0;
   });
 
   Object.keys(acum).forEach(function (k) {
@@ -637,12 +719,14 @@ function obterListaFioParaTingir(token) {
   var regs = _ordenarPorDataLimite(lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(_emAberto));
   var tingidoPorItem = _tingidoPorItem();
   var linhas = regs.map(function (r) {
-    // "Já tingido" desta rodada: total histórico do item MENOS o que já foi
-    // embarcado antes (TINGIDO_BASELINE — ver `_baixarPendenciaCompraPorEmbarque`,
-    // em Embarque.gs) — assim, o saldo que sobra de uma confirmação parcial
-    // aparece zerado, como se fosse uma quantidade nova do mesmo item, em vez
-    // de repetir o que já foi confirmado antes.
-    var tingido = Math.max(0, (tingidoPorItem[_norm(r.ITEM)] || 0) - (_numeroCelula(r.TINGIDO_BASELINE) || 0));
+    // "Já tingido" desta rodada: total histórico DESTA LINHA (por ID_LINHA —
+    // ver `_tingidoDaLinha`, não pelo texto do item, que pode ser o mesmo de
+    // outro pedido) MENOS o que já foi embarcado antes (TINGIDO_BASELINE —
+    // ver `_baixarPendenciaCompraPorEmbarque`, em Embarque.gs) — assim, o
+    // saldo que sobra de uma confirmação parcial aparece zerado, como se
+    // fosse uma quantidade nova do mesmo item, em vez de repetir o que já foi
+    // confirmado antes.
+    var tingido = Math.max(0, _tingidoDaLinha(tingidoPorItem, r.ID_LINHA, r.ITEM) - (_numeroCelula(r.TINGIDO_BASELINE) || 0));
     // PRONTO_EMBARQUE hoje guarda a QUANTIDADE liberada. Nas primeiras versões
     // guardava o texto 'SIM' (era um simples liga/desliga, que valia pelo total
     // tingido) — lido como número, 'SIM' viraria 0 e o item SUMIRIA da tela
@@ -651,6 +735,11 @@ function obterListaFioParaTingir(token) {
     var liberado = _norm(r.PRONTO_EMBARQUE) === 'sim' ? tingido : (_numeroCelula(r.PRONTO_EMBARQUE) || 0);
     return {
       linha: r.__row,
+      // ID_LINHA (UUID estável — ver `RELACAO_COMPRA_HEADERS`, em Analise.gs):
+      // a tela devolve isso, não o texto do item, nas ações que dão baixa no
+      // fio crú (registrar/corrigir tingido, confirmar embarque) — sem
+      // ambiguidade quando o mesmo código de item está em 2+ pedidos abertos.
+      idLinha: _textoCelula(r.ID_LINHA),
       // _textoCelula/_numeroCelula (Consultas.gs): nunca manda valor cru de
       // célula pro cliente — data corrompida ou erro de fórmula na planilha
       // faz a resposta inteira voltar nula e derruba a tela.
@@ -685,6 +774,27 @@ function obterListaFioParaTingir(token) {
 }
 
 /**
+ * Acha UMA linha de PENDENCIA_COMPRA — por ID_LINHA (sem ambiguidade) quando
+ * informado e encontrado; senão cai na PRIMEIRA linha que bate pelo texto do
+ * item (comportamento de sempre, mantido só pra chamada antiga que ainda não
+ * manda idLinha). Existe porque o código do item NÃO é único — o mesmo
+ * código pode estar em 2+ linhas abertas ao mesmo tempo (pedidos diferentes
+ * reaproveitando o mesmo código de cor/estilo); sem ID_LINHA pra desambiguar,
+ * as três funções abaixo sempre pegavam a primeira e ignoravam a segunda
+ * (bug reportado).
+ */
+function _pendenciaPorIdLinhaOuItem(idLinha, item) {
+  var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
+  var idLinhaNorm = _norm(idLinha);
+  if (idLinhaNorm) {
+    var porId = regs.filter(function (r) { return _norm(r.ID_LINHA) === idLinhaNorm; })[0];
+    if (porId) return porId;
+  }
+  var itemNorm = _norm(item);
+  return regs.filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
+}
+
+/**
  * Tipo de fio de um item que precisa estar na lista pendente de compra
  * (PENDENCIA_COMPRA) — '' quando o item nem está lá (usado como checagem de
  * existência por quem chama). O VALOR em si é o ATUAL da BASE TINGIMENTO
@@ -693,10 +803,8 @@ function obterListaFioParaTingir(token) {
  * hoje, mesmo que o item tenha sido analisado antes de a BASE TINGIMENTO
  * ganhar um padrão novo/mais específico.
  */
-function _tipoFioDoItemPendente(item) {
-  var itemNorm = _norm(item);
-  var pendente = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA)
-    .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
+function _tipoFioDoItemPendente(item, idLinha) {
+  var pendente = _pendenciaPorIdLinhaOuItem(idLinha, item);
   if (!pendente) return '';
   return _tipoFioAtualDoItem(item, pendente.TIPO_FIO);
 }
@@ -709,10 +817,8 @@ function _tipoFioDoItemPendente(item) {
  * `obterListaFioParaTingir`) de volta pro total histórico ABSOLUTO que
  * `_ajustarBaixaFioCru` espera.
  */
-function _baselineTingidoDoItemPendente(item) {
-  var itemNorm = _norm(item);
-  var pendente = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA)
-    .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
+function _baselineTingidoDoItemPendente(item, idLinha) {
+  var pendente = _pendenciaPorIdLinhaOuItem(idLinha, item);
   if (!pendente) return 0;
   return Number(pendente.TINGIDO_BASELINE) || 0;
 }
@@ -727,10 +833,8 @@ function _baselineTingidoDoItemPendente(item) {
  * fio crú a partir da quantidade confirmada creditaria de volta material
  * que continua legitimamente consumido (só não embarcou ainda).
  */
-function _liberadoDoItemPendente(item) {
-  var itemNorm = _norm(item);
-  var pendente = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA)
-    .filter(function (r) { return _norm(r.ITEM) === itemNorm; })[0];
+function _liberadoDoItemPendente(item, idLinha) {
+  var pendente = _pendenciaPorIdLinhaOuItem(idLinha, item);
   if (!pendente) return 0;
   return Number(pendente.PRONTO_EMBARQUE) || 0;
 }
@@ -740,7 +844,9 @@ function _liberadoDoItemPendente(item) {
  * lista pendente de compra, PENDENCIA_COMPRA) e dá baixa no fio crú.
  * Por ora, só o master usa esta tela (papéis por item ainda serão
  * definidos) — ver `exigirSessao`.
- * @param {Object} params { item, quantidade }
+ * @param {Object} params { item, quantidade, idLinha } — idLinha vem de
+ *   `obterListaFioParaTingir` (a linha que a tela mostrou); sem ela, cai no
+ *   texto do item pra achar a pendência (comportamento de sempre).
  */
 function registrarQuantidadeTingida(token, params) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
@@ -749,13 +855,14 @@ function registrarQuantidadeTingida(token, params) {
   if (!item) throw new Error('Informe o item.');
   var quantidade = Number(params.quantidade);
   if (isNaN(quantidade) || quantidade <= 0) throw new Error('Quantidade tingida inválida.');
+  var idLinha = String(params.idLinha || '').trim();
 
-  var tipoFio = _tipoFioDoItemPendente(item);
+  var tipoFio = _tipoFioDoItemPendente(item, idLinha);
   if (!tipoFio) {
     throw new Error('Não achei o tipo de fio do item "' + item + '" na lista pendente — confira se ele ainda está lá.');
   }
 
-  var baixa = _baixarFioCru(tipoFio, quantidade, item, s.usuario);
+  var baixa = _baixarFioCru(tipoFio, quantidade, item, s.usuario, idLinha);
   if (!baixa.ok) throw new Error(baixa.mensagem);
   return { ok: true, tipoFio: baixa.tipoFio, quantidade: baixa.quantidade, lotes: baixa.lotes };
 }
@@ -788,7 +895,9 @@ function lancarItemManualEmbarque(token, params) {
   var baixa = _baixarFioCru(tipoFio, peso, item, s.usuario);
   if (!baixa.ok) throw new Error(baixa.mensagem);
 
-  var linha = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).filter(function (r) { return _norm(r.ITEM) === _norm(item); })[0];
+  // Lançamento manual digitado pela expedição — sem ID_LINHA de origem (não
+  // veio de uma linha selecionada na tela), cai direto no texto do item.
+  var linha = _pendenciaPorIdLinhaOuItem('', item);
   if (!linha) throw new Error('Item não encontrado na lista pendente — confira se ele ainda está lá.');
 
   var liberadoAntes = Number(linha.PRONTO_EMBARQUE) || 0;
@@ -825,37 +934,68 @@ function lancarItemManualEmbarque(token, params) {
  * completo. `_ajustarBaixaFioCru`, porém, trabalha com o total histórico
  * ABSOLUTO — por isso somamos o baseline de volta antes de chamá-lo.
  */
-function corrigirQuantidadeTingida(token, item, novoTotal) {
+function corrigirQuantidadeTingida(token, item, novoTotal, idLinha) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.TINGIMENTO]);
   item = String(item || '').trim();
   if (!item) throw new Error('Informe o item.');
   novoTotal = Number(novoTotal);
   if (isNaN(novoTotal) || novoTotal < 0) throw new Error('Valor inválido.');
+  idLinha = String(idLinha || '').trim();
 
-  var tipoFio = _tipoFioDoItemPendente(item);
+  var tipoFio = _tipoFioDoItemPendente(item, idLinha);
   if (!tipoFio) {
     throw new Error('Não achei o tipo de fio do item "' + item + '" na lista pendente — confira se ele ainda está lá.');
   }
 
-  var baseline = _baselineTingidoDoItemPendente(item);
-  var ajuste = _ajustarBaixaFioCru(tipoFio, item, baseline + novoTotal, s.usuario);
+  var baseline = _baselineTingidoDoItemPendente(item, idLinha);
+  var ajuste = _ajustarBaixaFioCru(tipoFio, item, baseline + novoTotal, s.usuario, idLinha);
   if (!ajuste.ok) throw new Error(ajuste.mensagem || 'Não foi possível corrigir.');
   return { ok: true, tipoFio: ajuste.tipoFio, diferenca: ajuste.diferenca, lotes: ajuste.lotes, tingido: novoTotal };
 }
 
 /**
- * Soma, por item (normalizado), quanto já foi lançado como "tingido" no
- * histórico de baixas do fio crú — usado pra mostrar na tela de Tingimento
- * quanto já foi confirmado tingido de cada item.
+ * Soma quanto já foi lançado como "tingido" no histórico de baixas do fio
+ * crú — usado pra mostrar na tela de Tingimento quanto já foi confirmado
+ * tingido de cada item.
+ *
+ * Devolve DOIS mapas porque o código do item (coluna ITEM) NÃO é único — o
+ * mesmo código de cor/estilo é reaproveitado por pedidos diferentes ao longo
+ * do tempo (ex.: "2427 30-2" em dois pedidos simultâneos), então somar só
+ * pelo texto do item misturava o consumo de pedidos diferentes (bug
+ * reportado). `porIdLinha` soma cada baixa que já tem o ID_LINHA do pedido
+ * que a gerou (sem ambiguidade — ver `_baixarFioCru`); `porTexto` soma só as
+ * baixas SEM ID_LINHA (gravadas antes dessa coluna existir, ou de um pedido
+ * que a migração não conseguiu resolver — ver `_migrarIdLinhaFioCruBaixas`,
+ * em Migracao.gs), pelo texto do item — é o comportamento de sempre, mantido
+ * como fallback só pra esses casos.
+ * @return {Object} { porIdLinha: {idLinha -> total}, porTexto: {item normalizado -> total} }
  */
 function _tingidoPorItem() {
-  var mapa = {};
+  var porIdLinha = {}, porTexto = {};
   _lerBaixasFioCru().forEach(function (r) {
+    var qtd = Number(r.QUANTIDADE) || 0;
+    var idLinha = _norm(r.ID_LINHA);
+    if (idLinha) {
+      porIdLinha[idLinha] = (porIdLinha[idLinha] || 0) + qtd;
+      return;
+    }
     var k = _norm(r.ITEM);
     if (!k) return;
-    mapa[k] = (mapa[k] || 0) + (Number(r.QUANTIDADE) || 0);
+    porTexto[k] = (porTexto[k] || 0) + qtd;
   });
-  return mapa;
+  return { porIdLinha: porIdLinha, porTexto: porTexto };
+}
+
+/** "Já tingido" de UMA linha de PENDENCIA_COMPRA — prefere a soma por
+ * ID_LINHA (sem ambiguidade); só cai na soma por texto do item quando não há
+ * nenhuma baixa com esse ID_LINHA ainda (pedido novo, ou baixas antigas sem
+ * ID_LINHA — ver comentário de `_tingidoPorItem`). `tingidoMapa` é o
+ * resultado de `_tingidoPorItem()`, passado pronto pra não relê a aba de
+ * baixas uma vez por linha. */
+function _tingidoDaLinha(tingidoMapa, idLinha, item) {
+  var idLinhaNorm = _norm(idLinha);
+  if (idLinhaNorm && tingidoMapa.porIdLinha[idLinhaNorm] != null) return tingidoMapa.porIdLinha[idLinhaNorm];
+  return tingidoMapa.porTexto[_norm(item)] || 0;
 }
 
 /**

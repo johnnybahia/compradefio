@@ -1098,6 +1098,10 @@ function confirmarEmbarqueManual(token, params) {
     .map(function (it) {
       return {
         item: String(it.item).trim(), quantidade: Number(it.quantidade),
+        // ID_LINHA da linha de PENDENCIA_COMPRA de origem (ver `obterListaFioParaTingir`)
+        // — sem ambiguidade quando o mesmo código de item está em 2+ pedidos
+        // abertos ao mesmo tempo (ver comentário em `_confirmarEmbarqueManualInterno`).
+        idLinha: String(it.idLinha == null ? '' : it.idLinha).trim(),
         doEstoque: !!it.doEstoque, obs: String(it.obs == null ? '' : it.obs).trim(),
         volumes: (it.volumes === '' || it.volumes == null) ? '' : (Number(it.volumes) || 0)
       };
@@ -1229,10 +1233,19 @@ function _registrarUltimoEmbarqueConfirmado(itens, numero, usuario) {
 
 /** Miolo da confirmação (já validada contra duplicidade — ver `confirmarEmbarqueManual`). */
 function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, malote, lista) {
-  var tipoFioPorItem = {};
+  // Dois mapas pelo mesmo motivo de `_tingidoPorItem` (FioCru.gs): o código do
+  // item não é único — com 2+ pedidos abertos no mesmo código, pegar só a
+  // PRIMEIRA linha por texto (como era antes) ignorava as outras. `porIdLinha`
+  // não tem ambiguidade nenhuma; `porTexto` (primeira linha achada) é só o
+  // fallback pra quando o item não chegou com idLinha (chamada antiga/lançamento
+  // manual sem pendência).
+  var tipoFioPorIdLinha = {}, tipoFioPorItem = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var tipo = String(r.TIPO_FIO || '').trim();
+    var idLinha = _norm(r.ID_LINHA);
+    if (idLinha && !tipoFioPorIdLinha[idLinha]) tipoFioPorIdLinha[idLinha] = tipo;
     var k = _norm(r.ITEM);
-    if (k && !tipoFioPorItem[k]) tipoFioPorItem[k] = String(r.TIPO_FIO || '').trim();
+    if (k && !tipoFioPorItem[k]) tipoFioPorItem[k] = tipo;
   });
 
   // Confirma (ou corrige) a baixa do fio crú de cada item pro valor que está
@@ -1255,15 +1268,17 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     // gravado quando o item não bate com nada hoje — inclui o caso de item que
     // já saiu da lista pendente (confirmação forçada de embarque repetido),
     // que antes saía inteiro sob "(tipo de fio não identificado)".
-    var tipoFio = _tipoFioAtualDoItem(it.item, tipoFioPorItem[_norm(it.item)]);
+    var tipoFioGravado = (it.idLinha && tipoFioPorIdLinha[_norm(it.idLinha)] != null)
+      ? tipoFioPorIdLinha[_norm(it.idLinha)] : tipoFioPorItem[_norm(it.item)];
+    var tipoFio = _tipoFioAtualDoItem(it.item, tipoFioGravado);
     var chaveTipo = tipoFio || '(tipo de fio não identificado)';
     // `it.quantidade` vem da tela já descontado do TINGIDO_BASELINE do item
     // (ver `obterListaFioParaTingir`, em FioCru.gs) — se este item é o saldo
     // residual de um embarque parcial anterior, tanto o "já tingido" quanto a
     // quantidade confirmada aqui só contam o que é NOVO pra este saldo, não o
     // histórico completo do item.
-    var baseline = _baselineTingidoDoItemPendente(it.item);
-    var jaTingido = Math.max(0, (tingidoAtualPorItem[_norm(it.item)] || 0) - baseline);
+    var baseline = _baselineTingidoDoItemPendente(it.item, it.idLinha);
+    var jaTingido = Math.max(0, _tingidoDaLinha(tingidoAtualPorItem, it.idLinha, it.item) - baseline);
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
     // senão não há sobra nenhuma pra tirar do estoque pronto.
     var qtdEstoque = (it.doEstoque && it.quantidade > jaTingido) ? (it.quantidade - jaTingido) : 0;
@@ -1280,19 +1295,21 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     //     a baixa feita lá.
     // Sem nada nessa situação (o caso normal hoje: `jaTingido` = 0), o ajuste
     // roda e é ESTA confirmação que dá a baixa no fio crú.
-    var liberadoAntes = _liberadoDoItemPendente(it.item);
+    var liberadoAntes = _liberadoDoItemPendente(it.item, it.idLinha);
     var existeRetido = liberadoAntes + 0.01 < jaTingido;
     if (qtdEstoque > 0 || existeRetido) {
       // Não mexe no fio crú: o que já estava baixado (jaTingido) permanece
       // como o consumo do crú; a sobra (do estoque, ou retida) não passa
       // pelo ajuste. Nenhuma linha nova no razão de baixas.
     } else {
-      var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, baseline + it.quantidade, s.usuario);
+      var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, baseline + it.quantidade, s.usuario, it.idLinha);
       (ajuste.lotes || []).forEach(function (l) {
         deltaLotes.push({
           // tipo de fio REAL da linha de baixa (pode diferir do tipo do item por
           // caso especial) — é o que o estorno precisa pra creditar na NF certa.
-          tipoFio: l.tipoFio || tipoFio, item: it.item, nf: l.nf,
+          // idLinha vai junto pra `_estornarCruEmbarque` gravar o crédito com
+          // o mesmo ID_LINHA da baixa original (ver `_ajustarBaixaFioCru`).
+          tipoFio: l.tipoFio || tipoFio, item: it.item, idLinha: it.idLinha, nf: l.nf,
           dataNf: l.dataNf, peso: l.quantidadeBaixada
         });
       });
@@ -1304,16 +1321,18 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
       item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque, obs: it.obs, volumes: it.volumes
     });
     if (!itensPorTipo[chaveTipo]) itensPorTipo[chaveTipo] = [];
-    itensPorTipo[chaveTipo].push(it.item);
+    itensPorTipo[chaveTipo].push({ item: it.item, idLinha: it.idLinha });
   });
 
   // NFs consumidas pra o relatório: vêm do RAZÃO (depois dos ajustes acima),
   // não da diferença desta confirmação — no caminho normal o consumo aconteceu
   // ao lançar o tingimento, e a diferença aqui é zero (ver `_consumoCruPorItens`).
-  var consumoPorItem = _consumoCruPorItens(itens.map(function (it) { return it.item; }));
+  var consumoPorItem = _consumoCruPorItens(itens.map(function (it) { return { item: it.item, idLinha: it.idLinha }; }));
   Object.keys(itensPorTipo).forEach(function (chaveTipo) {
-    itensPorTipo[chaveTipo].forEach(function (item) {
-      (consumoPorItem[_norm(item)] || []).forEach(function (c) {
+    itensPorTipo[chaveTipo].forEach(function (it) {
+      var item = it.item;
+      var chave = it.idLinha || _norm(item);
+      (consumoPorItem[chave] || []).forEach(function (c) {
         porTipo[chaveTipo].lotes.push({
           item: item, nf: c.nf, fornecedor: c.fornecedor || '',
           dataNf: c.dataNf, peso: c.peso, saldoApos: c.saldoApos,
@@ -1958,7 +1977,10 @@ function _marcarEstornoUsado(alvoNorm) {
 function _estornarCruEmbarque(lotes, usuario, numero) {
   var linhas = lotes.map(function (l) {
     return [new Date(), l.tipoFio || '', l.nf, l.dataNf || '', l.item || '',
-      -(Number(l.peso) || 0), '', (usuario || '') + ' (cancelamento embarque ' + numero + ')'];
+      -(Number(l.peso) || 0), '', (usuario || '') + ' (cancelamento embarque ' + numero + ')',
+      // ID_LINHA vazio em instantâneos antigos (gravados antes desta coluna
+      // existir) — cai no texto do item, igual sempre foi (ver `_tingidoPorItem`).
+      l.idLinha || ''];
   });
   if (!linhas.length) return 0;
   var sh = _prepararFioCruBaixas();
