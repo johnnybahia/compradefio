@@ -1051,11 +1051,15 @@ function renderLista(itens) {
       '<td class="cel-tipofio" data-idx="' + i + '">' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
       '<td class="cel-maquinas" data-idx="' + i + '">' + (it.maquinas ? it.maquinas : '—') + '</td>' +
       '<td class="cel-total" data-idx="' + i + '" style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
-      '<td><div class="data-limite-cel">' +
-        '<input type="date" class="data-input" data-idx="' + i + '" value="' + brParaISO(it.dataLimite) + '">' +
-        '<button type="button" class="btn-atualizar-data no-print" data-idx="' + i + '" ' +
-        'title="Reconsultar a data limite deste item">↻</button>' +
-      '</div></td>' +
+      '<td>' +
+        (it.reaberto ? '<div class="selo-reaberto" title="Já existe pedido pendente deste item — ' +
+          'informe a nova data limite deste pedido.">novo pedido</div>' : '') +
+        '<div class="data-limite-cel' + (it.reaberto ? ' reaberto' : '') + '">' +
+          '<input type="date" class="data-input" data-idx="' + i + '" value="' + brParaISO(it.dataLimite) + '">' +
+          '<button type="button" class="btn-atualizar-data no-print" data-idx="' + i + '" ' +
+          'title="Reconsultar a data limite deste item">↻</button>' +
+        '</div>' +
+      '</td>' +
       '<td><input class="obs-input" data-idx="' + i + '" value="' + escAttr(it.obs || '') + '" placeholder="anotação…"></td>' +
     '</tr>';
   }).join('');
@@ -1219,6 +1223,13 @@ function prosseguirCompra() {
   });
   if (!manter.length) {
     msg.innerHTML = '<div class="aviso erro">Marque ao menos um item para comprar.</div>';
+    return;
+  }
+  var semData = manter.filter(function (it) { return it.reaberto && !it.dataLimite; });
+  if (semData.length) {
+    msg.innerHTML = '<div class="aviso erro">Defina a nova data limite de embarque para: ' +
+      semData.map(function (it) { return escAttr(it.item); }).join(', ') +
+      ' — já existe pedido pendente deste item.</div>';
     return;
   }
   var btn = document.getElementById('btn-prosseguir');
