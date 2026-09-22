@@ -239,16 +239,16 @@
   }
   table.dados tbody tr:hover { background: #F7FAFD; }
   table.dados tbody tr.destaque {
-    background: #FCEDEC;
+    background: #F5C6C2;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  table.dados tbody tr.destaque:hover { background: #F9E2E0; }
+  table.dados tbody tr.destaque:hover { background: #EEACA7; }
   table.dados tbody tr.destaque td:nth-child(5) { color: #C0392B; font-weight: 700; }
   table.dados tbody tr.destaque-abastecido {
-    background: #FCF3CF;
+    background: #FBE29B;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  table.dados tbody tr.destaque-abastecido:hover { background: #F9E9B0; }
+  table.dados tbody tr.destaque-abastecido:hover { background: #F6CD68; }
   .legenda-critico { margin: 4px 0 10px; font-size: 12px; color: #C0392B; }
   .legenda-abastecido { margin: 4px 0 10px; font-size: 12px; color: #9A7D0A; }
   .vazio { padding: 26px; text-align: center; color: var(--texto-fraco); font-size: 14px; }
@@ -289,15 +289,15 @@
   table.dados tbody tr.destaque-saldo-baixo:hover { background: #EAD9FB; }
   /* Programação de Embarque: vermelho = saldo negativo, amarelo = saldo baixo (ver Programacao.gs). */
   table.dados tbody tr.linha-saldo-negativo {
-    background: #FCEDEC;
+    background: #F5C6C2;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  table.dados tbody tr.linha-saldo-negativo:hover { background: #F9E2E0; }
+  table.dados tbody tr.linha-saldo-negativo:hover { background: #EEACA7; }
   table.dados tbody tr.linha-saldo-baixo {
-    background: #FCF3CF;
+    background: #FBE29B;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  table.dados tbody tr.linha-saldo-baixo:hover { background: #F9E9B0; }
+  table.dados tbody tr.linha-saldo-baixo:hover { background: #F6CD68; }
   .qtd-input-grande {
     width: 90px; padding: 7px 8px; font-size: 14px; font-weight: 600;
     border: 1px solid var(--borda); border-radius: 6px; text-align: right;
@@ -311,6 +311,13 @@
   .assoc-select:focus { outline: none; border-color: var(--azul-claro); }
   .data-limite-cel { display: flex; align-items: center; gap: 4px; }
   .data-limite-cel .data-input { flex: 1; min-width: 0; }
+  .selo-reaberto {
+    display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .02em; color: #9A5B00; background: #FDECC8; border-radius: 4px;
+    padding: 1px 5px; margin-bottom: 3px; white-space: nowrap;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .data-limite-cel.reaberto .data-input { border-color: #E8A33D; }
   .btn-atualizar-data {
     flex: none; width: 24px; height: 24px; padding: 0; box-sizing: border-box;
     border: 1px solid var(--borda); border-radius: 6px; background: #fff;

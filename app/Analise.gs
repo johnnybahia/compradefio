@@ -169,6 +169,14 @@ function listarItensParaAnalise(token, params) {
     var emAberto = emAbertoPorItem[k] || 0;
     var saldoAjustado = r.saldo + emViagem; // considera o que já está a caminho, para não pedir compra à toa
     var t = tingimentoDe(r.item, saldoAjustado, media, emAberto);
+    // Já existe pedido pendente deste item (emAberto > 0) E ainda falta mais
+    // depois de descontar o que já está em aberto (t.total > 0): é consumo
+    // novo por cima de um pedido já feito, não uma correção da mesma rodada.
+    // Reabre a data em branco em vez de repetir a DATA_LIMITE antiga — sem
+    // isso, "Prosseguir" com a data de sempre bate na mesma chave item+data
+    // da linha já pendente (`_chaveItemData`) e a SUBSTITUI por engano em vez
+    // de criar um pedido à parte (ver `gerarRelacaoDeCompra`).
+    var reaberto = emAberto > 0 && t.total > 0;
     itens.push({
       item: r.item,
       descricao: d.descricao,
@@ -184,7 +192,8 @@ function listarItensParaAnalise(token, params) {
       alvo: t.alvo,
       maquinas: t.maquinas.join(' + '),
       totalTingimento: t.total,
-      dataLimite: dataLimiteDe(r.item)
+      dataLimite: reaberto ? '' : dataLimiteDe(r.item),
+      reaberto: reaberto
     });
   });
   // Itens de fio primeiro (do saldo menor para o maior, mais críticos primeiro);
@@ -292,6 +301,19 @@ function gerarRelacaoDeCompra(token, params) {
   params = params || {};
   var itens = params.itens || [];
   if (!itens.length) throw new Error('Nenhum item selecionado para a compra.');
+
+  // Item reaberto (já tinha pedido pendente, veio com data em branco — ver
+  // `listarItensParaAnalise`) precisa de uma data NOVA antes de gravar: sem
+  // essa trava, a data ficaria vazia na planilha e a linha cairia pro fim da
+  // fila em `_ordenarPorDataLimite` — o oposto do que a reabertura pretende.
+  var semData = itens.filter(function (it) { return it.reaberto && !it.dataLimite; });
+  if (semData.length) {
+    throw new Error(
+      'Defina a nova data limite de embarque para: ' +
+      semData.map(function (it) { return it.item; }).join(', ') +
+      ' — já existe pedido pendente deste item.'
+    );
+  }
 
   var agora = new Date();
   var sh = _prepararAbaCompra(CONFIG.SHEETS.PENDENCIA_COMPRA);

@@ -724,3 +724,47 @@ abas/menu) sumia da tela; (3) pedido novo — a lista deve considerar sempre as
    só esperando o embarque). Sai da lista (e a data se apaga) só quando o
    saldo deixar de ser crítico — a janela de dias não é, sozinha, motivo de
    limpeza.
+
+## Reabrir a data quando um item já pendente precisa de mais compra
+
+Reportado pelo usuário: item pedido pro dia 2 (DATA_LIMITE), não embarcou até
+o dia 3, e entrou consumo novo dele nesse meio tempo — o item volta a
+aparecer na Análise de Compra com necessidade de mais compra. A data exibida
+continuava sendo a de dia 2 (vem de `PROGRAMACAO_DATA_EMBARQUE`, que não
+muda sozinha — `_criarLocalizadorDataLimite`, Analise.gs). Se o master
+prosseguisse sem trocar a data na mão, `gerarRelacaoDeCompra` batia na mesma
+chave item+data da linha já pendente (`_chaveItemData`) e a SUBSTITUÍA
+inteira — upsert pensado pra corrigir erro de digitação na MESMA rodada
+(mesmo dia, ainda não enviada), não pra diferenciar isso de um pedido
+incremental dias depois. Perdia em silêncio VOLUMES/PRONTO_EMBARQUE/
+rascunhos de embarque já preenchidos na linha antiga (a gravação reescreve a
+linha inteira, `RELACAO_COMPRA_HEADERS.length` colunas de uma vez), e o
+SUGERIDO gravado já sai líquido do que estava em aberto (`alvo = alvoBruto -
+emAberto`, Tingimento.gs) — ou seja, o incremento substituía o total antigo
+em vez de somar a ele.
+
+**Implementado** (`listarItensParaAnalise`, Analise.gs): quando um item já
+tem algo em aberto (`emAberto > 0`) E ainda sobra necessidade depois de
+descontar isso (`t.total > 0`), a DATA_LIMITE volta em **branco**
+(`reaberto: true` na resposta) em vez de repetir a data antiga — garante uma
+chave DIFERENTE da linha já pendente, então "Prosseguir com a compra" cria
+um pedido à parte em vez de substituir. O reset é só transitório nessa
+resposta — **não** grava nem apaga nada em `PROGRAMACAO_DATA_EMBARQUE` (evita
+entrar na trava dessa aba, `_travaProgramacaoEmbarque`, só por causa da
+Análise, e mantém a tela "Programação de Embarque" como uma fonte à parte).
+
+- `App.html` — selo "novo pedido" junto ao campo de data quando `reaberto`;
+  `prosseguirCompra` barra o envio (mensagem, sem chamar o servidor) se
+  algum item reaberto estiver sem data nova.
+- `gerarRelacaoDeCompra` (Analise.gs) recusa a gravação do mesmo jeito no
+  servidor — a validação do cliente não é a única linha de defesa.
+- **Limitação conhecida:** o gatilho é só "sobrou algo a comprar depois do
+  desconto" — a seleção de máquinas fecha em lotes fixos (`Tingimento.gs`) e
+  pode sobrar um resíduo de 1-2kg sem ter havido consumo de verdade,
+  reabrindo a data à toa. Não guarda um "alvo anterior" pra comparar se o
+  total realmente cresceu (mais uma coluna, mais complexidade) — fica como
+  ruído aceito por ora.
+- Item com mais de uma linha pendente (datas diferentes, ex. clientes
+  diferentes) soma tudo em `emAbertoPorItem` — o gatilho dispara igual, mas
+  não tenta adivinhar qual das linhas está vencida; só cria uma linha nova em
+  branco, sem piorar o que já existia.
