@@ -57,7 +57,17 @@ var FIO_CRU_BAIXAS_HEADERS = [
   // pedidos errados juntos). Toda função que soma/busca baixa por item agora
   // prefere ID_LINHA quando disponível; só cai no texto do item pra baixas
   // antigas sem essa coluna (ver `_migrarIdLinhaFioCruBaixas`, em Migracao.gs).
-  'ID_LINHA'
+  'ID_LINHA',
+  // EMBARQUE_REPORTADO (opcional — vazio até a baixa aparecer num PDF de
+  // Confirmação de Embarque): número do embarque que já MOSTROU esta baixa
+  // no relatório de consumo de fio crú. Existe porque um pedido pode
+  // embarcar em remessas parciais (mesmo ID_LINHA, mais de uma baixa ao
+  // longo do tempo — ver TINGIDO_BASELINE, em Analise.gs) — sem marcar o que
+  // já foi mostrado, a PRÓXIMA confirmação parcial do mesmo pedido re-somava
+  // baixas antigas de novo, e o "Peso consumido" do PDF passava do "kg
+  // tingido" do grupo (bug reportado). Ver `_consumoCruPorItens`,
+  // `_marcarBaixasReportadas` e `_desmarcarBaixasReportadas` (cancelamento).
+  'EMBARQUE_REPORTADO'
 ];
 
 /**
@@ -651,6 +661,12 @@ function _consumoCruPorItens(itens) {
 
   var acum = {}; // e.chave -> chaveLote -> { tipoFio, nf, dataNf, peso }
   _lerBaixasFioCru().forEach(function (r) {
+    // Já apareceu numa Confirmação de Embarque anterior — não soma de novo
+    // aqui. Sem isso, um pedido embarcado em remessas parciais (mesmo
+    // ID_LINHA) re-somava, na segunda confirmação, o consumo já mostrado na
+    // primeira — o "Peso consumido" do PDF passava do "kg tingido" do grupo
+    // (bug reportado). Ver `_marcarBaixasReportadas`.
+    if (_textoCelula(r.EMBARQUE_REPORTADO)) return;
     var rid = _norm(r.ID_LINHA);
     var entrada = rid ? porIdLinha[rid] : porTexto[_norm(r.ITEM)];
     if (!entrada) return;
@@ -699,6 +715,80 @@ function _consumoCruPorItens(itens) {
     res[k] = lista;
   });
   return res;
+}
+
+/**
+ * Marca como reportadas (`EMBARQUE_REPORTADO` = número do embarque) as
+ * baixas dos itens confirmados agora que ainda não tinham aparecido em
+ * nenhum PDF — mesmo casamento de `_consumoCruPorItens` (ID_LINHA quando a
+ * linha já tem baixa própria, senão texto do item), pra nunca marcar uma
+ * baixa de OUTRO pedido que só coincide no código. Chame depois que a baixa
+ * desta confirmação já foi gravada (senão a baixa nova ainda não existe pra
+ * marcar). Escreve a coluna inteira em UM `setValues` só, não célula por
+ * célula — evita uma chamada de API por linha numa confirmação com várias NFs.
+ * @return {number} quantas linhas foram marcadas agora.
+ */
+function _marcarBaixasReportadas(itens, numero) {
+  var entradas = (itens || []).map(function (it) {
+    var item = String((typeof it === 'string' ? it : it.item) || '').trim();
+    var idLinha = _norm(typeof it === 'string' ? '' : (it.idLinha || ''));
+    return { itemNorm: _norm(item), idLinha: idLinha };
+  }).filter(function (e) { return e.itemNorm; });
+  if (!entradas.length) return 0;
+
+  var sh = _prepararFioCruBaixas();
+  var regs = _lerBaixasFioCru();
+  if (!regs.length) return 0;
+
+  var idLinhasComBaixa = {};
+  regs.forEach(function (r) {
+    var rid = _norm(r.ID_LINHA);
+    if (rid) idLinhasComBaixa[rid] = true;
+  });
+  var porIdLinha = {}, porTexto = {};
+  entradas.forEach(function (e) {
+    if (e.idLinha && idLinhasComBaixa[e.idLinha]) porIdLinha[e.idLinha] = true;
+    else porTexto[e.itemNorm] = true;
+  });
+
+  var colReportado = FIO_CRU_BAIXAS_HEADERS.indexOf('EMBARQUE_REPORTADO') + 1;
+  var marcados = 0;
+  var coluna = regs.map(function (r) {
+    var rid = _norm(r.ID_LINHA);
+    var bate = rid ? porIdLinha[rid] : porTexto[_norm(r.ITEM)];
+    if (bate && !_textoCelula(r.EMBARQUE_REPORTADO)) { marcados++; return [numero]; }
+    return [r.EMBARQUE_REPORTADO == null ? '' : r.EMBARQUE_REPORTADO];
+  });
+  if (marcados) sh.getRange(regs[0].__row, colReportado, coluna.length, 1).setValues(coluna);
+  return marcados;
+}
+
+/**
+ * Desfaz a marca "reportada" de todas as baixas daquele número de embarque —
+ * chame ao cancelar. Sem isso, um embarque cancelado deixava o consumo que
+ * ele tinha "mostrado" fora do PRÓXIMO relatório desse pedido pra sempre
+ * (o PDF que mostrou foi cancelado — na prática nunca chegou a ser mostrado).
+ * Mesmo padrão de escrita em lote de `_marcarBaixasReportadas`.
+ * @return {number} quantas linhas foram desmarcadas.
+ */
+function _desmarcarBaixasReportadas(numero) {
+  var alvo = _normNumero(numero);
+  if (!alvo) return 0;
+  var sh = _prepararFioCruBaixas();
+  var regs = _lerBaixasFioCru();
+  if (!regs.length) return 0;
+
+  var colReportado = FIO_CRU_BAIXAS_HEADERS.indexOf('EMBARQUE_REPORTADO') + 1;
+  var desmarcados = 0;
+  var coluna = regs.map(function (r) {
+    if (_textoCelula(r.EMBARQUE_REPORTADO) && _normNumero(r.EMBARQUE_REPORTADO) === alvo) {
+      desmarcados++;
+      return [''];
+    }
+    return [r.EMBARQUE_REPORTADO == null ? '' : r.EMBARQUE_REPORTADO];
+  });
+  if (desmarcados) sh.getRange(regs[0].__row, colReportado, coluna.length, 1).setValues(coluna);
+  return desmarcados;
 }
 
 /**

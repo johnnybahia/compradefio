@@ -1358,6 +1358,10 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
   var numero = _numeroEmbarqueManualAtual();
   var agora = new Date();
   var r = _registrarEmbarqueEDarBaixa(itens, numero, agora, s.usuario, deltaLotes);
+  // Marca as baixas destes itens como já mostradas neste embarque — sem
+  // isso, uma PRÓXIMA remessa parcial do mesmo pedido (mesmo ID_LINHA)
+  // re-somaria esse consumo de novo no relatório (ver `_consumoCruPorItens`).
+  _marcarBaixasReportadas(itens.map(function (it) { return { item: it.item, idLinha: it.idLinha }; }), numero);
   _avancarNumeroEmbarqueManual(); // só agora — o registro já foi gravado
   // Registra ANTES do e-mail: se o envio falhar e o usuário tentar de novo, o
   // embarque já está gravado — a segunda tentativa tem que ser barrada como
@@ -1927,6 +1931,9 @@ function cancelarEmbarque(token, numero, avisarEmail, devolverPendencia) {
 
   linhasDoEmb.forEach(function (l) { sh.getRange(l.row, iSit + 1).setValue('CANCELADO'); });
   _marcarEstornoUsado(alvo);
+  // Esse embarque não "mostrou" mais o consumo de fio crú de verdade — libera
+  // pra aparecer no próximo relatório real (ver `_marcarBaixasReportadas`).
+  _desmarcarBaixasReportadas(numero);
 
   var destinatarios = 0;
   if (avisarEmail) {

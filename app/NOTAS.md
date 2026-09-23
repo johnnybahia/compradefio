@@ -768,3 +768,58 @@ Análise, e mantém a tela "Programação de Embarque" como uma fonte à parte).
   diferentes) soma tudo em `emAbertoPorItem` — o gatilho dispara igual, mas
   não tenta adivinhar qual das linhas está vencida; só cria uma linha nova em
   branco, sem piorar o que já existia.
+
+## Confirmação de Embarque: consumo de fio crú maior que o kg tingido (resolvido)
+
+Reportado pelo usuário, com dois PDFs de confirmação em mãos: num grupo (ex.
+"Fio Reflex Reciclado 2x167/48 — 748 kg tingido"), a tabela "Consumo no
+estoque de fio crú" somava **1.443 kg** entre as NFs — quase o dobro do kg
+tingido do grupo. O usuário lembrou que um bug parecido ("consumo no estoque
+de fio crú" passando do total tingido) já tinha sido resolvido antes.
+
+**Causa:** era o MESMO sintoma, mas uma causa DIFERENTE da corrigida da
+primeira vez. `_consumoCruPorItens` (FioCru.gs) soma **todo** o histórico de
+baixas gravado em `FIO_CRU_BAIXAS` pra um ID_LINHA — correto quando o pedido
+embarca de uma vez só (o comentário da função já avisava: "confirmar a mesma
+quantidade dá diferença zero"), mas quando o MESMO pedido embarca em
+remessas parciais (o sistema já suporta isso de propósito — é pra isso que
+existe `TINGIDO_BASELINE`, ver Analise.gs), a segunda confirmação **relia e
+resomava** as NFs já mostradas na primeira. Não havia nenhuma coluna ligando
+uma baixa a um embarque específico — sem isso, não tinha como saber "isso já
+apareceu num PDF antes".
+
+**Corrigido:**
+- `FIO_CRU_BAIXAS_HEADERS` ganhou `EMBARQUE_REPORTADO` (vazia = ainda não
+  apareceu em nenhum PDF; migração automática, coluna só cresce no fim).
+- `_consumoCruPorItens` pula baixa já marcada — soma só o que ainda não foi
+  mostrado em nenhuma confirmação.
+- `_marcarBaixasReportadas` (novo, FioCru.gs) — chamada em
+  `_confirmarEmbarqueManualInterno` (Embarque.gs) logo depois da baixa desta
+  confirmação ser gravada — reaplica o MESMO casamento de
+  `_consumoCruPorItens` (ID_LINHA quando a linha já tem baixa própria, senão
+  texto do item) e marca as linhas ainda sem marca com o número do embarque.
+  Escreve a coluna inteira em UM `setValues`, não uma célula por vez (evita
+  uma chamada de API por NF numa confirmação com várias).
+- `_desmarcarBaixasReportadas` (novo) — chamada em `cancelarEmbarque`: um
+  embarque cancelado não "mostrou" o consumo de verdade, então libera essas
+  baixas pra aparecer no PRÓXIMO relatório real desse pedido.
+- Conferido que `gravarEmbarque` (lançamento a partir do PDF da
+  transportadora) não passa perto disso — não consome crú nem gera o PDF de
+  confirmação (`_registrarEmbarqueEDarBaixa` é chamada sem `lotesCru`), então
+  não precisava de nenhuma mudança.
+
+**Aceito de propósito, sem correção:** pedidos que JÁ estavam em remessa
+parcial antes desta correção existir (a coluna nova nasce vazia em baixa já
+gravada) vão reportar o consumo antigo mais UMA última vez, na próxima
+confirmação — não dá pra reconstruir retroativamente o que já saiu num PDF
+antigo. Dali em diante fica limpo. Decisão do usuário: deixar autocorrigir
+sozinho, sem levantar/backfillar os casos abertos na mão.
+
+**Fora do escopo desta correção** (reportado junto, mas o usuário pediu só
+o de cima): a Mão de obra do rodapé não fecha em centavos com a soma dos
+itens/grupos quando algum item tem kg fracionário (ex.: 13,8kg × R$2,72/kg =
+R$37,536, arredondado por item pra R$37,54, mas o cabeçalho do grupo
+arredonda direto do kg total do grupo) — item, grupo e total geral
+arredondam cada um na própria conta, em vez de somar valores já arredondados.
+Cosmético (o valor cobrado sai certo, vem do kg total × taxa), mas confunde
+quem confere somando na tela.
