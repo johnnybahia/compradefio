@@ -165,7 +165,7 @@ function _extrairTextoPdf(base64, nome) {
 
 /** Conjunto de itens do estoque: normalizado → valor original. */
 function _itensEstoqueSet() {
-  var sh = _aba(CONFIG.SHEETS.ESTOQUE);
+  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null, _ssMestre());
   var set = {};
   if (!sh) return set;
   var last = sh.getLastRow();
@@ -2210,7 +2210,7 @@ function _atualizarChegadasEmbarque(inicio, fim) {
   var numeros = Object.keys(pendentes);
   if (!numeros.length) return vazio;
 
-  var shEst = _aba(CONFIG.SHEETS.ESTOQUE);
+  var shEst = _aba(CONFIG.SHEETS.ESTOQUE, null, _ssMestre());
   if (!shEst) return vazio;
   var lastEst = shEst.getLastRow();
   if (lastEst < 2) return vazio;

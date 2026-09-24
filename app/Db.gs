@@ -49,6 +49,22 @@ function _ss(idOpcional, contexto) {
 }
 
 /**
+ * Abre a planilha MESTRE de estoque da unidade informada (ou da ativa, se
+ * omitida) — a fonte real dos lançamentos, não a planilha banco de dados do
+ * Web App (ver `CONFIG.getSpreadsheetIdMestre`). Use para abrir a aba
+ * ESTOQUE em vez de `_ss()`/`_aba(CONFIG.SHEETS.ESTOQUE)` puro: a aba
+ * ESTOQUE da planilha banco de dados é só um espelho por `IMPORTRANGE` da
+ * mestre, que às vezes demora a recalcular.
+ */
+function _ssMestre(unidadeId) {
+  var alvo = unidadeId || _unidadeAtivaId;
+  return _ss(
+    CONFIG.getSpreadsheetIdMestre(alvo),
+    'planilha mestre de estoque da unidade "' + (alvo || CONFIG.UNIDADE_PADRAO) + '"'
+  );
+}
+
+/**
  * Retorna a aba pelo nome. Se ela não existir e `headers` for informado,
  * cria a aba com o cabeçalho. `ssOpcional` permite operar numa planilha
  * específica em vez da unidade ativa (ver `_ss`).

@@ -593,8 +593,8 @@ function _chaveItemData(item, dataLimite) {
  * pelo nome do cabeçalho (sem depender de acentos, maiúsculas ou posição).
  */
 function _lerEstoque() {
-  var sh = _aba(CONFIG.SHEETS.ESTOQUE);
-  if (!sh) throw new Error('Aba "ESTOQUE" não encontrada na planilha.');
+  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null, _ssMestre());
+  if (!sh) throw new Error('Aba "ESTOQUE" não encontrada na planilha mestre.');
   var last = sh.getLastRow();
   if (last < 2) return [];
 

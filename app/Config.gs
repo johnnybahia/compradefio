@@ -44,8 +44,8 @@ var CONFIG = {
     // pode ser sobrescrito por CNPJ_CEARA/CNPJ_BAHIA nas Propriedades do script.
     // limiteSaldoCritico: usado na tela "Programação de Embarque" (ver
     // Programacao.gs) — cor com saldo abaixo disso entra na lista.
-    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA', propCnpj: 'CNPJ_CEARA', cnpjPadrao: '19542918000190', limiteSaldoCritico: 20 },
-    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA', propCnpj: 'CNPJ_BAHIA', cnpjPadrao: '05645301000196', limiteSaldoCritico: 10 }
+    { id: 'CEARA', rotulo: 'Ceará', propSpreadsheet: 'SPREADSHEET_ID_CEARA', propSpreadsheetMestre: 'SPREADSHEET_ID_CEARA_MESTRE', propCnpj: 'CNPJ_CEARA', cnpjPadrao: '19542918000190', limiteSaldoCritico: 20 },
+    { id: 'BAHIA', rotulo: 'Bahia', propSpreadsheet: 'SPREADSHEET_ID_BAHIA', propSpreadsheetMestre: 'SPREADSHEET_ID_BAHIA_MESTRE', propCnpj: 'CNPJ_BAHIA', cnpjPadrao: '05645301000196', limiteSaldoCritico: 10 }
   ],
 
   /** Unidade usada quando o login ainda não escolheu nenhuma. */
@@ -87,6 +87,29 @@ var CONFIG = {
       );
     }
     return id;
+  },
+
+  /**
+   * ID da planilha MESTRE de estoque da unidade — onde o lançamento é
+   * digitado de verdade (ex.: o `codigo.gs` antigo, menu "GESTÃO DO
+   * ESTOQUE") — diferente da planilha banco de dados do Web App
+   * (`getSpreadsheetId`), cuja aba ESTOQUE é só um espelho por `IMPORTRANGE`
+   * da mestre. Ler a mestre direto evita o atraso do `IMPORTRANGE` (ele só
+   * recalcula em segundo plano, por conta do Google, e `getValues()` lê o
+   * que já estava em cache — não força recálculo; lançamentos recentes
+   * podem não aparecer ainda).
+   * Defina em: Configurações do projeto → Propriedades do script →
+   * SPREADSHEET_ID_CEARA_MESTRE / SPREADSHEET_ID_BAHIA_MESTRE.
+   * Sem a Propriedade específica, cai para a própria planilha banco de dados
+   * (comportamento de antes desta função existir) — migração é opcional e
+   * pode ser feita unidade por unidade.
+   */
+  getSpreadsheetIdMestre: function (unidadeId) {
+    var u = this.getUnidadeInfo(unidadeId);
+    var id = u.propSpreadsheetMestre
+      ? PropertiesService.getScriptProperties().getProperty(u.propSpreadsheetMestre)
+      : '';
+    return id || this.getSpreadsheetId(unidadeId);
   },
 
   /**
