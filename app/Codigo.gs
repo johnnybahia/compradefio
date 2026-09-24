@@ -77,19 +77,25 @@ function diagnostico() {
       linhas.push(temMestreDedicada
         ? '✓ Planilha mestre de estoque (' + u.propSpreadsheetMestre + '): ' + idMestre
         : 'ℹ ' + u.propSpreadsheetMestre + ' não configurada — Análise/Embarque leem ESTOQUE da própria planilha banco de dados (espelho por IMPORTRANGE, pode atrasar).');
-      var shEstoque = SpreadsheetApp.openById(idMestre).getSheetByName(CONFIG.SHEETS.ESTOQUE);
-      if (!shEstoque) {
-        linhas.push('✗ ERRO: aba ESTOQUE não encontrada nessa planilha.');
-      } else {
-        var header = shEstoque.getRange(1, 1, 1, shEstoque.getLastColumn()).getValues()[0].map(_norm);
-        var okColunas = _colPorNomes(header, ['item', 'descricao']) >= 0 &&
-          _colPorNomes(header, ['data', 'data lancamento']) >= 0 &&
-          _colPorNomes(header, ['saldo', 'saldo de estoque']) >= 0;
-        linhas.push((okColunas ? '✓' : '✗ ERRO:') + ' Aba ESTOQUE (' + shEstoque.getLastRow() + ' linha[s]) — cabeçalho ' +
-          (okColunas ? 'reconhecido' : 'SEM Item/Data/Saldo reconhecíveis'));
-      }
+      // Chama o MESMO `_lerEstoque()` que a Análise de Compra usa — não uma
+      // checagem paralela — pra provar o caminho real, não só que a planilha
+      // abre. Se algum arquivo (Db.gs/Analise.gs) ficou com versão antiga no
+      // editor, isso aparece aqui como erro ou como "mais recente" desatualizado,
+      // em vez do diagnóstico passar enquanto a Análise continua lendo o espelho.
+      _definirUnidadeAtiva(u.id);
+      var movs = _lerEstoque();
+      var maisRecente = null;
+      movs.forEach(function (m) {
+        if (m.data && (!maisRecente || m.data.getTime() > maisRecente.getTime())) maisRecente = m.data;
+      });
+      linhas.push('✓ _lerEstoque() (caminho real da Análise de Compra): ' + movs.length + ' movimento[s] — ' +
+        'lançamento mais recente em ' +
+        (maisRecente ? Utilities.formatDate(maisRecente, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '(nenhuma data lida)') +
+        '. Se não for de agora/hoje, o lançamento recente ainda não está nessa planilha/aba — não é mais atraso de IMPORTRANGE.');
     } catch (e) {
       linhas.push('✗ ERRO (planilha mestre de estoque): ' + e.message);
+    } finally {
+      _definirUnidadeAtiva(null);
     }
   });
   try {
