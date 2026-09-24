@@ -855,3 +855,31 @@ comportamento antigo (lê o espelho) — migração é opcional/gradual, e
 das duas planilhas mestre — sem isso, `_ssMestre` lança erro claro (mesmo
 padrão de `_ss`) em vez de silenciosamente continuar lendo o espelho
 atrasado.
+
+## Código de item que virou DATA sozinho some da Análise de Compra (resolvido, parcial)
+
+Depois da correção acima, o usuário reportou outro caso: lançou `2509-02`
+no estoque e o item não apareceu na Análise; `2509-2` (mesmo item, sem o
+zero à esquerda) aparece normalmente.
+
+**Causa:** o Google Sheets lê `2509-02` como data (ano-mês: 1º de fevereiro
+de 2509), não como texto — a célula perde o código original. `_lerEstoque`
+não tinha a mesma proteção que `_itensEstoqueSet` (Embarque.gs) e
+`_saldoPorItemUnidade` (EstoqueUnidades.gs) já tinham contra esse tipo de
+célula; ela deixava passar o valor cru (um `Date`), que `_norm()` transforma
+num texto de data ilegível — o item existe na lista, só que sob um nome que
+ninguém reconhece.
+
+**Correção:** `_lerEstoque` agora reconstrói ano+mês a partir da data e
+compara contra os códigos que já existem como **texto de verdade** em outra
+linha da mesma planilha (`2509-2`, nesse caso) — só junta quando bate com um
+código real, pra não inventar/mesclar com o item errado. Sem bater com
+nada, ignora a linha (mesma postura das outras duas funções — não é
+regressão, hoje ela pelo menos deixa de aparecer garbled).
+
+**Fora do escopo desta correção:** só `_lerEstoque` (Análise de Compra)
+ganhou a recuperação; `_itensEstoqueSet`/`_saldoPorItemUnidade` continuam só
+ignorando célula virada em data, sem tentar recuperar. A causa raiz (Sheets
+convertendo código de item em data na hora da digitação) continua existindo
+— isso é redução de dano na leitura, não impede a planilha de corromper a
+célula de novo.
