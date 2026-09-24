@@ -613,9 +613,29 @@ function _lerEstoque() {
     throw new Error('A aba ESTOQUE precisa ter as colunas Item, Data e Saldo no cabeçalho.');
   }
 
+  // Código digitado tipo "2509-02" às vezes vira DATA sozinho (o Sheets lê
+  // como ano-mês: 2509/02 → 1º de fevereiro de 2509) e a célula perde o
+  // texto original. Não dá pra recuperar o separador/zero à esquerda a
+  // partir da data (ela só guarda os 3 números) — em vez de chutar,
+  // comparamos o ano+mês reconstruído contra os códigos que já existem como
+  // TEXTO de verdade em outra linha da mesma planilha: só junta quando bate
+  // com um código real; senão ignora a linha (mesma postura de
+  // `_itensEstoqueSet`, em Embarque.gs).
+  var codigosValidos = {};
+  valores.forEach(function (r) {
+    var v = r[iItem];
+    if (v instanceof Date) return;
+    var s = (v == null ? '' : String(v).trim());
+    if (s) codigosValidos[_norm(s)] = s;
+  });
+
   var out = [];
   valores.forEach(function (r) {
     var item = r[iItem];
+    if (item instanceof Date) {
+      item = _recuperarCodigoDeData(item, codigosValidos);
+      if (!item) return; // não bateu com nenhum código conhecido — ignora, como hoje
+    }
     if (item === '' || item == null || String(item).trim() === '') return;
     out.push({
       item: item,
@@ -627,6 +647,26 @@ function _lerEstoque() {
     });
   });
   return out;
+}
+
+/**
+ * Recupera o código de item a partir de uma célula que o Sheets converteu em
+ * DATA (ex.: "2509-02" digitado → lido como 1º de fevereiro de 2509). Tenta
+ * as duas grafias possíveis (ano-mês e ano/mês, sem zero à esquerda — é o
+ * que sobra depois de virar número) e só devolve uma se ela já existir como
+ * texto de verdade em `codigosValidos` (normalizado → texto original).
+ * Devolve '' quando não reconhece nenhuma (o chamador decide ignorar a linha).
+ */
+function _recuperarCodigoDeData(data, codigosValidos) {
+  if (isNaN(data.getTime()) || data.getDate() !== 1) return '';
+  var ano = data.getFullYear();
+  var mes = data.getMonth() + 1;
+  var candidatos = [ano + '-' + mes, ano + '/' + mes];
+  for (var i = 0; i < candidatos.length; i++) {
+    var achado = codigosValidos[_norm(candidatos[i])];
+    if (achado) return achado;
+  }
+  return '';
 }
 
 /**
