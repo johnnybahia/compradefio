@@ -70,6 +70,27 @@ function diagnostico() {
     } catch (e) {
       linhas.push('✗ ERRO: ' + e.message);
     }
+
+    try {
+      var idMestre = CONFIG.getSpreadsheetIdMestre(u.id);
+      var temMestreDedicada = idMestre !== CONFIG.getSpreadsheetId(u.id);
+      linhas.push(temMestreDedicada
+        ? '✓ Planilha mestre de estoque (' + u.propSpreadsheetMestre + '): ' + idMestre
+        : 'ℹ ' + u.propSpreadsheetMestre + ' não configurada — Análise/Embarque leem ESTOQUE da própria planilha banco de dados (espelho por IMPORTRANGE, pode atrasar).');
+      var shEstoque = SpreadsheetApp.openById(idMestre).getSheetByName(CONFIG.SHEETS.ESTOQUE);
+      if (!shEstoque) {
+        linhas.push('✗ ERRO: aba ESTOQUE não encontrada nessa planilha.');
+      } else {
+        var header = shEstoque.getRange(1, 1, 1, shEstoque.getLastColumn()).getValues()[0].map(_norm);
+        var okColunas = _colPorNomes(header, ['item', 'descricao']) >= 0 &&
+          _colPorNomes(header, ['data', 'data lancamento']) >= 0 &&
+          _colPorNomes(header, ['saldo', 'saldo de estoque']) >= 0;
+        linhas.push((okColunas ? '✓' : '✗ ERRO:') + ' Aba ESTOQUE (' + shEstoque.getLastRow() + ' linha[s]) — cabeçalho ' +
+          (okColunas ? 'reconhecido' : 'SEM Item/Data/Saldo reconhecíveis'));
+      }
+    } catch (e) {
+      linhas.push('✗ ERRO (planilha mestre de estoque): ' + e.message);
+    }
   });
   try {
     var ssAuth = _ssAutenticacao();

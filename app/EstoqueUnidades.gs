@@ -78,8 +78,7 @@ function _chaveEquivItem(item) {
  */
 function _saldoPorItemUnidade(unidadeId) {
   var res = { porItem: {}, porChave: {}, lista: [] };
-  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null,
-    _ss(CONFIG.getSpreadsheetId(unidadeId), 'estoque da unidade "' + unidadeId + '" (comparação entre unidades)'));
+  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null, _ssMestre(unidadeId));
   if (!sh) return res;
   var last = sh.getLastRow();
   if (last < 2) return res;

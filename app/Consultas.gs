@@ -1141,8 +1141,8 @@ function consultarHistoricoItem(token, termo, modo) {
   };
   if (!termo) return vazio;
 
-  var sh = _aba(CONFIG.SHEETS.ESTOQUE);
-  if (!sh) throw new Error('Aba "ESTOQUE" não encontrada.');
+  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null, _ssMestre());
+  if (!sh) throw new Error('Aba "ESTOQUE" não encontrada na planilha mestre.');
   var last = sh.getLastRow();
   if (last < 2) return vazio;
 
@@ -1219,7 +1219,7 @@ function listarItensEstoque(token) {
   var cached = cache.get(chave);
   if (cached) return { ok: true, itens: JSON.parse(cached) };
 
-  var sh = _aba(CONFIG.SHEETS.ESTOQUE);
+  var sh = _aba(CONFIG.SHEETS.ESTOQUE, null, _ssMestre());
   if (!sh) return { ok: true, itens: [] };
   var last = sh.getLastRow();
   if (last < 2) return { ok: true, itens: [] };

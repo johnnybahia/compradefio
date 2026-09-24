@@ -823,3 +823,35 @@ arredonda direto do kg total do grupo) — item, grupo e total geral
 arredondam cada um na própria conta, em vez de somar valores já arredondados.
 Cosmético (o valor cobrado sai certo, vem do kg total × taxa), mas confunde
 quem confere somando na tela.
+
+## Análise de Estoque não pegava lançamento de hoje — ESTOQUE lida por espelho IMPORTRANGE atrasado (resolvido)
+
+Reportado pelo usuário: rodando a Análise de Estoque com a data de corte de
+hoje (padrão), lançamentos feitos no mesmo dia/horário não apareciam.
+
+**Causa:** nas duas unidades, a aba `ESTOQUE` da planilha banco de dados
+(`SPREADSHEET_ID_CEARA`/`SPREADSHEET_ID_BAHIA`) não é onde o lançamento é
+digitado — é um espelho 100% `IMPORTRANGE` de outra planilha (a "mestre",
+onde roda o `codigo.gs` antigo, menu "GESTÃO DO ESTOQUE"; confirmado nas
+fórmulas cravadas nos `.xlsx` do repo e nos IDs que o usuário passou:
+Ceará `1KFPHMy…beGM`, Bahia `1ulBfI5…m08w`). `SpreadsheetApp...getValues()`
+lê o valor que o `IMPORTRANGE` já tinha em cache — **não força recálculo** —
+e o Google só recalcula essa fórmula em segundo plano, de forma imprevisível
+(principalmente se ninguém abriu a planilha-espelho no navegador). Todo
+ponto que lia `_aba(CONFIG.SHEETS.ESTOQUE)` sem apontar pra planilha certa
+(`_lerEstoque` em Analise.gs; `_itensEstoqueSet` e a conciliação de embarque
+em Embarque.gs; `consultarHistoricoItem` e `listarItensEstoque` em
+Consultas.gs; `_saldoPorItemUnidade` em EstoqueUnidades.gs) tinha o mesmo
+problema.
+
+**Correção:** `CONFIG.getSpreadsheetIdMestre(unidadeId)` (Config.gs) e
+`_ssMestre(unidadeId)` (Db.gs) abrem a planilha mestre em vez do espelho,
+configurável por `SPREADSHEET_ID_CEARA_MESTRE`/`SPREADSHEET_ID_BAHIA_MESTRE`
+(Propriedades do script). Sem essa Propriedade definida, cai pro
+comportamento antigo (lê o espelho) — migração é opcional/gradual, e
+`diagnostico()` já confere acesso e cabeçalho da mestre de cada unidade.
+
+**Risco aberto:** a conta que roda o Web App precisa ser ao menos leitora
+das duas planilhas mestre — sem isso, `_ssMestre` lança erro claro (mesmo
+padrão de `_ss`) em vez de silenciosamente continuar lendo o espelho
+atrasado.

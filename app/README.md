@@ -131,6 +131,15 @@ direto — não força escolha quando não há o que escolher.
    - *(opcional)* `SPREADSHEET_ID_AUTH` = planilha onde a aba `USUARIOS`
      deve morar, se quiser separá-la das planilhas de dados (por padrão usa
      a planilha da unidade padrão).
+   - *(opcional, recomendado)* `SPREADSHEET_ID_CEARA_MESTRE` /
+     `SPREADSHEET_ID_BAHIA_MESTRE` = planilha onde o lançamento de estoque é
+     digitado de verdade (a que roda o `codigo.gs` antigo, menu "GESTÃO DO
+     ESTOQUE"). Sem isso, o Web App lê a aba `ESTOQUE` da própria planilha
+     banco de dados — que nas duas unidades é só um espelho por
+     `IMPORTRANGE` da mestre, e pode demorar a refletir lançamentos recentes
+     (`IMPORTRANGE` recalcula em segundo plano, por conta do Google; ler a
+     mestre direto evita esse atraso). A conta que roda o Web App precisa
+     ser ao menos leitora dessa planilha. Rode `diagnostico` para conferir.
    - *(opcional)* `SENHA_MASTER_INICIAL` = senha inicial do master.
 3. Rode a função **`inicializarSistema`** uma vez (menu Executar). Ela cria a
    aba `USUARIOS` e o usuário **`master`** (a senha aparece no log de execução;
