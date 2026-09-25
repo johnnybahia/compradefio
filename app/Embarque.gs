@@ -1987,7 +1987,8 @@ function _estornarCruEmbarque(lotes, usuario, numero) {
       -(Number(l.peso) || 0), '', (usuario || '') + ' (cancelamento embarque ' + numero + ')',
       // ID_LINHA vazio em instantâneos antigos (gravados antes desta coluna
       // existir) — cai no texto do item, igual sempre foi (ver `_tingidoPorItem`).
-      l.idLinha || ''];
+      l.idLinha || '',
+      '']; // EMBARQUE_REPORTADO (10ª coluna) — começa vazia, igual às demais gravações.
   });
   if (!linhas.length) return 0;
   var sh = _prepararFioCruBaixas();
