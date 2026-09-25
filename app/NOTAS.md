@@ -908,3 +908,27 @@ PENDENCIA_COMPRA só acontecem DEPOIS do ajuste de fio crú, no fluxo de
 confirmação — então a tentativa que deu erro não chegou a gravar nada
 inconsistente (nenhum número de embarque foi consumido). Ainda vale
 conferir o histórico de embarques antes de tentar de novo.
+
+## Risco conhecido (não corrigido): Relatório pode etiquetar "em viagem" com o pedido errado
+
+Achado revisando o código (não reportado pelo usuário), depois da bateria de
+correções de ESTOQUE/embarque acima — registrado a pedido, sem implementar.
+
+`_montarLinhasRelatorio`/`_embarquesEmViagemPorItem` (Consultas.gs/Embarque.gs
+— o que monta a tela Relatório) casam a linha "embarcado/em viagem" com a
+linha pendente de origem **só pelo texto do item** (`_norm`), sem usar
+`ID_LINHA`. É a mesma ambiguidade já corrigida em `_tingidoPorItem`/
+`_ajustarBaixaFioCru` (fio crú) e documentada como real neste projeto: o
+mesmo código de cor pode estar em 2+ pedidos abertos simultâneos, de
+clientes diferentes.
+
+**Efeito, se acontecer:** com o mesmo código em 2+ pedidos abertos E um
+embarque a caminho desse código, o Relatório pode mostrar o
+cliente/data-limite do pedido ERRADO na linha "embarcado" — não afeta
+quantidade/saldo (isso vem da própria aba EMBARQUES), só a etiqueta de qual
+pedido é aquele.
+
+**Por que não é um fix simples:** a aba `EMBARQUES` não guarda `ID_LINHA`
+hoje (só o texto do item) — corrigir direito precisa acrescentar essa coluna
+e propagar pelas gravações (`_registrarEmbarqueEDarBaixa` já recebe
+`it.idLinha` de `confirmarEmbarqueManual`, só não persiste).
