@@ -535,16 +535,21 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario, idLinha) {
   item = String(item || '').trim();
   novoTotal = Number(novoTotal) || 0;
   var tingidoMapa = _tingidoPorItem();
-  // Usa a soma por ID_LINHA quando existe alguma baixa gravada com esse ID —
-  // senão (pedido novo sem baixa ainda, OU baixas antigas sem ID_LINHA que a
-  // migração não conseguiu resolver por ambiguidade — ver
-  // `_migrarIdLinhaFioCruBaixas`, em Migracao.gs) cai no texto do item, igual
-  // sempre foi. As duas etapas abaixo (achar "atual" e escolher que linhas
-  // entram no crédito LIFO) usam o MESMO critério, pra nunca creditar de
-  // volta uma baixa que não entrou na conta do "atual".
+  // Usa a soma por ID_LINHA sempre que o pedido TEM ID_LINHA — mesmo que seja
+  // a primeira baixa dele (0 de histórico próprio) — e só cai no texto do
+  // item quando não há ID_LINHA nenhum (baixa antiga que a migração não
+  // resolveu — ver `_migrarIdLinhaFioCruBaixas`, em Migracao.gs). Bug
+  // corrigido: exigir baixa PRÉVIA com esse ID_LINHA pra "usar o ID_LINHA"
+  // fazia um pedido novo cair no texto e herdar o "atual" de um pedido
+  // ANTIGO já fechado que só coincide no código do item (ex.: item "4374"
+  // fechado em agosto, novo pedido do mesmo código em setembro herdando o
+  // kg do de agosto) — bug reportado, confirmado nos dados. As duas etapas
+  // abaixo (achar "atual" e escolher que linhas entram no crédito LIFO) usam
+  // o MESMO critério, pra nunca creditar de volta uma baixa que não entrou
+  // na conta do "atual".
   var idLinhaNorm = _norm(idLinha);
-  var usarIdLinha = !!(idLinhaNorm && tingidoMapa.porIdLinha[idLinhaNorm] != null);
-  var atual = usarIdLinha ? tingidoMapa.porIdLinha[idLinhaNorm] : (tingidoMapa.porTexto[_norm(item)] || 0);
+  var usarIdLinha = !!idLinhaNorm;
+  var atual = usarIdLinha ? (tingidoMapa.porIdLinha[idLinhaNorm] || 0) : (tingidoMapa.porTexto[_norm(item)] || 0);
   var diferenca = novoTotal - atual;
   if (Math.abs(diferenca) < 0.001) return { ok: true, tipoFio: tipoFio, diferenca: 0, lotes: [] };
 
@@ -640,22 +645,21 @@ function _consumoCruPorItens(itens) {
   var res = {};
   if (!entradas.length) return res;
 
-  var idLinhasComBaixa = {};
-  _lerBaixasFioCru().forEach(function (r) {
-    var rid = _norm(r.ID_LINHA);
-    if (rid) idLinhasComBaixa[rid] = true;
-  });
-
-  // Cada entrada casa as baixas por ID_LINHA quando ela já tem alguma baixa
-  // gravada (sem ambiguidade); senão (pedido novo, ou baixas antigas sem
-  // ID_LINHA que a migração não resolveu — ver `_migrarIdLinhaFioCruBaixas`,
-  // em Migracao.gs) cai no texto do item — mesmo critério de `_tingidoDaLinha`.
-  // A CHAVE DE SAÍDA (`e.chave`, acima) não depende disso: é sempre
-  // idLinha-ou-texto, pra quem chama reconstruir sem precisar saber qual dos
-  // dois casamentos rolou por baixo.
+  // Cada entrada casa as baixas por ID_LINHA sempre que ELA TEM ID_LINHA
+  // (mesmo sem nenhuma baixa prévia — pedido novo); só cai no texto do item
+  // quando não há ID_LINHA nenhum (baixas antigas sem ID_LINHA que a
+  // migração não resolveu — ver `_migrarIdLinhaFioCruBaixas`, em
+  // Migracao.gs) — mesmo critério de `_tingidoDaLinha`. Exigir baixa PRÉVIA
+  // com esse ID_LINHA pra "confiar" nele (bug corrigido) fazia um pedido
+  // novo cair no texto e puxar pro relatório de hoje uma baixa de um pedido
+  // ANTIGO já fechado que só coincide no código do item (bug reportado,
+  // confirmado nos dados: NFs de julho/agosto reaparecendo no relatório de
+  // um embarque de setembro). A CHAVE DE SAÍDA (`e.chave`, acima) não
+  // depende disso: é sempre idLinha-ou-texto, pra quem chama reconstruir sem
+  // precisar saber qual dos dois casamentos rolou por baixo.
   var porIdLinha = {}, porTexto = {}; // idLinha/itemNorm -> entrada
   entradas.forEach(function (e) {
-    if (e.idLinha && idLinhasComBaixa[e.idLinha]) porIdLinha[e.idLinha] = e;
+    if (e.idLinha) porIdLinha[e.idLinha] = e;
     else porTexto[e.itemNorm] = e;
   });
 
@@ -723,10 +727,10 @@ function _consumoCruPorItens(itens) {
 /**
  * Marca como reportadas (`EMBARQUE_REPORTADO` = número do embarque) as
  * baixas dos itens confirmados agora que ainda não tinham aparecido em
- * nenhum PDF — mesmo casamento de `_consumoCruPorItens` (ID_LINHA quando a
- * linha já tem baixa própria, senão texto do item), pra nunca marcar uma
- * baixa de OUTRO pedido que só coincide no código. Chame depois que a baixa
- * desta confirmação já foi gravada (senão a baixa nova ainda não existe pra
+ * nenhum PDF — mesmo casamento de `_consumoCruPorItens` (ID_LINHA sempre que
+ * o pedido TEM ID_LINHA, senão texto do item), pra nunca marcar uma baixa de
+ * OUTRO pedido que só coincide no código. Chame depois que a baixa desta
+ * confirmação já foi gravada (senão a baixa nova ainda não existe pra
  * marcar). Escreve a coluna inteira em UM `setValues` só, não célula por
  * célula — evita uma chamada de API por linha numa confirmação com várias NFs.
  * @return {number} quantas linhas foram marcadas agora.
@@ -743,14 +747,9 @@ function _marcarBaixasReportadas(itens, numero) {
   var regs = _lerBaixasFioCru();
   if (!regs.length) return 0;
 
-  var idLinhasComBaixa = {};
-  regs.forEach(function (r) {
-    var rid = _norm(r.ID_LINHA);
-    if (rid) idLinhasComBaixa[rid] = true;
-  });
   var porIdLinha = {}, porTexto = {};
   entradas.forEach(function (e) {
-    if (e.idLinha && idLinhasComBaixa[e.idLinha]) porIdLinha[e.idLinha] = true;
+    if (e.idLinha) porIdLinha[e.idLinha] = true;
     else porTexto[e.itemNorm] = true;
   });
 
@@ -1079,15 +1078,18 @@ function _tingidoPorItem() {
   return { porIdLinha: porIdLinha, porTexto: porTexto };
 }
 
-/** "Já tingido" de UMA linha de PENDENCIA_COMPRA — prefere a soma por
- * ID_LINHA (sem ambiguidade); só cai na soma por texto do item quando não há
- * nenhuma baixa com esse ID_LINHA ainda (pedido novo, ou baixas antigas sem
- * ID_LINHA — ver comentário de `_tingidoPorItem`). `tingidoMapa` é o
- * resultado de `_tingidoPorItem()`, passado pronto pra não relê a aba de
- * baixas uma vez por linha. */
+/** "Já tingido" de UMA linha de PENDENCIA_COMPRA — usa a soma por ID_LINHA
+ * sempre que a linha TEM ID_LINHA (0 se ainda não tem baixa própria — pedido
+ * novo); só cai na soma por texto do item quando não há ID_LINHA nenhum
+ * (baixas antigas sem ID_LINHA — ver comentário de `_tingidoPorItem`).
+ * Exigir baixa PRÉVIA com esse ID_LINHA pra confiar nele (bug corrigido)
+ * fazia um pedido novo herdar o "já tingido" de um pedido ANTIGO já fechado
+ * que só coincide no código do item. `tingidoMapa` é o resultado de
+ * `_tingidoPorItem()`, passado pronto pra não reler a aba de baixas uma vez
+ * por linha. */
 function _tingidoDaLinha(tingidoMapa, idLinha, item) {
   var idLinhaNorm = _norm(idLinha);
-  if (idLinhaNorm && tingidoMapa.porIdLinha[idLinhaNorm] != null) return tingidoMapa.porIdLinha[idLinhaNorm];
+  if (idLinhaNorm) return tingidoMapa.porIdLinha[idLinhaNorm] || 0;
   return tingidoMapa.porTexto[_norm(item)] || 0;
 }
 
