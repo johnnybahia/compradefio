@@ -496,7 +496,9 @@ function _baixarFioCruSemLock(tipoFio, quantidade, item, usuario, idLinha) {
     var lote = todos.filter(function (l) { return l.chave === chave; })[0];
     var qtd = porChave[chave];
     var saldoApos = lote.saldo - qtd;
-    linhas.push([agora, lote.tipoFio, lote.nf, lote.data || '', item || '', qtd, saldoApos, usuario || '', idLinha || '']);
+    // '' final = EMBARQUE_REPORTADO (10ª coluna de FIO_CRU_BAIXAS_HEADERS):
+    // começa vazia, preenchida depois por `_marcarBaixasReportadas`.
+    linhas.push([agora, lote.tipoFio, lote.nf, lote.data || '', item || '', qtd, saldoApos, usuario || '', idLinha || '', '']);
     resultado.push({ tipoFio: lote.tipoFio, nf: lote.nf, fornecedor: lote.fornecedor || '', dataNf: _soData(lote.data), quantidadeBaixada: qtd, saldoApos: saldoApos });
   });
   // Ordena o retorno pela mesma ordem FIFO (mais antiga primeiro), pra ficar
@@ -587,7 +589,8 @@ function _ajustarBaixaFioCru(tipoFio, item, novoTotal, usuario, idLinha) {
       var chaveLote = _chaveLoteFioCru(r.TIPO_FIO, r.NF);
       var loteAtual = _saldosFioCru().filter(function (l) { return l.chave === chaveLote; })[0];
       var saldoApos = (loteAtual ? loteAtual.saldo : 0) + credito;
-      linhas.push([agora, r.TIPO_FIO, r.NF, r.DATA_NF, item, -credito, saldoApos, usuario || '', usarIdLinha ? idLinha : '']);
+      // '' final = EMBARQUE_REPORTADO (10ª coluna) — mesmo motivo do outro ponto.
+      linhas.push([agora, r.TIPO_FIO, r.NF, r.DATA_NF, item, -credito, saldoApos, usuario || '', usarIdLinha ? idLinha : '', '']);
       resultado.push({ tipoFio: r.TIPO_FIO, nf: r.NF, fornecedor: loteAtual ? (loteAtual.fornecedor || '') : '', dataNf: _soData(r.DATA_NF), quantidadeBaixada: -credito, saldoApos: saldoApos });
     }
     if (linhas.length) {

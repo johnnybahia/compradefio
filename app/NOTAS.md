@@ -883,3 +883,28 @@ ignorando célula virada em data, sem tentar recuperar. A causa raiz (Sheets
 convertendo código de item em data na hora da digitação) continua existindo
 — isso é redução de dano na leitura, não impede a planilha de corromper a
 célula de novo.
+
+## "Número de colunas nos dados não corresponde ao intervalo" ao confirmar embarque (resolvido)
+
+Reportado pelo usuário: erro `Os dados têm 9, mas o intervalo tem 10` ao
+clicar em Confirmar Embarque (depois de preencher peso/volumes). Bug antigo,
+sem relação com as correções de ESTOQUE acima.
+
+**Causa:** `FIO_CRU_BAIXAS_HEADERS` (FioCru.gs) tem 10 colunas — a 10ª,
+`EMBARQUE_REPORTADO`, foi adicionada depois (marca em qual embarque aquela
+baixa já apareceu no relatório de consumo). As 3 gravações que criam uma
+linha NOVA de baixa (`_baixarFioCru`, o ramo de crédito de
+`_ajustarBaixaFioCru`, e `_estornarCruEmbarque` no cancelamento) nunca
+foram atualizadas — continuavam montando array de 9 elementos. Só estourava
+quando a confirmação realmente precisava gravar uma baixa nova (nem toda
+confirmação precisa — por isso não aparecia sempre).
+
+**Correção:** as 3 gravações passaram a incluir o 10º elemento (`''` —
+mesmo valor inicial de sempre; quem preenche depois é
+`_marcarBaixasReportadas`).
+
+**Verificado:** a gravação do embarque em si (aba EMBARQUES) e a baixa de
+PENDENCIA_COMPRA só acontecem DEPOIS do ajuste de fio crú, no fluxo de
+confirmação — então a tentativa que deu erro não chegou a gravar nada
+inconsistente (nenhum número de embarque foi consumido). Ainda vale
+conferir o histórico de embarques antes de tentar de novo.
