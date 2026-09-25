@@ -932,3 +932,44 @@ pedido é aquele.
 hoje (só o texto do item) — corrigir direito precisa acrescentar essa coluna
 e propagar pelas gravações (`_registrarEmbarqueEDarBaixa` já recebe
 `it.idLinha` de `confirmarEmbarqueManual`, só não persiste).
+
+## Consumo de fio crú do PDF somando pedido antigo já fechado (resolvido)
+
+Reportado pelo usuário com o PDF em mãos: "Fio Pol. 2x 167/48" (544 kg
+tingido) mostrava 644,5 kg de consumo de fio crú — quase 100 kg a mais —
+e uma NF de julho ("366574", saldo 0, "Finalizando") reaparecendo no
+relatório de um embarque de setembro. Confirmado com o CSV real de
+`FIO_CRU_BAIXAS`: as linhas do item `4374` (30,5 kg, 26/08) e `5233`
+(300 kg, 31/07) — **ambas sem ID_LINHA** — só ganharam
+`EMBARQUE_REPORTADO` (o número do embarque de hoje) nesta confirmação de
+25/09, junto com as baixas genuinamente novas.
+
+**Causa:** `_ajustarBaixaFioCru`, `_consumoCruPorItens`,
+`_marcarBaixasReportadas` e `_tingidoDaLinha` (todos em FioCru.gs) só
+confiavam no ID_LINHA de um pedido **se já existisse alguma baixa gravada
+com esse ID_LINHA especificamente**. Pedido novo = ID_LINHA novo = nunca
+tem baixa própria ainda → as quatro funções caíam no fallback por TEXTO do
+item, que soma/casa com QUALQUER baixa antiga daquele código sem ID_LINHA —
+inclusive de um pedido de cliente diferente, fechado meses atrás (muitas
+baixas ficaram sem ID_LINHA porque `_migrarIdLinhaFioCruBaixas` só resolve
+quando havia exatamente 1 pedido aberto na hora da migração — ver
+Migracao.gs). Efeito duplo: o pedido novo podia não gerar baixa própria
+nenhuma (o sistema achava que "já estava coberto" pelo valor antigo — sem
+registrar o consumo real de hoje), e o valor antigo ressurgia no relatório
+de hoje como se fosse consumo novo. Sistêmico: qualquer código já reordenado
+que teve baixa sem ID_LINHA algum dia corre o mesmo risco — não é só do
+item que foi reportado.
+
+**Correção:** nas quatro funções, ter ID_LINHA agora é suficiente pra usar
+o balde por ID_LINHA (0 de histórico se for um pedido novo) — nunca mais
+cai no texto quando o pedido TEM ID_LINHA, mesmo sendo a primeira baixa
+dele. Fallback por texto só quando não há ID_LINHA nenhum (baixa antiga
+que a migração não resolveu).
+
+**Aceito de propósito, sem correção retroativa:** baixas antigas sem
+ID_LINHA que já foram indevidamente "resgatadas" por essa falha em
+confirmações passadas não são reconstruídas — não dá pra saber
+retroativamente o que já saiu certo ou errado num PDF antigo (mesma
+decisão já tomada na correção do `EMBARQUE_REPORTADO`, ver acima). Dali em
+diante, cada baixa sem ID_LINHA só é usada por uma chamada genuinamente sem
+ID_LINHA nenhum — nunca mais por um pedido novo que só coincide no código.
