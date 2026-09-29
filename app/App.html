@@ -3694,21 +3694,28 @@ function renderAjustesFioCru(linhas) {
 }
 
 /* ------------------- view: NFs Zeradas (Fio Crú) ------------------- */
-// Só consulta: NFs de fio crú com saldo zerado (<= 0, negativo também conta),
-// das DUAS unidades numa tela só — uma aba por unidade, sempre as duas, seja
-// qual for a unidade ativa no seletor do topo — separadas por tipo de fio.
-// Serve pro almoxarifado identificar quais NFs já acabaram (ver
-// `listarNfsZeradasFioCru`, em FioCru.gs). A troca de aba não refaz a consulta.
+// NFs de fio crú com saldo zerado (<= 0, negativo também conta), das DUAS
+// unidades numa tela só — uma aba por unidade, sempre as duas, seja qual for a
+// unidade ativa no seletor do topo — separadas por tipo de fio. Serve pro
+// almoxarifado identificar quais NFs já acabaram (ver `listarNfsZeradasFioCru`,
+// em FioCru.gs) e ENCERRAR (marcar como CANCELADA) as que não precisam mais
+// aparecer (`encerrarNfFioCru`). A ÚLTIMA NF de cada tipo não pode ser
+// encerrada: no lugar do botão fica uma observação, e o botão só volta quando
+// entrar uma NF nova desse tipo (a regra é do servidor; a tela só reflete).
+// A troca de aba não refaz a consulta.
 var estadoNfsZeradas = { unidades: [], aba: '' };
 
 function viewNfsZeradasFioCru(alvo) {
+  estadoNfsZeradas = { unidades: [], aba: '' }; // ao abrir a tela, começa na aba da unidade ativa
   alvo.innerHTML =
     '<section class="painel">' +
       '<h2>NFs de Fio Crú zeradas</h2>' +
       blocoAjuda(
         'Lista, por tipo de fio, as NFs de fio crú cujo saldo já chegou a zero (ou ficou negativo) — das ' +
-        '<b>duas filiais</b>, independente da unidade em que você está. Só consulta: nada aqui altera o ' +
-        'estoque. NFs canceladas não entram.'
+        '<b>duas filiais</b>, independente da unidade em que você está. <b>Encerrar</b> marca a NF como ' +
+        '<b>CANCELADA</b>: ela sai daqui e do estoque de fio crú (dá pra desfazer em Estoque Fio Crú, botão ↺, ' +
+        'na unidade dela). A <b>última NF</b> de cada tipo de fio (a mais recente) não pode ser encerrada — o ' +
+        'botão só volta quando entrar uma NF nova desse tipo. NFs canceladas não entram.'
       ) +
       '<div id="nz-msg"></div>' +
       '<div id="nz-abas"></div>' +
@@ -3717,23 +3724,33 @@ function viewNfsZeradasFioCru(alvo) {
   carregarNfsZeradasFioCru();
 }
 
-function carregarNfsZeradasFioCru() {
+/** `avisoHtml` (opcional): faixa já montada que fica na tela depois de recarregar
+ * — usado quando um Encerrar falha e a lista é recarregada (o erro não some). */
+function carregarNfsZeradasFioCru(avisoHtml) {
   var msg = document.getElementById('nz-msg');
+  if (!msg) return; // o usuário já saiu desta tela
   msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
   chamar('listarNfsZeradasFioCru', sessao.token)
     .then(function (r) {
       var unidades = r.unidades || [];
       var ids = unidades.map(function (u) { return u.id; });
       estadoNfsZeradas.unidades = unidades;
-      estadoNfsZeradas.aba = ids.indexOf(r.atual) !== -1 ? r.atual : (ids[0] || '');
+      // Recarregar (ex.: depois de um erro ao encerrar) mantém a aba que o usuário
+      // estava vendo; sem aba escolhida ainda, abre na da unidade da sessão.
+      if (ids.indexOf(estadoNfsZeradas.aba) === -1) {
+        estadoNfsZeradas.aba = ids.indexOf(r.atual) !== -1 ? r.atual : (ids[0] || '');
+      }
       var m = document.getElementById('nz-msg');
-      if (m) m.innerHTML = '';
+      if (m) m.innerHTML = avisoHtml || '';
       renderNfsZeradasFioCru();
     })
     .catch(function (err) {
       var texto = tratarErro(err);
       var m = document.getElementById('nz-msg'); // null se o usuário já saiu desta tela
-      if (texto && m) m.innerHTML = '<div class="aviso erro">' + escAttr(texto) + '</div>';
+      if (texto && m) m.innerHTML = (avisoHtml || '') + '<div class="aviso erro">' + escAttr(texto) + '</div>';
+      // Se já havia uma lista na tela, redesenha: os botões que o Encerrar parou voltam
+      // (o servidor confere tudo de novo, então clicar numa lista velha é seguro).
+      if (texto && estadoNfsZeradas.unidades.length) renderNfsZeradasFioCru();
     });
 }
 
@@ -3780,26 +3797,90 @@ function renderNfsZeradasFioCru() {
     conteudo.innerHTML = '<div class="vazio">Nenhuma NF de fio crú zerada em ' + escAttr(u.rotulo) + '.</div>';
     return;
   }
-  conteudo.innerHTML = u.tipos.map(function (t) {
+  // Coluna "Encerrar" só nas unidades em que o usuário pode alterar o estoque
+  // (`podeEncerrar`, do servidor — que confere de novo ao gravar).
+  var comAcao = !!u.podeEncerrar;
+  conteudo.innerHTML = u.tipos.map(function (t, ti) {
     var n = t.nfs.length;
-    var body = t.nfs.map(function (l) {
+    var body = t.nfs.map(function (l, ni) {
+      var acao = '';
+      if (comAcao) {
+        acao = '<td class="acao">' + (l.ultima
+          ? '<span class="obs-ultima-nf" title="O botão volta quando entrar uma NF nova desse tipo de fio.">' +
+            'Última NF — não pode ser encerrada</span>'
+          : '<button type="button" class="btn-encerrar-nf" data-t="' + ti + '" data-n="' + ni + '">Encerrar</button>') +
+          '</td>';
+      }
       return '<tr>' +
         '<td class="col-item">' + (escAttr(l.nf) || '—') + '</td>' +
         '<td>' + (escAttr(l.data) || '—') + '</td>' +
         '<td class="num">' + kgNfZerada(l.saldoInicial) + '</td>' +
         '<td class="num' + (Number(l.saldo) < 0 ? ' saldo-neg' : '') + '">' + kgNfZerada(l.saldo) + '</td>' +
+        acao +
       '</tr>';
     }).join('');
     return '<div class="bloco-tipo">' +
       '<div class="tipo-titulo"><span>' + escAttr(t.tipoFio) + '</span>' +
         '<span class="qtd">' + n + ' NF' + (n === 1 ? '' : 's') + '</span></div>' +
       '<div class="tabela-wrap"><table class="dados">' +
-        '<colgroup><col style="width:26%"><col style="width:24%"><col style="width:26%"><col style="width:24%"></colgroup>' +
+        (comAcao
+          ? '<colgroup><col style="width:17%"><col style="width:16%"><col style="width:20%"><col style="width:14%"><col style="width:33%"></colgroup>'
+          : '<colgroup><col style="width:26%"><col style="width:24%"><col style="width:26%"><col style="width:24%"></colgroup>') +
         '<thead><tr><th>Nº da NF</th><th>Data da NF</th>' +
-          '<th class="num">Saldo inicial (kg)</th><th class="num">Saldo (kg)</th></tr></thead>' +
+          '<th class="num">Saldo inicial (kg)</th><th class="num">Saldo (kg)</th>' +
+          (comAcao ? '<th></th>' : '') + '</tr></thead>' +
         '<tbody>' + body + '</tbody></table></div>' +
     '</div>';
   }).join('');
+
+  Array.prototype.forEach.call(conteudo.querySelectorAll('.btn-encerrar-nf'), function (btn) {
+    btn.onclick = function () {
+      var t = u.tipos[Number(btn.getAttribute('data-t'))];
+      var l = t && t.nfs[Number(btn.getAttribute('data-n'))];
+      if (l) pedirEncerrarNfFioCru(u, t.tipoFio, l);
+    };
+  });
+}
+
+/** Confirmação antes de cancelar — um clique sem querer não pode cancelar NF. */
+function pedirEncerrarNfFioCru(u, tipoFio, l) {
+  confirmarModal(
+    'Encerrar NF ' + escAttr(l.nf) + '?',
+    '<b>' + escAttr(tipoFio) + '</b> · ' + escAttr(u.rotulo) + ' · saldo ' + kgNfZerada(l.saldo) + ' kg.<br>' +
+    'A NF será marcada como <b>CANCELADA</b>: sai do estoque de fio crú e das listas de saldo. O histórico de ' +
+    'baixas continua. Dá pra desfazer em <b>Estoque Fio Crú</b> (botão ↺) da unidade dela.' +
+    '<div style="margin-top:8px;font-size:12px;color:#64748B">Se um embarque for cancelado ou o tingido ' +
+    'corrigido depois, o fio devolvido a essa NF só volta ao estoque se você desfizer o cancelamento.</div>',
+    'Encerrar NF', 'Voltar',
+    function (confirmou) { if (confirmou) encerrarNfFioCruNaTela(u, tipoFio, l); }
+  );
+}
+
+function encerrarNfFioCruNaTela(u, tipoFio, l) {
+  var msg = document.getElementById('nz-msg');
+  // Um pedido por vez: a resposta troca a lista INTEIRA da unidade, e uma
+  // resposta mais antiga chegando depois de outra devolveria à tela uma NF que
+  // já foi encerrada. Os botões voltam quando a lista é redesenhada.
+  Array.prototype.forEach.call(document.querySelectorAll('#nz-conteudo .btn-encerrar-nf'), function (b) { b.disabled = true; });
+  if (msg) msg.innerHTML = '<div class="aviso"><span class="carregando">Encerrando NF ' + escAttr(l.nf) + '…</span></div>';
+  chamar('encerrarNfFioCru', sessao.token, u.id, l.linha, tipoFio, l.nf)
+    .then(function (r) {
+      var lista = estadoNfsZeradas.unidades;
+      for (var i = 0; i < lista.length; i++) {
+        if (lista[i].id === r.unidade.id) lista[i] = r.unidade;
+      }
+      var m = document.getElementById('nz-msg');
+      if (m) {
+        m.innerHTML = '<div class="aviso ok">NF ' + escAttr(l.nf) + ' (' + escAttr(tipoFio) + ' · ' + escAttr(u.rotulo) + ') ' +
+          (r.jaEstava ? 'já estava encerrada — lista atualizada.' : 'encerrada — marcada como CANCELADA.') + '</div>';
+      }
+      renderNfsZeradasFioCru();
+    })
+    .catch(function (err) {
+      var texto = tratarErro(err);
+      // Recarrega: se o servidor recusou, o estado da planilha pode não ser o que a tela mostrava.
+      if (texto) carregarNfsZeradasFioCru('<div class="aviso erro">' + escAttr(texto) + '</div>');
+    });
 }
 
 /* ------------------- view: Importar NF (Fio Crú) ------------------- */

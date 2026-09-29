@@ -113,7 +113,7 @@ Botão **"NFs Zeradas (Fio Crú)"** no menu do **master** e do **almoxarifado 1*
 lista, por tipo de fio, as NFs de fio crú cujo saldo já zerou — Nº da NF, data
 da NF, saldo inicial (a quantidade recebida) e saldo atual. Tem uma aba por
 unidade (**Bahia** e **Ceará**), **sempre as duas**, seja qual for a unidade
-escolhida no seletor do topo (abre na aba da unidade ativa). Só consulta.
+escolhida no seletor do topo (abre na aba da unidade ativa).
 
 - **Zerada** = saldo ≤ 0 (arredondado a 2 casas). Saldo **negativo** também
   entra — o FIFO desconta do último lote mesmo sem saldo. NF **cancelada** não entra.
@@ -122,9 +122,25 @@ escolhida no seletor do topo (abre na aba da unidade ativa). Só consulta.
 - Tipos em ordem alfabética; NFs pela data da NF (mais antiga primeiro).
 - Se a planilha de uma unidade estiver inacessível, o erro aparece só na aba
   dela (`!` no rótulo) e a outra continua funcionando.
-- Servidor: `listarNfsZeradasFioCru` (`FioCru.gs`). Tela: `viewNfsZeradasFioCru`
-  (`App.html`). Teste de fumaça que não toca na planilha: `testarNfsZeradasFioCru`
-  (`Testes.gs`).
+
+**Encerrar.** Cada NF tem um botão **Encerrar** (pede confirmação): marca a NF
+como **CANCELADA** — sai da lista e do estoque de fio crú, o histórico de baixas
+continua, e dá pra desfazer em Estoque Fio Crú (botão ↺) da unidade dela. Grava
+também quem encerrou e quando (coluna "Última edição" de Estoque Fio Crú).
+
+- A **última NF de cada tipo de fio** (a mais recente entre as ativas, na ordem
+  da baixa) **não pode ser encerrada**: no lugar do botão aparece "Última NF —
+  não pode ser encerrada", e o botão só volta quando entrar uma NF nova desse
+  tipo. É o lote onde a baixa desconta quando nenhum tem saldo, e sem NF ativa
+  a baixa do tipo falha. A regra é do servidor, não só da tela.
+- Respeita a restrição de unidades do usuário (coluna UNIDADES de USUARIOS): sem
+  acesso à unidade, a aba mostra a lista sem a coluna de botões.
+- O servidor confere, na hora de gravar, que a linha ainda é aquela NF (tipo +
+  NF), que ela continua zerada e que não é a última; trava as gravações
+  concorrentes e confirma na planilha que a situação foi gravada.
+- Servidor: `listarNfsZeradasFioCru` e `encerrarNfFioCru` (`FioCru.gs`). Tela:
+  `viewNfsZeradasFioCru` (`App.html`). Teste de fumaça que não toca na planilha:
+  `testarNfsZeradasFioCru` (`Testes.gs`).
 
 ## Arquivos
 
