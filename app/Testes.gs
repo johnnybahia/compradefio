@@ -174,3 +174,39 @@ function _testeExcluirBaixasDoItem(itemTeste) {
   if (!sh) return;
   linhas.forEach(function (row) { sh.deleteRow(row); });
 }
+
+/**
+ * Teste de fumaça da lista "NFs Zeradas (Fio Crú)" — NÃO acessa planilha nenhuma
+ * (roda `_nfsZeradasPorTipo` em cima de lotes inventados), então não grava nem
+ * apaga nada: pode rodar à vontade. Executar pelo editor: escolher
+ * `testarNfsZeradasFioCru` → Executar → ver o "Log de execução".
+ */
+function testarNfsZeradasFioCru() {
+  var relatorio = { ok: true, checks: [] };
+  function check(nome, condicao, detalhe) {
+    Logger.log((condicao ? 'OK   ' : 'FALHOU ') + nome + (!condicao && detalhe ? ' — veio ' + detalhe : ''));
+    relatorio.checks.push({ nome: nome, ok: !!condicao, detalhe: detalhe || '' });
+    if (!condicao) relatorio.ok = false;
+  }
+  function lote(tipoFio, nf, data, quantidade, saldo, cancelado) {
+    return { tipoFio: tipoFio, nf: nf, data: data, quantidade: quantidade, saldo: saldo, cancelado: !!cancelado };
+  }
+
+  var r = _nfsZeradasPorTipo([
+    lote('Fio B', 20, new Date(2026, 1, 25), 3012.35, -48.2),  // negativa: entra
+    lote('Fio B', '10', new Date(2026, 0, 27), 3006.51, 0),    // zerada: entra (e vem antes: data mais antiga)
+    lote('Fio B', '30', new Date(2026, 2, 25), 4010.36, 1200.5), // ainda tem saldo: fora
+    lote('Fio B', '40', new Date(2026, 5, 26), 4001.23, 0, true), // cancelada: fora
+    lote('Fio A', '5', new Date(2025, 11, 30), 1000, 4e-13)     // resíduo de ponto flutuante: entra, saldo 0
+  ]);
+  var b = r.length === 2 ? r[1].nfs : [];
+  check('tipos em ordem alfabética', r.length === 2 && r[0].tipoFio === 'Fio A' && r[1].tipoFio === 'Fio B', JSON.stringify(r));
+  check('só zerada/negativa entra (cancelada e com saldo ficam fora)', b.length === 2, JSON.stringify(b));
+  check('NFs pela data da NF, mais antiga primeiro', b.length === 2 && b[0].nf === '10' && b[1].nf === '20', JSON.stringify(b));
+  check('saldo negativo preservado', b.length === 2 && b[1].saldo === -48.2 && b[1].saldoInicial === 3012.35, JSON.stringify(b[1]));
+  check('NF vira texto e data vem em dd/MM/aaaa', b.length === 2 && b[1].nf === '20' && b[1].data === '25/02/2026', JSON.stringify(b[1]));
+  check('resíduo de ponto flutuante vira saldo 0', r.length === 2 && r[0].nfs[0].saldo === 0, JSON.stringify(r[0]));
+
+  Logger.log(relatorio.ok ? '=== TESTE PASSOU ===' : '=== TESTE FALHOU — confira os itens "FALHOU" acima ===');
+  return relatorio;
+}

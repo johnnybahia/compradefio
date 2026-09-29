@@ -973,3 +973,28 @@ retroativamente o que já saiu certo ou errado num PDF antigo (mesma
 decisão já tomada na correção do `EMBARQUE_REPORTADO`, ver acima). Dali em
 diante, cada baixa sem ID_LINHA só é usada por uma chamada genuinamente sem
 ID_LINHA nenhum — nunca mais por um pedido novo que só coincide no código.
+
+## NFs Zeradas (Fio Crú): decisões e limites conhecidos
+
+Tela nova (master e almoxarifado 1) que lista as NFs de fio crú zeradas das
+**duas** unidades, por tipo de fio (ver `listarNfsZeradasFioCru`, em
+`FioCru.gs`, e o README). Decisões e o que ela **não** faz:
+
+- **Zerada = saldo ≤ 0, negativo incluído** (decisão do usuário: "se está
+  negativo é porque zerou"). O saldo é arredondado a 2 casas antes de comparar
+  (`_saldoKg2`), pra resíduo de ponto flutuante não esconder uma NF zerada.
+- **Ignora a restrição de unidades do usuário** (coluna `UNIDADES` de
+  `USUARIOS`): a tela existe pra enxergar as duas filiais, e só master e
+  almoxarifado 1 chegam nela — mesmo critério de `compararEstoqueEntreUnidades`.
+- **Lote anterior ao "Início da baixa" não é listado** a menos que o saldo
+  calculado dele seja ≤ 0: o sistema o trata como já consumido, mas a lista
+  mostra o saldo real. Se o almoxarifado estranhar NFs antigas que "sumiram",
+  é isso — a saída seria um selo "anterior ao início" (não feito).
+- **Custo:** cada abertura lê ENTRADAS, BAIXAS e AJUSTES das duas planilhas
+  (BAIXAS só cresce). Hoje são poucos segundos; se ficar lento, o caminho é um
+  cache curto (`CacheService`) por unidade.
+- **Efeito colateral herdado:** ler o estoque da outra unidade passa por
+  `_prepararFioCruEntradas`, que completa colunas faltantes do cabeçalho de
+  `FIO_CRU_ENTRADAS` lá (o mesmo que já acontece ao abrir Estoque Fio Crú nela).
+- **Ideia não implementada:** coluna "Zerada em" (data da última baixa da NF),
+  pra dizer *quando* ela zerou — a coluna "Saldo" é sempre 0,00, salvo negativos.

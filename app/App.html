@@ -132,6 +132,7 @@ var MENUS = {
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'assocfiocru',rotulo: 'Associação Fio Crú',  render: viewAssociacaoFioCru },
     { id: 'fiocru',     rotulo: 'Estoque Fio Crú',     render: viewFioCru },
+    { id: 'nfszeradas', rotulo: 'NFs Zeradas (Fio Crú)', render: viewNfsZeradasFioCru },
     { id: 'importarnf', rotulo: 'Importar NF (Fio Crú)', render: viewImportarNfFioCru },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
@@ -156,6 +157,7 @@ var MENUS = {
     { id: 'embarques',  rotulo: 'Confirmar Embarque',  render: viewConfirmarEmbarque },
     { id: 'assocfiocru',rotulo: 'Associação Fio Crú',  render: viewAssociacaoFioCru },
     { id: 'fiocru',     rotulo: 'Estoque Fio Crú',     render: viewFioCru },
+    { id: 'nfszeradas', rotulo: 'NFs Zeradas (Fio Crú)', render: viewNfsZeradasFioCru },
     { id: 'importarnf', rotulo: 'Importar NF (Fio Crú)', render: viewImportarNfFioCru },
     { id: 'importar',   rotulo: 'Importar Embarque',   render: viewImportarEmbarque },
     { id: 'consulta',   rotulo: 'Consulta Estoque',    render: viewConsultaEstoque },
@@ -3689,6 +3691,115 @@ function renderAjustesFioCru(linhas) {
       '<th style="width:24%">Motivo</th><th style="text-align:right;width:14%">Saldo após</th>' +
       '<th style="width:14%">Usuário</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+/* ------------------- view: NFs Zeradas (Fio Crú) ------------------- */
+// Só consulta: NFs de fio crú com saldo zerado (<= 0, negativo também conta),
+// das DUAS unidades numa tela só — uma aba por unidade, sempre as duas, seja
+// qual for a unidade ativa no seletor do topo — separadas por tipo de fio.
+// Serve pro almoxarifado identificar quais NFs já acabaram (ver
+// `listarNfsZeradasFioCru`, em FioCru.gs). A troca de aba não refaz a consulta.
+var estadoNfsZeradas = { unidades: [], aba: '' };
+
+function viewNfsZeradasFioCru(alvo) {
+  alvo.innerHTML =
+    '<section class="painel">' +
+      '<h2>NFs de Fio Crú zeradas</h2>' +
+      blocoAjuda(
+        'Lista, por tipo de fio, as NFs de fio crú cujo saldo já chegou a zero (ou ficou negativo) — das ' +
+        '<b>duas filiais</b>, independente da unidade em que você está. Só consulta: nada aqui altera o ' +
+        'estoque. NFs canceladas não entram.'
+      ) +
+      '<div id="nz-msg"></div>' +
+      '<div id="nz-abas"></div>' +
+      '<div id="nz-conteudo"></div>' +
+    '</section>';
+  carregarNfsZeradasFioCru();
+}
+
+function carregarNfsZeradasFioCru() {
+  var msg = document.getElementById('nz-msg');
+  msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  chamar('listarNfsZeradasFioCru', sessao.token)
+    .then(function (r) {
+      var unidades = r.unidades || [];
+      var ids = unidades.map(function (u) { return u.id; });
+      estadoNfsZeradas.unidades = unidades;
+      estadoNfsZeradas.aba = ids.indexOf(r.atual) !== -1 ? r.atual : (ids[0] || '');
+      var m = document.getElementById('nz-msg');
+      if (m) m.innerHTML = '';
+      renderNfsZeradasFioCru();
+    })
+    .catch(function (err) {
+      var texto = tratarErro(err);
+      var m = document.getElementById('nz-msg'); // null se o usuário já saiu desta tela
+      if (texto && m) m.innerHTML = '<div class="aviso erro">' + escAttr(texto) + '</div>';
+    });
+}
+
+/** Número em kg com 2 casas (3 se a NF trouxer gramas), no formato brasileiro. */
+function kgNfZerada(v) {
+  if (v === '' || v == null) return '—';
+  var n = Number(v);
+  return isNaN(n) ? '—' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+}
+
+function renderNfsZeradasFioCru() {
+  var abas = document.getElementById('nz-abas');
+  var conteudo = document.getElementById('nz-conteudo');
+  if (!abas || !conteudo) return; // resposta chegou depois de o usuário sair da tela
+  var unidades = estadoNfsZeradas.unidades;
+  if (!unidades.length) {
+    abas.innerHTML = '';
+    conteudo.innerHTML = '<div class="vazio">Nenhuma unidade configurada.</div>';
+    return;
+  }
+
+  abas.innerHTML = '<div class="abas-unidade" role="tablist">' + unidades.map(function (u) {
+    var ativa = u.id === estadoNfsZeradas.aba;
+    return '<button type="button" role="tab" class="aba-unidade' + (ativa ? ' ativa' : '') + '" ' +
+      'aria-selected="' + ativa + '" data-unidade="' + escAttr(u.id) + '">' + escAttr(u.rotulo) +
+      '<span class="n">' + (u.ok ? u.total : '!') + '</span></button>';
+  }).join('') + '</div>';
+  Array.prototype.forEach.call(abas.querySelectorAll('.aba-unidade'), function (b) {
+    b.onclick = function () {
+      estadoNfsZeradas.aba = b.getAttribute('data-unidade');
+      renderNfsZeradasFioCru();
+      var nova = document.querySelector('#nz-abas .aba-unidade.ativa');
+      if (nova) nova.focus(); // o re-render recriou os botões — mantém o foco de quem usa teclado
+    };
+  });
+
+  var u = unidades.filter(function (x) { return x.id === estadoNfsZeradas.aba; })[0];
+  if (!u.ok) {
+    conteudo.innerHTML = '<div class="aviso erro">Não foi possível ler ' + escAttr(u.rotulo) + ': ' +
+      escAttr(u.erro) + '</div>';
+    return;
+  }
+  if (!u.tipos.length) {
+    conteudo.innerHTML = '<div class="vazio">Nenhuma NF de fio crú zerada em ' + escAttr(u.rotulo) + '.</div>';
+    return;
+  }
+  conteudo.innerHTML = u.tipos.map(function (t) {
+    var n = t.nfs.length;
+    var body = t.nfs.map(function (l) {
+      return '<tr>' +
+        '<td class="col-item">' + (escAttr(l.nf) || '—') + '</td>' +
+        '<td>' + (escAttr(l.data) || '—') + '</td>' +
+        '<td class="num">' + kgNfZerada(l.saldoInicial) + '</td>' +
+        '<td class="num' + (Number(l.saldo) < 0 ? ' saldo-neg' : '') + '">' + kgNfZerada(l.saldo) + '</td>' +
+      '</tr>';
+    }).join('');
+    return '<div class="bloco-tipo">' +
+      '<div class="tipo-titulo"><span>' + escAttr(t.tipoFio) + '</span>' +
+        '<span class="qtd">' + n + ' NF' + (n === 1 ? '' : 's') + '</span></div>' +
+      '<div class="tabela-wrap"><table class="dados">' +
+        '<colgroup><col style="width:26%"><col style="width:24%"><col style="width:26%"><col style="width:24%"></colgroup>' +
+        '<thead><tr><th>Nº da NF</th><th>Data da NF</th>' +
+          '<th class="num">Saldo inicial (kg)</th><th class="num">Saldo (kg)</th></tr></thead>' +
+        '<tbody>' + body + '</tbody></table></div>' +
+    '</div>';
+  }).join('');
 }
 
 /* ------------------- view: Importar NF (Fio Crú) ------------------- */

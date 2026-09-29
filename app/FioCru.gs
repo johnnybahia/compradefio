@@ -1139,6 +1139,99 @@ function listarSaldoPorTipoFio(token) {
   return { ok: true, linhas: linhas };
 }
 
+/**
+ * Saldo em kg arredondado a 2 casas (o que a tela mostra). Sem isso, o resíduo
+ * de ponto flutuante da subtração (ex.: 4e-13 depois de várias baixas) faria
+ * uma NF já zerada parecer com saldo. O `|| 0` final também troca -0 por 0
+ * (senão a tela mostraria "-0").
+ */
+function _saldoKg2(n) {
+  return (Math.round((Number(n) || 0) * 100) / 100) || 0;
+}
+
+/**
+ * Das NFs com saldo calculado (ver `_saldosFioCru`), fica só com as ZERADAS —
+ * saldo <= 0 — agrupadas por tipo de fio:
+ *   [{ tipoFio, nfs: [{ nf, data, saldoInicial, saldo }] }]
+ *   - Saldo NEGATIVO também é zerada: o FIFO desconta do último lote mesmo sem
+ *     saldo (ver regra no topo do arquivo), então uma NF esgotada pode passar
+ *     de zero.
+ *   - NF CANCELADA nunca entra (foi anulada, não consumida).
+ *   - Lote anterior ao "início da baixa" (ver `definirInicioBaixaFioCru`) só
+ *     entra se o saldo calculado dele for <= 0 — a lista mostra o saldo real,
+ *     não a intenção de tratá-lo como já consumido.
+ * Tipos em ordem alfabética; NFs pela data da NF (mais antiga primeiro), depois
+ * pelo número. Não acessa a planilha — os campos já saem prontos pra tela (só
+ * texto/número, ver "nada de valor cru de célula" em NOTAS.md).
+ */
+function _nfsZeradasPorTipo(lotes) {
+  var porTipo = {};
+  lotes.forEach(function (l) {
+    if (l.cancelado) return;
+    var saldo = _saldoKg2(l.saldo);
+    if (saldo > 0) return;
+    var tipo = l.tipoFio || '(sem tipo)';
+    if (!porTipo[tipo]) porTipo[tipo] = [];
+    porTipo[tipo].push({
+      nf: _textoCelula(l.nf), data: _soData(l.data),
+      saldoInicial: _numeroCelula(l.quantidade), saldo: saldo,
+      ms: l.data ? l.data.getTime() : null // só pra ordenar
+    });
+  });
+  return Object.keys(porTipo).sort(function (a, b) { return a.localeCompare(b); }).map(function (tipo) {
+    var nfs = porTipo[tipo].sort(function (a, b) {
+      if (a.ms !== b.ms) {
+        if (a.ms == null) return 1; // sem data vai pro fim
+        if (b.ms == null) return -1;
+        return a.ms - b.ms;
+      }
+      var na = Number(a.nf), nb = Number(b.nf);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return a.nf < b.nf ? -1 : (a.nf > b.nf ? 1 : 0);
+    }).map(function (x) {
+      return { nf: x.nf, data: x.data, saldoInicial: x.saldoInicial, saldo: x.saldo };
+    });
+    return { tipoFio: tipo, nfs: nfs };
+  });
+}
+
+/**
+ * NFs de fio crú ZERADAS das DUAS unidades de uma vez, pra tela "NFs Zeradas
+ * (Fio Crú)" — o almoxarifado identifica quais NFs já acabaram, seja qual for
+ * a unidade ativa no seletor do topo. Só leitura: nada é gravado.
+ *
+ * Lê o estoque de cada unidade trocando a unidade ativa (`_definirUnidadeAtiva`)
+ * e sempre volta pra unidade da sessão no fim. Uma unidade que falhar (planilha
+ * sem acesso, não configurada) volta com `ok:false` e a mensagem — a outra
+ * continua funcionando. Como `compararEstoqueEntreUnidades`, ignora a restrição
+ * de unidades do usuário (coluna UNIDADES de USUARIOS): a lista existe justamente
+ * pra enxergar as duas filiais.
+ * @return {Object} { ok, atual (id da unidade da sessão), unidades:[{ id, rotulo,
+ *   ok, erro, total, tipos:[{ tipoFio, nfs:[{ nf, data, saldoInicial, saldo }] }] }] }
+ */
+function listarNfsZeradasFioCru(token) {
+  var sessao = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  var unidades = [];
+  try {
+    CONFIG.UNIDADES.forEach(function (u) {
+      var item = { id: u.id, rotulo: u.rotulo, ok: true, erro: '', total: 0, tipos: [] };
+      try {
+        _definirUnidadeAtiva(u.id);
+        item.tipos = _nfsZeradasPorTipo(_saldosFioCru());
+        item.tipos.forEach(function (t) { item.total += t.nfs.length; });
+      } catch (e) {
+        item.ok = false;
+        item.erro = String(e && e.message ? e.message : e);
+      }
+      unidades.push(item);
+    });
+  } finally {
+    _definirUnidadeAtiva(sessao.unidade);
+  }
+  unidades.sort(function (a, b) { return a.rotulo.localeCompare(b.rotulo); });
+  return { ok: true, atual: sessao.unidade, unidades: unidades };
+}
+
 /** Chave de agrupamento de uma data, por dia/semana/mês (sempre ordenável como texto). */
 function _chavePeriodoFioCru(data, agrupamento) {
   if (agrupamento === 'mes') {

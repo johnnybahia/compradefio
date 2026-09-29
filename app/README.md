@@ -107,6 +107,25 @@ direto — não força escolha quando não há o que escolher.
     volumes dos fios. Sem quantidade informada, a confirmação é barrada (tela
     e servidor).
 
+## NFs de fio crú zeradas
+
+Botão **"NFs Zeradas (Fio Crú)"** no menu do **master** e do **almoxarifado 1**:
+lista, por tipo de fio, as NFs de fio crú cujo saldo já zerou — Nº da NF, data
+da NF, saldo inicial (a quantidade recebida) e saldo atual. Tem uma aba por
+unidade (**Bahia** e **Ceará**), **sempre as duas**, seja qual for a unidade
+escolhida no seletor do topo (abre na aba da unidade ativa). Só consulta.
+
+- **Zerada** = saldo ≤ 0 (arredondado a 2 casas). Saldo **negativo** também
+  entra — o FIFO desconta do último lote mesmo sem saldo. NF **cancelada** não entra.
+- NF anterior ao "Início da baixa" (tela Estoque Fio Crú) só aparece se o saldo
+  calculado dela for ≤ 0.
+- Tipos em ordem alfabética; NFs pela data da NF (mais antiga primeiro).
+- Se a planilha de uma unidade estiver inacessível, o erro aparece só na aba
+  dela (`!` no rótulo) e a outra continua funcionando.
+- Servidor: `listarNfsZeradasFioCru` (`FioCru.gs`). Tela: `viewNfsZeradasFioCru`
+  (`App.html`). Teste de fumaça que não toca na planilha: `testarNfsZeradasFioCru`
+  (`Testes.gs`).
+
 ## Arquivos
 
 | Arquivo | Papel |
