@@ -55,6 +55,7 @@ quando. Hoje isso ainda não está uniforme. Mapa da situação atual:
 | **Gerar compra** (Análise) | Grava/atualiza PENDENCIA_COMPRA | ✅ Dá pra remover item a item ou zerar a lista. |
 | **Quantidade Tingida** | Baixa fio crú | ✅ "Corrigir" ajusta pela diferença (credita de volta). |
 | **Ajuste de saldo / lote de fio crú** | Ledger append-only | ✅ Novo ajuste compensa; histórico preservado. |
+| **Encerrar NF** (NFs Zeradas) | Marca a NF de fio crú como CANCELADA (sai do estoque e das listas) | ✅ Sim — ↺ em Estoque Fio Crú (na unidade da NF); grava quem e quando. A última NF do tipo não pode ser encerrada. |
 
 **Feito:**
 1. ✅ **Cancelar embarque confirmado** — `cancelarEmbarque` + instantâneo
@@ -973,3 +974,87 @@ retroativamente o que já saiu certo ou errado num PDF antigo (mesma
 decisão já tomada na correção do `EMBARQUE_REPORTADO`, ver acima). Dali em
 diante, cada baixa sem ID_LINHA só é usada por uma chamada genuinamente sem
 ID_LINHA nenhum — nunca mais por um pedido novo que só coincide no código.
+
+## NFs Zeradas (Fio Crú): decisões, "Encerrar" e limites conhecidos
+
+Tela (master e almoxarifado 1) que lista as NFs de fio crú zeradas das **duas**
+unidades, por tipo de fio, e deixa **encerrar** (cancelar) cada uma — ver
+`listarNfsZeradasFioCru` e `encerrarNfFioCru`, em `FioCru.gs`, e o README.
+
+**Decisões**
+- **Zerada = saldo ≤ 0, negativo incluído** (decisão do usuário: "se está
+  negativo é porque zerou"). O saldo é arredondado a 2 casas antes de comparar
+  (`_saldoKg2`), pra resíduo de ponto flutuante não esconder uma NF zerada.
+- **A lista ignora a restrição de unidades do usuário** (coluna `UNIDADES` de
+  `USUARIOS`) — existe pra enxergar as duas filiais, mesmo critério de
+  `compararEstoqueEntreUnidades`. **Encerrar respeita** a restrição
+  (`_unidadesDoUsuarioDaSessao`): a lista traz `podeEncerrar` por unidade e, sem
+  acesso, a aba não mostra os botões; o servidor confere de novo ao gravar.
+- **A última NF do tipo não pode ser encerrada** (decisão do usuário: no lugar
+  do botão fica "Última NF — não pode ser encerrada"; o botão volta quando
+  entrar uma NF nova). "Última" = a mais recente entre as NFs ATIVAS, na ordem da
+  baixa (data da NF; sem data por último; empate → linha mais abaixo), com o tipo
+  casando por "contém" como na baixa (`_tipoFioBate`) — ver
+  `_chavesUltimasNfsAtivas`. É o lote onde a baixa desconta quando nenhum tem
+  saldo, e sem NF ativa a baixa do tipo falha. Aproximação: ignora o "início da
+  baixa" (ele só tira lotes antigos, nunca o último). A regra vale no servidor.
+- **Encerrar = `SITUACAO = CANCELADO`** + `EDITADO_EM`/`EDITADO_POR` (aparece em
+  "Última edição" de Estoque Fio Crú). Reversível ali mesmo (↺), na unidade da NF.
+- **Lote anterior ao "Início da baixa" não é listado** a menos que o saldo
+  calculado dele seja ≤ 0: o sistema o trata como já consumido, mas a lista
+  mostra o saldo real. Se o almoxarifado estranhar NFs antigas que "sumiram",
+  é isso — a saída seria um selo "anterior ao início" (não feito).
+- **Custo:** cada abertura lê ENTRADAS, BAIXAS e AJUSTES das duas planilhas
+  (BAIXAS só cresce); cada Encerrar lê as três da unidade. Hoje são poucos
+  segundos; se ficar lento, o caminho é um cache curto (`CacheService`).
+- **Efeito colateral herdado:** ler o estoque da outra unidade passa por
+  `_prepararFioCruEntradas`, que completa colunas faltantes do cabeçalho de
+  `FIO_CRU_ENTRADAS` lá (o mesmo que já acontece ao abrir Estoque Fio Crú nela).
+- **Ideia não implementada:** coluna "Zerada em" (data da última baixa da NF),
+  pra dizer *quando* ela zerou — a coluna "Saldo" é sempre 0,00, salvo negativos.
+
+**Como `encerrarNfFioCru` se protege de bugs de comunicação com a planilha**
+- **Unidade explícita e obrigatória.** `CONFIG.getUnidadeInfo('')` cai na
+  unidade PADRÃO (Ceará) sem avisar — um id vazio gravaria no Ceará. Aqui, id
+  vazio é erro; id desconhecido também (`getUnidadeInfo` lança).
+- **Linha conferida por tipo + NF.** Planilha reordenada, linha apagada ou
+  inserida entre listar e clicar cancelaria a NF errada. Se a linha não é mais
+  aquela NF, recusa e a tela recarrega. A comparação passa pelo texto da célula
+  (`_textoCelula`), como na lista — NF digitada como número ou convertida em data
+  pelo Sheets continua casando.
+- **Trava de script + `flush()` antes de soltar** (o `flush` roda também no
+  `finally`, dentro de `try/catch`, pra um erro dele não mascarar o erro real
+  nem segurar a trava). A unidade ativa é restaurada no `finally`.
+- **Só encerra o que ainda está zerado**: um ajuste ou estorno depois da lista
+  pode ter devolvido saldo → recusa.
+- **Releitura depois de gravar**: confere que a célula ficou `CANCELADO` (pega
+  gravação que não persistiu — planilha protegida, cota, falha do Sheets).
+- **Idempotente**: NF já cancelada (clique duplo, dois usuários) = sucesso, sem
+  regravar (o rastro original fica).
+- **Uma abertura da planilha só** (o `atualizarCelula` abriria três vezes).
+- A resposta traz a lista atualizada só daquela unidade (a tela não refaz as
+  duas leituras) e só texto/número (regra "nada de valor cru de célula").
+- Na tela: um Encerrar por vez (os botões param enquanto o servidor responde —
+  uma resposta antiga chegando depois devolveria à tela uma NF já encerrada), e
+  erro recarrega a lista mantendo a aba escolhida.
+
+**Achados no código existente — NÃO corrigidos aqui, mas relevantes**
+1. **Confirmar Embarque pode confirmar sem baixar o crú, em silêncio.**
+   `_confirmarEmbarqueManualInterno` (`Embarque.gs`) chama `_ajustarBaixaFioCru`
+   e nunca olha `ajuste.ok`: se o tipo de fio não tem NF ativa (ou o item não tem
+   tipo), a baixa falha e a confirmação segue sem consumo de crú e sem aviso
+   (Quantidade Tingida, ao contrário, mostra o erro). A regra da "última NF"
+   impede que *Encerrar* crie esse buraco, mas o ✕ de Estoque Fio Crú
+   (`definirSituacaoFioCru`) ainda cria. Sugestão: checar `ajuste.ok` e avisar.
+2. **Estorno cai em NF cancelada.** `_estornarCruEmbarque` (cancelar embarque) e
+   o ramo de crédito de `_ajustarBaixaFioCru` (corrigir tingido) devolvem o kg à
+   NF de origem mesmo cancelada — o kg some do estoque ativo até desfazer o
+   cancelamento (↺). O modal de Encerrar avisa. Sugestão: creditar na próxima NF
+   ativa do tipo.
+3. **Gravação só pelo número da linha.** `definirSituacaoFioCru` (✕/↺),
+   `ajustarSaldoFioCru` e `editarLoteFioCru` confiam só no número da linha (sem
+   conferir tipo + NF); os dois últimos travam, o primeiro nem trava. Mesma
+   fragilidade de linha deslocada que `encerrarNfFioCru` fecha.
+4. **Travas sem `flush()`.** `_baixarFioCru`, `_ajustarBaixaFioCru` e
+   `ajustarSaldoFioCru` soltam a trava sem `SpreadsheetApp.flush()` antes (boa
+   prática do Google, pra quem pegar a trava depois já ler o gravado).

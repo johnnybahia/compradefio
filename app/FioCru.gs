@@ -1139,6 +1139,285 @@ function listarSaldoPorTipoFio(token) {
   return { ok: true, linhas: linhas };
 }
 
+/**
+ * Saldo em kg arredondado a 2 casas (o que a tela mostra). Sem isso, o resíduo
+ * de ponto flutuante da subtração (ex.: 4e-13 depois de várias baixas) faria
+ * uma NF já zerada parecer com saldo. O `|| 0` final também troca -0 por 0
+ * (senão a tela mostraria "-0").
+ */
+function _saldoKg2(n) {
+  return (Math.round((Number(n) || 0) * 100) / 100) || 0;
+}
+
+/**
+ * Ordem em que a baixa percorre os lotes de um tipo de fio (ver
+ * `_baixarFioCruSemLock`): data da NF crescente, lote SEM data por último; no
+ * empate, a linha mais abaixo da planilha vem depois. O ÚLTIMO dessa ordem é
+ * pra onde a baixa manda o que falta quando nenhum lote tem saldo.
+ */
+function _compararOrdemBaixaFioCru(a, b) {
+  if (!a.data !== !b.data) return a.data ? -1 : 1;
+  if (a.data && a.data.getTime() !== b.data.getTime()) return a.data.getTime() - b.data.getTime();
+  return (a.linha || 0) - (b.linha || 0);
+}
+
+/**
+ * Chaves (ver `_chaveLoteFioCru`) das NFs que são a ÚLTIMA — a mais recente, na
+ * ordem da baixa — entre as NFs ATIVAS (não canceladas) do tipo de fio dela.
+ * É o lote onde a baixa desconta quando nenhum tem saldo (fica negativo) e o
+ * que impede a baixa daquele tipo de falhar com "Nenhuma NF encontrada" (e a
+ * Confirmação de Embarque de seguir sem baixar o crú, sem avisar) — por isso
+ * NÃO pode ser encerrada (cancelada) até entrar uma NF mais nova.
+ * O tipo casa por "contém", como na baixa (`_tipoFioBate`): uma NF mais nova de
+ * um tipo parecido também tira a "última" da mais antiga. Agrupa por tipo
+ * normalizado antes de comparar, pra não fazer (NFs × NFs) comparações de texto
+ * (cada `_norm` custa). O "início da baixa" não entra na conta: ele só tira
+ * lotes ANTIGOS, nunca o último.
+ */
+function _chavesUltimasNfsAtivas(lotes) {
+  var ultimoPorTipo = {}; // tipo normalizado -> última NF ativa desse tipo exato
+  lotes.forEach(function (l) {
+    if (l.cancelado) return;
+    var k = _norm(l.tipoFio);
+    if (!k) return;
+    if (!ultimoPorTipo[k] || _compararOrdemBaixaFioCru(l, ultimoPorTipo[k]) > 0) ultimoPorTipo[k] = l;
+  });
+  var tipos = Object.keys(ultimoPorTipo);
+  var ultimas = {};
+  tipos.forEach(function (k) {
+    var propria = ultimoPorTipo[k], ultima = propria;
+    tipos.forEach(function (t) {
+      if (t !== k && _tipoFioBate(k, t) && _compararOrdemBaixaFioCru(ultimoPorTipo[t], ultima) > 0) ultima = ultimoPorTipo[t];
+    });
+    if (ultima === propria) ultimas[propria.chave] = true;
+  });
+  return ultimas;
+}
+
+/**
+ * Das NFs com saldo calculado (ver `_saldosFioCru`), fica só com as ZERADAS —
+ * saldo <= 0 — agrupadas por tipo de fio:
+ *   [{ tipoFio, nfs: [{ nf, data, saldoInicial, saldo, linha, ultima }] }]
+ *   - Saldo NEGATIVO também é zerada: o FIFO desconta do último lote mesmo sem
+ *     saldo (ver regra no topo do arquivo), então uma NF esgotada pode passar
+ *     de zero.
+ *   - NF CANCELADA nunca entra (foi anulada, não consumida).
+ *   - Lote anterior ao "início da baixa" (ver `definirInicioBaixaFioCru`) só
+ *     entra se o saldo calculado dele for <= 0 — a lista mostra o saldo real,
+ *     não a intenção de tratá-lo como já consumido.
+ *   - `linha` é a linha da NF na aba (volta em `encerrarNfFioCru`, junto com
+ *     tipo + NF, pra conferir que a planilha não mudou); `ultima` = é a última
+ *     NF ativa do tipo (ver `_chavesUltimasNfsAtivas`) — não pode ser encerrada.
+ * Tipos em ordem alfabética; NFs pela data da NF (mais antiga primeiro), depois
+ * pelo número. Não acessa a planilha — os campos já saem prontos pra tela (só
+ * texto/número, ver "nada de valor cru de célula" em NOTAS.md).
+ */
+function _nfsZeradasPorTipo(lotes) {
+  var ultimas = _chavesUltimasNfsAtivas(lotes);
+  var porTipo = {};
+  lotes.forEach(function (l) {
+    if (l.cancelado) return;
+    var saldo = _saldoKg2(l.saldo);
+    if (saldo > 0) return;
+    var tipo = l.tipoFio || '(sem tipo)';
+    if (!porTipo[tipo]) porTipo[tipo] = [];
+    porTipo[tipo].push({
+      nf: _textoCelula(l.nf), data: _soData(l.data),
+      saldoInicial: _numeroCelula(l.quantidade), saldo: saldo,
+      linha: Number(l.linha) || 0, ultima: !!ultimas[l.chave],
+      ms: l.data ? l.data.getTime() : null // só pra ordenar
+    });
+  });
+  return Object.keys(porTipo).sort(function (a, b) { return a.localeCompare(b); }).map(function (tipo) {
+    var nfs = porTipo[tipo].sort(function (a, b) {
+      if (a.ms !== b.ms) {
+        if (a.ms == null) return 1; // sem data vai pro fim
+        if (b.ms == null) return -1;
+        return a.ms - b.ms;
+      }
+      var na = Number(a.nf), nb = Number(b.nf);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return a.nf < b.nf ? -1 : (a.nf > b.nf ? 1 : 0);
+    }).map(function (x) {
+      return { nf: x.nf, data: x.data, saldoInicial: x.saldoInicial, saldo: x.saldo, linha: x.linha, ultima: x.ultima };
+    });
+    return { tipoFio: tipo, nfs: nfs };
+  });
+}
+
+/** Dados de UMA unidade pra tela "NFs Zeradas": as NFs zeradas por tipo de fio e
+ * se o usuário pode encerrá-las (`podeEncerrar`). Formato igual ao de cada item
+ * de `listarNfsZeradasFioCru` (a resposta de `encerrarNfFioCru` reaproveita). */
+function _dadosUnidadeNfsZeradas(unidade, lotes, podeEncerrar) {
+  var tipos = _nfsZeradasPorTipo(lotes);
+  var total = 0;
+  tipos.forEach(function (t) { total += t.nfs.length; });
+  return { id: unidade.id, rotulo: unidade.rotulo, ok: true, erro: '', total: total, podeEncerrar: !!podeEncerrar, tipos: tipos };
+}
+
+/**
+ * Ids das unidades em que o usuário da sessão pode ALTERAR o estoque (coluna
+ * UNIDADES de USUARIOS; vazia = todas). Usuário que não está mais na aba, ou
+ * está inativo, não altera nada. Falha ao ler a aba USUARIOS: só a unidade da
+ * sessão (o mais restrito) — nunca abre mais do que deveria por causa de um erro.
+ */
+function _unidadesDoUsuarioDaSessao(sessao) {
+  try {
+    var reg = _acharUsuario(sessao.usuario);
+    if (!reg || !_usuarioAtivo(reg.ATIVO)) return [];
+    return _unidadesDoUsuario(reg);
+  } catch (e) {
+    return [sessao.unidade];
+  }
+}
+
+/**
+ * NFs de fio crú ZERADAS das DUAS unidades de uma vez, pra tela "NFs Zeradas
+ * (Fio Crú)" — o almoxarifado identifica quais NFs já acabaram, seja qual for
+ * a unidade ativa no seletor do topo. Só leitura: nada é gravado.
+ *
+ * Lê o estoque de cada unidade trocando a unidade ativa (`_definirUnidadeAtiva`)
+ * e sempre volta pra unidade da sessão no fim. Uma unidade que falhar (planilha
+ * sem acesso, não configurada) volta com `ok:false` e a mensagem — a outra
+ * continua funcionando. A LISTA ignora a restrição de unidades do usuário
+ * (coluna UNIDADES de USUARIOS), como `compararEstoqueEntreUnidades`: existe
+ * justamente pra enxergar as duas filiais. Já ENCERRAR respeita: `podeEncerrar`
+ * diz em quais unidades o usuário pode (ver `_unidadesDoUsuarioDaSessao`).
+ * @return {Object} { ok, atual (id da unidade da sessão), unidades:[{ id, rotulo,
+ *   ok, erro, total, podeEncerrar, tipos:[{ tipoFio, nfs:[{ nf, data,
+ *   saldoInicial, saldo, linha, ultima }] }] }] }
+ */
+function listarNfsZeradasFioCru(token) {
+  var sessao = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  var permitidas = _unidadesDoUsuarioDaSessao(sessao);
+  var unidades = [];
+  try {
+    CONFIG.UNIDADES.forEach(function (u) {
+      var item;
+      try {
+        _definirUnidadeAtiva(u.id);
+        item = _dadosUnidadeNfsZeradas(u, _saldosFioCru(), permitidas.indexOf(u.id) !== -1);
+      } catch (e) {
+        item = {
+          id: u.id, rotulo: u.rotulo, ok: false, erro: String(e && e.message ? e.message : e),
+          total: 0, podeEncerrar: false, tipos: []
+        };
+      }
+      unidades.push(item);
+    });
+  } finally {
+    _definirUnidadeAtiva(sessao.unidade);
+  }
+  unidades.sort(function (a, b) { return a.rotulo.localeCompare(b.rotulo); });
+  return { ok: true, atual: sessao.unidade, unidades: unidades };
+}
+
+/**
+ * ENCERRA uma NF de fio crú zerada: marca como CANCELADA (SITUACAO = CANCELADO —
+ * some da conta de saldo e das listas; o histórico de baixas continua; dá pra
+ * desfazer em Estoque Fio Crú, botão ↺). Botão "Encerrar" da tela "NFs Zeradas".
+ *
+ * Existe à parte de `definirSituacaoFioCru` (o ✕ de Estoque Fio Crú) porque a
+ * tela mostra as DUAS unidades e aquele só grava na unidade da sessão, pelo
+ * número da linha, sem conferir nada nem travar. Aqui, tudo que pode dar errado
+ * na conversa com a planilha é tratado:
+ *   - a unidade vem EXPLÍCITA (validada e restrita às do usuário) e a unidade
+ *     ativa é restaurada no fim, com erro ou não;
+ *   - trava de script (mesma de baixas e ajustes) durante conferir + gravar, e
+ *     `flush()` ANTES de soltar a trava, pra quem entrar depois já ler o gravado;
+ *   - a linha é conferida contra tipo + NF (planilha reordenada, linha apagada
+ *     ou inserida entre listar e clicar cancelaria a NF errada) — divergiu,
+ *     recusa e a tela recarrega;
+ *   - só encerra o que AINDA está zerado (saldo <= 0): um ajuste ou estorno
+ *     depois da lista pode ter devolvido saldo;
+ *   - a ÚLTIMA NF ativa do tipo é recusada (ver `_chavesUltimasNfsAtivas`) —
+ *     regra do servidor, não só da tela;
+ *   - NF que já estava cancelada (clique duplo, dois usuários) = sucesso;
+ *   - depois de gravar, relê a célula pra confirmar que a gravação pegou;
+ *   - grava EDITADO_EM/EDITADO_POR (rastro visível em Estoque Fio Crú).
+ * @param {string} unidadeId  id da unidade da aba (ex.: 'BAHIA')
+ * @param {number} linha      linha da NF na aba FIO_CRU_ENTRADAS (veio da lista)
+ * @param {string} tipoFio    tipo de fio da NF (veio da lista)
+ * @param {string} nf         nº da NF, como texto (veio da lista)
+ * @return {Object} { ok, jaEstava, nf, tipoFio, unidade } — `unidade` já é a lista
+ *   atualizada dessa unidade (mesmo formato de `listarNfsZeradasFioCru`).
+ */
+function encerrarNfFioCru(token, unidadeId, linha, tipoFio, nf) {
+  var sessao = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.ALMOX1]);
+  // `getUnidadeInfo('')` cai na unidade PADRÃO — aqui isso gravaria no Ceará sem
+  // ninguém ter pedido. Sem unidade explícita, não faz nada.
+  var idUnidade = String(unidadeId == null ? '' : unidadeId).trim();
+  if (!idUnidade) throw new Error('Informe a unidade da NF.');
+  var unidade = CONFIG.getUnidadeInfo(idUnidade); // lança erro se não existir
+  linha = parseInt(linha, 10);
+  if (!linha || linha < 2) throw new Error('Linha inválida.');
+  tipoFio = String(tipoFio == null ? '' : tipoFio).trim();
+  nf = String(nf == null ? '' : nf).trim();
+  var chaveEsperada = _chaveLoteFioCru(tipoFio, nf);
+  if (!chaveEsperada) throw new Error('Informe o tipo de fio e o número da NF.');
+  if (_unidadesDoUsuarioDaSessao(sessao).indexOf(unidade.id) === -1) {
+    throw new Error('Você não tem acesso à unidade "' + unidade.rotulo + '".');
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    throw new Error('Sistema ocupado dando baixa em outro lançamento agora — tente de novo em alguns segundos.');
+  }
+  try {
+    _definirUnidadeAtiva(unidade.id);
+    var sh = _prepararFioCruEntradas(); // garante as colunas SITUACAO/EDITADO_* antes de gravar
+    var lotes = _saldosFioCru();
+    var alvo = lotes.filter(function (l) { return l.linha === linha; })[0];
+    // Mesma chave que a lista mandou: passa pelo texto da célula (`_textoCelula`), como na ida.
+    if (!alvo || _chaveLoteFioCru(alvo.tipoFio, _textoCelula(alvo.nf)) !== chaveEsperada) {
+      throw new Error('A planilha de ' + unidade.rotulo + ' mudou desde que a lista foi carregada (a NF ' + nf +
+        ' não está mais nessa linha) — recarregue a tela.');
+    }
+
+    var jaEstava = !!alvo.cancelado;
+    if (!jaEstava) {
+      var saldo = _saldoKg2(alvo.saldo);
+      if (saldo > 0) {
+        throw new Error('A NF ' + nf + ' voltou a ter saldo (' + String(saldo).replace('.', ',') +
+          ' kg) — recarregue a tela.');
+      }
+      if (_chavesUltimasNfsAtivas(lotes)[alvo.chave]) {
+        throw new Error('A NF ' + nf + ' é a última NF de "' + alvo.tipoFio + '" (a mais recente) e não pode ser ' +
+          'encerrada. Quando entrar uma NF nova desse tipo, ela poderá.');
+      }
+
+      var cabecalho = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+        .map(function (h) { return String(h).trim(); });
+      var iSit = cabecalho.indexOf('SITUACAO'), iEm = cabecalho.indexOf('EDITADO_EM'), iPor = cabecalho.indexOf('EDITADO_POR');
+      if (iSit === -1 || iEm === -1 || iPor === -1) {
+        throw new Error('A aba FIO_CRU_ENTRADAS de ' + unidade.rotulo + ' está sem a coluna SITUACAO, EDITADO_EM ou ' +
+          'EDITADO_POR — abra Estoque Fio Crú dessa unidade uma vez (isso completa o cabeçalho) e tente de novo.');
+      }
+      sh.getRange(linha, iSit + 1).setValue('CANCELADO');
+      sh.getRange(linha, iEm + 1).setValue(new Date());
+      sh.getRange(linha, iPor + 1).setValue(sessao.usuario || '');
+      SpreadsheetApp.flush();
+      var gravado = String(sh.getRange(linha, iSit + 1).getValue()).trim().toUpperCase();
+      if (gravado !== 'CANCELADO') {
+        throw new Error('A planilha de ' + unidade.rotulo + ' não confirmou a gravação (a situação da NF ' + nf +
+          ' continua "' + gravado + '"). Recarregue a tela e confira em Estoque Fio Crú.');
+      }
+      alvo.cancelado = true; // a resposta já sai sem ela, sem reler a planilha
+      alvo.situacao = 'CANCELADO';
+    }
+    return {
+      ok: true, jaEstava: jaEstava, nf: _textoCelula(alvo.nf), tipoFio: alvo.tipoFio,
+      unidade: _dadosUnidadeNfsZeradas(unidade, lotes, true)
+    };
+  } finally {
+    try { SpreadsheetApp.flush(); } catch (e2) { /* não pode mascarar o erro real nem segurar a trava */ }
+    lock.releaseLock();
+    _definirUnidadeAtiva(sessao.unidade);
+  }
+}
+
 /** Chave de agrupamento de uma data, por dia/semana/mês (sempre ordenável como texto). */
 function _chavePeriodoFioCru(data, agrupamento) {
   if (agrupamento === 'mes') {
