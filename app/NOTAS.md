@@ -975,6 +975,85 @@ decisão já tomada na correção do `EMBARQUE_REPORTADO`, ver acima). Dali em
 diante, cada baixa sem ID_LINHA só é usada por uma chamada genuinamente sem
 ID_LINHA nenhum — nunca mais por um pedido novo que só coincide no código.
 
+## Confirmar Embarque: crú × tingido (resolvido)
+
+Reportado com o PDF do embarque 1002 (Ceará, 30/09/2026): "Fio Pol. 2x 167/48"
+mostrava 795 kg tingido e 815 kg de consumo de crú. A conciliação de **todos**
+os embarques desde 29/07 (EMBARQUES × FIO_CRU_BAIXAS × EMBARQUE_ESTORNO ×
+PENDENCIA_COMPRA) achou 34 itens com crú baixado ≠ embarcado; 31 deles, **3.587,90
+kg a menos** (todos de embarques depois de 06/08, quando a Quantidade Tingida foi
+pausada e a baixa passou a sair na própria confirmação).
+
+**Causas (todas reproduzidas no simulador com o código real)**
+1. **Histórica (já corrigida em 25/09):** pedido novo de um código que já tinha
+   baixa antiga sem ID_LINHA herdava essa baixa (`_tingidoDaLinha` por texto),
+   virava "tingido retido" e pulava a baixa (ver "Consumo de fio crú do PDF
+   somando pedido antigo já fechado"). Foi o grosso dos 3.587,90 kg.
+2. **Ativa — `baseline + kg` andando à frente do razão.** A confirmação pedia
+   ao razão o total `TINGIDO_BASELINE + kg`, mas o baseline é avançado por
+   `_baixarPendenciaCompraPorEmbarque` **por texto + prazo** (qualquer pedido do
+   mesmo código), enquanto a baixa é gravada no `ID_LINHA` do pedido **escolhido**.
+   Sobra de um embarque caindo em outro pedido (item 5233: 200 kg no pedido de 180;
+   os 20 restantes foram pro pedido seguinte), parte "do estoque" (baseline
+   avança, razão não) e cancelar embarque (razão volta, baseline não) deixavam o
+   baseline acima do razão e cobravam o excesso na confirmação seguinte (+20 kg).
+3. **Ativa — pedido errado fechado.** Confirmar o pedido de prazo maior primeiro
+   fechava o de prazo menor sem confirmação, e o baseline da linha escolhida
+   ficava atrás do razão → "já tingido" fantasma → a PRÓXIMA confirmação daquele
+   item não baixava nada (era o caso do 1470 HELANCA, corrigido na mão).
+4. **Ativa — silêncio.** `ajuste.ok` nunca era olhado: baixa que falhava saía
+   confirmada, sem consumo e sem sinal.
+5. **Ativa — linha recriada sem ID.** `_restaurarPendenciaCompra` (cancelar
+   embarque) recriava a linha SEM `ID_LINHA`; ao reconfirmar, caía no texto e
+   herdava baixa antiga (causa 1 de novo) — sem baixa nenhuma.
+
+**Correção (`Embarque.gs`, `App.html`)**
+- `_alvoBaixaConfirmacao` (pura): alvo = `min(razão da linha, baseline) + kg`. Com
+  razão ≥ baseline nada muda; com baseline à frente, baixa só o kg confirmado.
+- `_planejarDescontoPendencia` (pura) + `_baixarPendenciaCompraPorEmbarque`: a
+  **linha escolhida na tela recebe o desconto primeiro**; só o que passar do
+  SUGERIDO dela (ou item sem `idLinha`, como no PDF importado) segue FIFO por
+  prazo. `SOLICITADO_EM` também sai da linha escolhida.
+- **Avisos** (`avisos` na resposta; quadro vermelho na tela, no PDF e uma frase no
+  e-mail): `baixa` (a baixa de crú falhou) e `diferenca` (consumo de crú que o
+  relatório mostra ≠ kg tingido do item, tolerância 0,05 kg). **Não bloqueiam**
+  o embarque — o peso já foi decidido na expedição; só garantem que alguém veja.
+  Um aviso por item (a falha de baixa tem precedência sobre a diferença).
+- O instantâneo de estorno (`EMBARQUE_ESTORNO.DADOS_JSON`) passa a guardar, por
+  item, `idLinha` e `qtdEstoque` (campos opcionais; instantâneos antigos seguem
+  valendo). Com isso dá pra distinguir "saiu do estoque" de "baixa esquecida".
+- Linha recriada pelo cancelamento nasce com `ID_LINHA`.
+- Tela: o resultado da confirmação (e o quadro vermelho) fica na área de
+  mensagens — `carregarListaConfirmarEmbarque(manterHtml)`; antes o
+  recarregamento da lista apagava a faixa verde na hora.
+
+**Dados (feitos na mão pelo usuário, sem código)** — 1470 HELANCA
+(`TINGIDO_BASELINE` 17→50 e `EMBARQUE_REPORTADO`=998 na baixa de 18/09) e ajustes
+de saldo por NF (⚖ em Estoque Fio Crú) somando os 3.587,90 kg: Poliester
+368282 −1301,40; Alpina 178741 −605,40; 102 Lavado 364736 −270,00; Polimp 361333
+−88,00; Pet Reflexx 348079 −82,90 e 363262 −1240,20. O ajuste corrige o saldo,
+mas **não aparece no relatório de Consumo** (só baixas entram) — Consumo de
+ago–set fica 3.587,90 kg abaixo do real.
+
+**Como conferir um embarque suspeito:** kg/volume do item costuma ser constante
+(ex.: 5709/1 = 12,45 kg/vol). Peso fora disso (747 kg em 50 volumes) é o total do
+pedido lançado de novo — erro de digitação em EMBARQUES, não falta de baixa
+(foi o caso de 5709/1 e 4282 no embarque 986: 180,10 kg que NÃO entraram nos
+ajustes).
+
+**Limites conhecidos (não corrigidos)**
+- Fluxo antigo de "tingido retido" (Quantidade Tingida com liberação parcial):
+  confirmar menos que o já tingido não credita o excedente (`existeRetido`); o
+  aviso `diferenca` mostra o descompasso em vez de esconder.
+- Pedidos sem `ID_LINHA` (legado) e o PDF importado continuam por texto + prazo.
+- Falha de baixa não barra o embarque (decisão: o peso já saiu da expedição).
+- A Bahia usa o mesmo código e pode ter o mesmo passivo histórico de 06/08–25/09
+  (não conciliado — falta exportar as planilhas de lá).
+
+**Teste**: `testarBaixaPendenciaPorLinha` (Testes.gs) — puro, não grava nada;
+cobre o alvo da baixa, o desconto pela linha escolhida (sobra, pedido de prazo
+maior, `idLinha` inexistente, PDF sem `idLinha`) e o quadro vermelho do PDF.
+
 ## NFs Zeradas (Fio Crú): decisões, "Encerrar" e limites conhecidos
 
 Tela (master e almoxarifado 1) que lista as NFs de fio crú zeradas das **duas**
@@ -1039,13 +1118,11 @@ unidades, por tipo de fio, e deixa **encerrar** (cancelar) cada uma — ver
   erro recarrega a lista mantendo a aba escolhida.
 
 **Achados no código existente — NÃO corrigidos aqui, mas relevantes**
-1. **Confirmar Embarque pode confirmar sem baixar o crú, em silêncio.**
-   `_confirmarEmbarqueManualInterno` (`Embarque.gs`) chama `_ajustarBaixaFioCru`
-   e nunca olha `ajuste.ok`: se o tipo de fio não tem NF ativa (ou o item não tem
-   tipo), a baixa falha e a confirmação segue sem consumo de crú e sem aviso
-   (Quantidade Tingida, ao contrário, mostra o erro). A regra da "última NF"
-   impede que *Encerrar* crie esse buraco, mas o ✕ de Estoque Fio Crú
-   (`definirSituacaoFioCru`) ainda cria. Sugestão: checar `ajuste.ok` e avisar.
+1. **(RESOLVIDO — ver "Confirmar Embarque: crú × tingido".)** Confirmar Embarque
+   confirmava sem baixar o crú, em silêncio, quando `_ajustarBaixaFioCru` falhava
+   (tipo sem NF ativa, item sem tipo). Agora a falha vira aviso vermelho na tela e
+   no PDF. A regra da "última NF" impede que *Encerrar* crie esse buraco, mas o ✕
+   de Estoque Fio Crú (`definirSituacaoFioCru`) ainda cria — o aviso cobre.
 2. **Estorno cai em NF cancelada.** `_estornarCruEmbarque` (cancelar embarque) e
    o ramo de crédito de `_ajustarBaixaFioCru` (corrigir tingido) devolvem o kg à
    NF de origem mesmo cancelada — o kg some do estoque ativo até desfazer o
