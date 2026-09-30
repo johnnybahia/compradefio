@@ -80,6 +80,14 @@ consumo de fio crú:
 - **Total de volumes** dos fios (e o subtotal de volumes em cada tipo de fio).
 - No consumo de fio crú, o **preço unitário da NF** de onde o fio saiu (ao
   lado de fornecedor e data). NF sem preço cadastrado aparece como `—`.
+- Um **quadro vermelho "Atenção — conferir o fio crú"** quando a baixa do crú
+  falhou ou o consumo mostrado difere do kg tingido do item (a tela mostra o
+  mesmo aviso; o e-mail ganha uma frase). Não bloqueia o embarque.
+
+Na confirmação, o desconto da lista pendente vai **primeiro para a linha que a
+expedição escolheu** na tela (só a sobra segue por prazo) e a baixa do crú pede
+ao razão exatamente o kg confirmado — ver `NOTAS.md`, "Confirmar Embarque: crú ×
+tingido".
 
 A tela **Confirmar Embarque** mostra o **próximo número de embarque** desta
 unidade (com um link "ajustar" para master/almoxarifado 1 corrigirem a

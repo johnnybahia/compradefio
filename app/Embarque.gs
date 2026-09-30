@@ -354,17 +354,25 @@ function _registrarEmbarqueEDarBaixa(itens, doc, data, usuario, lotesCru) {
   // fica registrada no embarque pra não se perder quando o item sair da
   // pendência (a baixa acontece logo abaixo, depois de gravar aqui). Sem
   // isso, o Relatório perdia essa data assim que o item era embarcado.
-  var dataSolicitadoPorItem = {};
+  // Por ID_LINHA quando o item veio da tela (a linha que a expedição escolheu);
+  // só cai na PRIMEIRA linha do código (por texto) quando não há ID_LINHA —
+  // com 2+ pedidos abertos no mesmo código, a primeira por texto podia ser
+  // OUTRO pedido e o embarque saía com a data de solicitação errada.
+  var dataSolicitadoPorItem = {}, dataSolicitadoPorIdLinha = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
     var k = _norm(r.ITEM);
     if (k && dataSolicitadoPorItem[k] == null) dataSolicitadoPorItem[k] = r.GERADO_EM;
+    var id = _norm(r.ID_LINHA);
+    if (id && dataSolicitadoPorIdLinha[id] == null) dataSolicitadoPorIdLinha[id] = r.GERADO_EM;
   });
   var linhas = itens.map(function (it) {
     // VOLUMES vem da lista pendente (informado no tingimento e corrigível na
     // confirmação) — fica registrado no embarque pra não se perder quando o
     // item sair da pendência.
     var vol = (it.volumes === '' || it.volumes == null) ? '' : (Number(it.volumes) || 0);
-    var solicitadoEm = dataSolicitadoPorItem[_norm(it.item)];
+    var idLinha = _norm(it.idLinha);
+    var solicitadoEm = (idLinha && dataSolicitadoPorIdLinha[idLinha] != null)
+      ? dataSolicitadoPorIdLinha[idLinha] : dataSolicitadoPorItem[_norm(it.item)];
     return [String(it.item).trim(), Number(it.quantidade) || 0, doc, data, '', vol,
       solicitadoEm == null ? '' : solicitadoEm];
   });
@@ -378,8 +386,21 @@ function _registrarEmbarqueEDarBaixa(itens, doc, data, usuario, lotesCru) {
   // Instantâneo de estorno: guarda o consumo de crú (lotesCru) e as
   // quantidades tiradas da pendência, pra poder CANCELAR depois com precisão
   // (ver `cancelarEmbarque`). PDF não consome crú → lotesCru vazio.
+  // Cada item leva também, quando existem, a linha de origem (`idLinha`) e a
+  // parte que saiu "do estoque" (`qtdEstoque`, sem consumo de crú): sem isso
+  // não havia como saber, depois, se um item sem baixa de crú foi "do estoque"
+  // ou falha — foi o que impediu de conferir embarque × crú sem perguntar a
+  // quem confirmou. Campos novos são opcionais: instantâneos antigos seguem
+  // valendo (o cancelamento só lê `item` e `quantidade`).
   _registrarEstornoEmbarque(doc, usuario || '',
-    itens.map(function (it) { return { item: String(it.item).trim(), quantidade: Number(it.quantidade) || 0 }; }),
+    itens.map(function (it) {
+      var o = { item: String(it.item).trim(), quantidade: Number(it.quantidade) || 0 };
+      var idLinha = String(it.idLinha == null ? '' : it.idLinha).trim();
+      if (idLinha) o.idLinha = idLinha;
+      var qtdEstoque = Number(it.qtdEstoque) || 0;
+      if (qtdEstoque > 0) o.qtdEstoque = qtdEstoque;
+      return o;
+    }),
     lotesCru || []);
   return { gravados: linhas.length, baixados: baixa.baixados };
 }
@@ -1231,6 +1252,28 @@ function _registrarUltimoEmbarqueConfirmado(itens, numero, usuario) {
   } catch (e) { /* registro é proteção extra; não pode derrubar a confirmação */ }
 }
 
+/**
+ * ALVO (total baixado do crú pra UMA linha) que a Confirmar Embarque pede a
+ * `_ajustarBaixaFioCru`: o que o razão de baixas JÁ tem pra essa linha (ou o
+ * TINGIDO_BASELINE, se for MENOR) + o que está sendo confirmado — a baixa
+ * nova é, então, exatamente a quantidade confirmada. Função PURA (ver
+ * `testarBaixaPendenciaPorLinha`, em Testes.gs).
+ *
+ * Usar sempre `baseline + kg` baixava a mais quando o baseline andava À
+ * FRENTE do razão: o desconto da pendência caiu em OUTRA linha do mesmo
+ * código (a sobra de um embarque — ver `_baixarPendenciaCompraPorEmbarque`),
+ * parte saiu "do estoque" (o baseline avança, o razão não) ou o embarque foi
+ * cancelado (o razão volta, o baseline não). O kg que o baseline contava
+ * nunca tinha sido baixado nesta linha e era cobrado aqui (20 kg a mais no
+ * embarque 1002, item 5233). Com razão ≥ baseline, nada muda.
+ * @param {number} atualLinha  soma do razão pra esta linha (ver `_tingidoDaLinha`).
+ * @param {number} baseline    TINGIDO_BASELINE da linha.
+ * @param {number} quantidade  kg confirmados agora.
+ */
+function _alvoBaixaConfirmacao(atualLinha, baseline, quantidade) {
+  return Math.min(Number(atualLinha) || 0, Number(baseline) || 0) + (Number(quantidade) || 0);
+}
+
 /** Miolo da confirmação (já validada contra duplicidade — ver `confirmarEmbarqueManual`). */
 function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, malote, lista) {
   // Dois mapas pelo mesmo motivo de `_tingidoPorItem` (FioCru.gs): o código do
@@ -1258,6 +1301,9 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
   var porTipo = {}; // tipoFio -> { tipoFio, totalTingido, totalEstoque, itens:[...], lotes:[...] }
   var deltaLotes = []; // só o que ESTA confirmação baixou/creditou (pro estorno)
   var itensPorTipo = {}; // chaveTipo -> [itens] (pra montar o consumo depois)
+  // Problemas que NÃO barram o embarque (já decidido na expedição), mas que
+  // têm que aparecer na tela e no PDF: { item, tipo: 'baixa'|'diferenca', mensagem }.
+  var avisos = [];
   itens.forEach(function (it) {
     // Sempre a classificação ATUAL da BASE TINGIMENTO (ver `_tipoFioAtualDoItem`)
     // — nunca o TIPO_FIO gravado em PENDENCIA_COMPRA na hora da análise, que é
@@ -1278,10 +1324,14 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     // quantidade confirmada aqui só contam o que é NOVO pra este saldo, não o
     // histórico completo do item.
     var baseline = _baselineTingidoDoItemPendente(it.item, it.idLinha);
-    var jaTingido = Math.max(0, _tingidoDaLinha(tingidoAtualPorItem, it.idLinha, it.item) - baseline);
+    // Quanto o razão de baixas JÁ tem pra ESTA linha (por ID_LINHA; sem ID, pelo
+    // texto do item) — o mesmo número que `_ajustarBaixaFioCru` usa como "atual".
+    var atualLinha = _tingidoDaLinha(tingidoAtualPorItem, it.idLinha, it.item);
+    var jaTingido = Math.max(0, atualLinha - baseline);
     // Só é "do estoque" de verdade se confirmar MAIS do que o já tingido —
     // senão não há sobra nenhuma pra tirar do estoque pronto.
     var qtdEstoque = (it.doEstoque && it.quantidade > jaTingido) ? (it.quantidade - jaTingido) : 0;
+    it.qtdEstoque = qtdEstoque; // vai pro instantâneo de estorno (ver `_registrarEmbarqueEDarBaixa`)
     // Sobra tingido que NÃO passa pelo ajuste do fio crú: acontece quando já
     // existe tingido lançado no item além do que foi liberado. Esse material
     // já foi baixado do crú quando o tingimento foi lançado — tratar
@@ -1302,7 +1352,18 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
       // como o consumo do crú; a sobra (do estoque, ou retida) não passa
       // pelo ajuste. Nenhuma linha nova no razão de baixas.
     } else {
-      var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, baseline + it.quantidade, s.usuario, it.idLinha);
+      // ALVO da baixa: ver `_alvoBaixaConfirmacao`.
+      var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, _alvoBaixaConfirmacao(atualLinha, baseline, it.quantidade), s.usuario, it.idLinha);
+      if (!ajuste.ok) {
+        // Antes isto passava em silêncio: o embarque saía confirmado, sem baixa
+        // no crú e sem nenhum sinal na tela nem no PDF.
+        avisos.push({
+          item: it.item, tipo: 'baixa',
+          mensagem: 'NÃO foi dada a baixa no fio crú — ' +
+            (tipoFio ? (ajuste.mensagem || 'motivo não informado') : 'tipo de fio não identificado (confira a BASE TINGIMENTO)') +
+            ' Ajuste o saldo da NF em Estoque Fio Crú.'
+        });
+      }
       (ajuste.lotes || []).forEach(function (l) {
         deltaLotes.push({
           // tipo de fio REAL da linha de baixa (pode diferir do tipo do item por
@@ -1321,17 +1382,34 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
       item: it.item, quantidade: it.quantidade, qtdEstoque: qtdEstoque, obs: it.obs, volumes: it.volumes
     });
     if (!itensPorTipo[chaveTipo]) itensPorTipo[chaveTipo] = [];
-    itensPorTipo[chaveTipo].push({ item: it.item, idLinha: it.idLinha });
+    itensPorTipo[chaveTipo].push({ item: it.item, idLinha: it.idLinha, tingido: it.quantidade - qtdEstoque });
   });
 
   // NFs consumidas pra o relatório: vêm do RAZÃO (depois dos ajustes acima),
   // não da diferença desta confirmação — no caminho normal o consumo aconteceu
   // ao lançar o tingimento, e a diferença aqui é zero (ver `_consumoCruPorItens`).
   var consumoPorItem = _consumoCruPorItens(itens.map(function (it) { return { item: it.item, idLinha: it.idLinha }; }));
+  var itemComAviso = {};
+  avisos.forEach(function (a) { itemComAviso[_norm(a.item)] = true; });
   Object.keys(itensPorTipo).forEach(function (chaveTipo) {
     itensPorTipo[chaveTipo].forEach(function (it) {
       var item = it.item;
       var chave = it.idLinha || _norm(item);
+      // Confere o consumo de crú que o relatório vai mostrar contra o kg
+      // tingido deste item. Sem problema é igual; diferença = baixa pulada ou
+      // duplicada, ou tingido retido de um lançamento antigo — foi assim que o
+      // "consumo 815 × tingido 795" do embarque 1002 passou sem ninguém ver.
+      var consumoItem = (consumoPorItem[chave] || []).reduce(function (a, c) { return a + (Number(c.peso) || 0); }, 0);
+      var difItem = _arredondarKg(consumoItem - it.tingido);
+      if (Math.abs(difItem) > 0.05 && !itemComAviso[_norm(item)]) {
+        avisos.push({
+          item: item, tipo: 'diferenca', consumo: _arredondarKg(consumoItem),
+          tingido: _arredondarKg(it.tingido), diferenca: difItem,
+          mensagem: 'consumo de fio crú ' + _numeroBR(consumoItem) + ' kg ≠ kg tingido ' +
+            _numeroBR(it.tingido) + ' kg (' + (difItem > 0 ? '+' : '') + _numeroBR(difItem) + ' kg). ' +
+            'Confira e, se for o caso, ajuste o saldo da NF em Estoque Fio Crú.'
+        });
+      }
       (consumoPorItem[chave] || []).forEach(function (c) {
         porTipo[chaveTipo].lotes.push({
           item: item, nf: c.nf, fornecedor: c.fornecedor || '',
@@ -1382,7 +1460,7 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
 
   var unidade = CONFIG.getUnidadeInfo(s.unidade).rotulo.toUpperCase();
   var dataFmt = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy');
-  var html = _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao, malote);
+  var html = _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao, malote, avisos);
   var pdf = Utilities.newBlob(html, MimeType.HTML, 'confirmacao.html').getAs(MimeType.PDF)
     .setName('Confirmacao de Embarque Marfim ' + _semAcento(unidade) + ' no ' + numero + '.pdf');
   _enviarEmailSistema({
@@ -1392,7 +1470,7 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     htmlBody: '<p style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">Segue em anexo a Confirmação ' +
       'de Embarque ' + unidade + ' nº <b>' + numero + '</b>, de <b>' + dataFmt + '</b> — com os itens ' +
       'embarcados, o total de volumes, o consumo no estoque de fio crú (por tipo de fio, com NF e ' +
-      'fornecedor) e o custo de mão de obra.' + _avisoMaloteEmail(malote) + '</p>',
+      'fornecedor) e o custo de mão de obra.' + _avisoMaloteEmail(malote) + _avisoCruEmail(avisos) + '</p>',
     attachments: [pdf]
   });
   // Memoriza a taxa usada agora, pra pré-preencher a próxima confirmação
@@ -1402,7 +1480,9 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
   return {
     ok: true, numero: numero, gravados: r.gravados, baixados: r.baixados,
     resumo: resumo, custoMaoObra: custoMaoObra, destinatarios: lista.length,
-    volumesTotal: _totalVolumesResumo(resumo), malote: malote
+    volumesTotal: _totalVolumesResumo(resumo), malote: malote,
+    // Só texto/número/booleano (ver `_textoCelula`): nada de valor cru de célula.
+    avisos: avisos
   };
 }
 
@@ -1439,6 +1519,13 @@ function _avisoMaloteEmail(malote) {
     ? ' <b>Atenção: este embarque leva MALOTE em nota separada — ' + _numeroBR(malote.volumes) +
       ' volume(s)</b> (ver o campo próprio no PDF).'
     : ' <b>Atenção: este embarque leva um MALOTE, seguindo junto com os fios.</b>';
+}
+
+/** Frase curta sobre os avisos de fio crú pro corpo do e-mail (vazia sem avisos). */
+function _avisoCruEmail(avisos) {
+  if (!avisos || !avisos.length) return '';
+  return ' <b style="color:#B91C1C">Atenção: ' + avisos.length + ' item(ns) com diferença ou falha na baixa ' +
+    'do fio crú — veja o quadro vermelho no PDF.</b>';
 }
 
 /** Número no formato brasileiro, sem casas decimais desnecessárias (ex.: 3, 2,5). */
@@ -1492,13 +1579,17 @@ function _moedaBR(v) {
  * @param {number} custoMaoObra  taxa única em R$ por kg tingido.
  * @param {string} observacao    observação geral, opcional.
  * @param {Object} malote        { ativo, modo: 'fios'|'volumes', volumes }.
+ * @param {Array}  avisos        [{ item, mensagem }] — baixa de fio crú que falhou ou
+ *   consumo diferente do kg tingido (ver `_confirmarEmbarqueManualInterno`); sai num
+ *   quadro VERMELHO depois dos blocos. Opcional.
  */
-function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao, malote) {
+function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade, observacao, malote, avisos) {
+  avisos = avisos || [];
   // Densidade conforme o tamanho total do relatório (itens + NFs + chrome de
   // cada bloco), pra tentar caber numa página A4 retrato (ver `_densidadeRelatorio`).
   var linhasEstimadas = resumo.reduce(function (a, g) {
     return a + g.itens.length + Math.max(_agruparLotesPorNf(g.lotes).length, 1) + 3;
-  }, 0) + ((malote && malote.ativo) ? 3 : 0);
+  }, 0) + ((malote && malote.ativo) ? 3 : 0) + (avisos.length ? avisos.length + 2 : 0);
   var d = _densidadeRelatorio(linhasEstimadas);
   var thStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';background:#0F5FA0;' +
     'color:#fff;text-align:left;font-size:' + d.fonte + 'px';
@@ -1671,6 +1762,22 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     '<td style="vertical-align:middle">' + tituloTxt + '</td>' +
   '</tr></table>';
 
+  // Avisos de conferência do fio crú (baixa que falhou, ou consumo diferente
+  // do kg tingido): quadro VERMELHO logo depois dos blocos — quem lê precisa
+  // ver isto ANTES de confiar nos números de consumo acima.
+  var avisosHtml = '';
+  if (avisos.length) {
+    avisosHtml =
+      '<div style="margin-top:8px;border:1px solid #F1A9A0;background:#FDECEA;border-radius:6px;padding:8px 10px">' +
+        '<p style="margin:0 0 3px;font-size:' + rotuloFonte + 'px;color:#B91C1C;font-weight:bold;' +
+          'text-transform:uppercase;letter-spacing:.04em">Atenção — conferir o fio crú</p>' +
+        '<ul style="margin:0;padding-left:16px;font-size:' + d.fonte + 'px;color:#7F1D1D">' +
+        avisos.map(function (a) {
+          return '<li><b>' + _escHtmlEmail(a.item) + '</b>: ' + _escHtmlEmail(a.mensagem) + '</li>';
+        }).join('') +
+        '</ul></div>';
+  }
+
   // Observação geral (digitada na tela) — fecha o relatório, antes do rodapé.
   var observacaoHtml = observacao
     ? '<div style="margin-top:10px;border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px">' +
@@ -1684,10 +1791,73 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
     '<div style="font-family:Arial,Helvetica,sans-serif;color:#1c2733">' +
     cabecalho +
     blocos +
+    avisosHtml +
     totalGeralHtml +
     maloteHtml +
     observacaoHtml +
     '<p style="color:#64748b;font-size:9px;margin-top:8px">Enviado automaticamente pelo sistema Marfim.</p></div>';
+}
+
+/**
+ * PLANO do desconto na lista pendente — função PURA (não lê nem grava
+ * planilha), pra poder ser testada direto no editor (ver
+ * `testarBaixaPendenciaPorLinha`, em Testes.gs). `_baixarPendenciaCompraPorEmbarque`
+ * lê a planilha, chama isto e aplica o resultado; as regras (linha escolhida
+ * primeiro, sobra por prazo) estão descritas no comentário dela.
+ * @param {Array} regs  linhas de PENDENCIA_COMPRA: { __row, ITEM, ID_LINHA, SUGERIDO, DATA_LIMITE }.
+ * @param {Array} itens [{item, quantidade, idLinha?}] — os itens confirmados.
+ * @return {Object} { descontoPorLinha: { __row -> kg descontados },
+ *   semLinha: { item normalizado -> kg que não coube em nenhuma linha } }
+ */
+function _planejarDescontoPendencia(regs, itens) {
+  var EPS = 0.01;
+  var restanteItem = {};
+  var escolhidas = []; // itens confirmados com a linha de origem: { id, k, q }
+  (itens || []).forEach(function (it) {
+    var k = _norm(it.item);
+    if (!k) return;
+    var q = Number(it.quantidade) || 0;
+    restanteItem[k] = (restanteItem[k] || 0) + q;
+    var id = _norm(it.idLinha);
+    if (id) escolhidas.push({ id: id, k: k, q: q });
+  });
+
+  var porItem = {};
+  (regs || []).forEach(function (r) {
+    var k = _norm(r.ITEM);
+    if (!k || !restanteItem.hasOwnProperty(k)) return;
+    if (!porItem[k]) porItem[k] = [];
+    porItem[k].push(r);
+  });
+
+  var descontoPorLinha = {}; // __row -> kg descontados NESTA confirmação
+  function sobraDaLinha(r) { return (Number(r.SUGERIDO) || 0) - (descontoPorLinha[r.__row] || 0); }
+
+  // 1) A linha ESCOLHIDA na tela recebe primeiro.
+  escolhidas.forEach(function (p) {
+    var r = (regs || []).filter(function (x) { return _norm(x.ID_LINHA) === p.id; })[0];
+    if (!r || sobraDaLinha(r) <= 0) return;
+    var d = Math.min(sobraDaLinha(r), p.q);
+    descontoPorLinha[r.__row] = (descontoPorLinha[r.__row] || 0) + d;
+    restanteItem[p.k] = _arredondarKg(restanteItem[p.k] - d);
+  });
+
+  // 2) O que sobrou (item sem linha de origem, ou kg acima do SUGERIDO da
+  //    escolhida) segue a regra de sempre: FIFO por DATA_LIMITE entre as
+  //    linhas do mesmo código.
+  Object.keys(porItem).forEach(function (k) {
+    _ordenarPorDataLimite(porItem[k]).forEach(function (r) {
+      var qtd = restanteItem[k];
+      if (qtd <= EPS || sobraDaLinha(r) <= 0) return;
+      var d = Math.min(sobraDaLinha(r), qtd);
+      descontoPorLinha[r.__row] = (descontoPorLinha[r.__row] || 0) + d;
+      restanteItem[k] = _arredondarKg(qtd - d);
+    });
+  });
+
+  var semLinha = {};
+  Object.keys(restanteItem).forEach(function (k) { if (restanteItem[k] > EPS) semLinha[k] = restanteItem[k]; });
+  return { descontoPorLinha: descontoPorLinha, semLinha: semLinha };
 }
 
 /**
@@ -1703,28 +1873,25 @@ function _confirmacaoEmbarqueHTML(numero, dataFmt, resumo, custoMaoObra, unidade
  * cabe ao master decidir se aquele resto ainda vale a pena, e removê-lo na
  * mão se não (ver `removerItemPendente`, em Consultas.gs).
  *
- * @param {Array} itens [{item, quantidade}] — os itens confirmados neste embarque.
+ * LINHA ESCOLHIDA PRIMEIRO: quando o item vem com `idLinha` (a linha que a
+ * expedição escolheu na tela Confirmar Embarque), o desconto vai PRIMEIRO pra
+ * ESSA linha — é nela que a baixa do fio crú é gravada (ID_LINHA), então
+ * SUGERIDO, TINGIDO_BASELINE e o razão de baixas têm que andar juntos. Só o
+ * que passar do SUGERIDO dela (ou o item sem `idLinha`, como no PDF importado)
+ * segue a regra de sempre, FIFO por DATA_LIMITE entre as linhas do código.
+ * Antes o desconto ia sempre por texto + prazo: confirmando o pedido de prazo
+ * maior, o de prazo menor "sumia" sem ter sido confirmado, e o
+ * TINGIDO_BASELINE da linha escolhida ficava atrás do que já estava baixado
+ * no crú — o "já tingido" fantasma que fazia a PRÓXIMA confirmação do item
+ * não baixar nada.
+ *
+ * @param {Array} itens [{item, quantidade, idLinha?}] — os itens confirmados neste embarque.
  * @return {Object} { baixados } — nº de linhas de PENDENCIA_COMPRA afetadas (reduzidas ou removidas).
  */
 function _baixarPendenciaCompraPorEmbarque(itens) {
-  var restanteItem = {};
-  itens.forEach(function (it) {
-    var k = _norm(it.item);
-    if (!k) return;
-    restanteItem[k] = (restanteItem[k] || 0) + (Number(it.quantidade) || 0);
-  });
-  if (!Object.keys(restanteItem).length) return { baixados: 0 };
-
   var regs = lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA);
   if (!regs.length) return { baixados: 0 };
-
-  var porItem = {};
-  regs.forEach(function (r) {
-    var k = _norm(r.ITEM);
-    if (!k || !restanteItem.hasOwnProperty(k)) return;
-    if (!porItem[k]) porItem[k] = [];
-    porItem[k].push(r);
-  });
+  var descontoPorLinha = _planejarDescontoPendencia(regs, itens).descontoPorLinha;
 
   var EPS = 0.01;
   var novoSugeridoPorLinha = {}; // __row -> novo valor
@@ -1733,38 +1900,33 @@ function _baixarPendenciaCompraPorEmbarque(itens) {
   var removidas = {};            // __row -> true
   var baixados = 0;
 
-  Object.keys(porItem).forEach(function (k) {
-    var lista = _ordenarPorDataLimite(porItem[k]);
-    lista.forEach(function (r) {
-      var qtd = restanteItem[k];
-      if (qtd <= EPS) return;
-      var sugerido = Number(r.SUGERIDO) || 0;
-      if (sugerido <= 0) return;
-      var desconto = Math.min(sugerido, qtd);
-      // `_arredondarKg` em toda conta que volta pra planilha: sem isso, a
-      // subtração de ponto flutuante deixa lixo no SUGERIDO — um pedido de
-      // 420kg com dois embarques parciais (103,6 e 315) virava
-      // 1.3999999999999773 em vez de 1,4 (ver `_arredondarKg`, em Consultas.gs).
-      var novoValor = _arredondarKg(sugerido - desconto);
-      restanteItem[k] = _arredondarKg(qtd - desconto);
-      baixados++;
-      if (novoValor <= EPS) {
-        removidas[r.__row] = true;
-      } else {
-        novoSugeridoPorLinha[r.__row] = novoValor;
-        // TINGIDO_BASELINE avança exatamente pelo `desconto` (o que ESTA
-        // confirmação embarcou desta linha) — nunca pro total tingido
-        // inteiro. Se sobrar tingido RETIDO (não liberado), ele precisa
-        // continuar aparecendo como "Já tingido" da próxima vez — só o que
-        // já embarcou é que deve sumir.
-        baselinePorLinha[r.__row] = _arredondarKg((Number(r.TINGIDO_BASELINE) || 0) + desconto);
-        // PRONTO_EMBARQUE (liberado) reduz pelo mesmo `desconto` — some
-        // sozinho quando batia exatamente o que tinha sido liberado; se
-        // sobrar liberado (ex.: confirmaram menos do que foi liberado),
-        // continua liberado pro que faltar.
-        liberadoPorLinha[r.__row] = Math.max(0, _arredondarKg((Number(r.PRONTO_EMBARQUE) || 0) - desconto));
-      }
-    });
+  // Aplica o desconto planejado em cada linha: reduz o SUGERIDO, ou remove a
+  // linha quando ficou totalmente coberta.
+  regs.forEach(function (r) {
+    var desconto = descontoPorLinha[r.__row] || 0;
+    if (desconto <= 0) return;
+    // `_arredondarKg` em toda conta que volta pra planilha: sem isso, a
+    // subtração de ponto flutuante deixa lixo no SUGERIDO — um pedido de
+    // 420kg com dois embarques parciais (103,6 e 315) virava
+    // 1.3999999999999773 em vez de 1,4 (ver `_arredondarKg`, em Consultas.gs).
+    var novoValor = _arredondarKg((Number(r.SUGERIDO) || 0) - desconto);
+    baixados++;
+    if (novoValor <= EPS) {
+      removidas[r.__row] = true;
+    } else {
+      novoSugeridoPorLinha[r.__row] = novoValor;
+      // TINGIDO_BASELINE avança exatamente pelo `desconto` (o que ESTA
+      // confirmação embarcou desta linha) — nunca pro total tingido
+      // inteiro. Se sobrar tingido RETIDO (não liberado), ele precisa
+      // continuar aparecendo como "Já tingido" da próxima vez — só o que
+      // já embarcou é que deve sumir.
+      baselinePorLinha[r.__row] = _arredondarKg((Number(r.TINGIDO_BASELINE) || 0) + desconto);
+      // PRONTO_EMBARQUE (liberado) reduz pelo mesmo `desconto` — some
+      // sozinho quando batia exatamente o que tinha sido liberado; se
+      // sobrar liberado (ex.: confirmaram menos do que foi liberado),
+      // continua liberado pro que faltar.
+      liberadoPorLinha[r.__row] = Math.max(0, _arredondarKg((Number(r.PRONTO_EMBARQUE) || 0) - desconto));
+    }
   });
   if (!baixados) return { baixados: 0 };
 
@@ -2043,7 +2205,11 @@ function _restaurarPendenciaCompra(itensRestaurar, numero) {
       var obj = {
         ITEM: itemTxt, DESCRICAO: d.descricao || '', CLIENTE: d.cliente || '', TIPO_FIO: t.tipoFio || '',
         SUGERIDO: addPorItem[k], DATA_LIMITE: localizarData(itemTxt) || '',
-        OBS: 'Reaberto pelo cancelamento do embarque ' + numero, STATUS: 'ABERTO', GERADO_EM: new Date()
+        OBS: 'Reaberto pelo cancelamento do embarque ' + numero, STATUS: 'ABERTO', GERADO_EM: new Date(),
+        // ID_LINHA próprio: sem ele a linha recriada caía no texto do item ao
+        // conferir o "já tingido" e herdava as baixas antigas do mesmo código —
+        // a confirmação seguinte desta linha saía SEM baixar o fio crú.
+        ID_LINHA: Utilities.getUuid()
       };
       novas.push(RELACAO_COMPRA_HEADERS.map(function (h) { return obj.hasOwnProperty(h) ? obj[h] : ''; }));
     });

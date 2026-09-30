@@ -2266,12 +2266,15 @@ function renderHistoricoEmbarque(linhas) {
     '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 
-function carregarListaConfirmarEmbarque() {
+/** `manterHtml` (opcional): resultado da confirmação que acabou de sair — fica na
+ * área de mensagens durante e depois do recarregamento da lista. Sem isso o
+ * recarregamento apagava na hora o aviso de fio crú (e a própria confirmação). */
+function carregarListaConfirmarEmbarque(manterHtml) {
   var msg = document.getElementById('embarque-msg');
-  msg.innerHTML = '<div class="aviso"><span class="carregando">Carregando…</span></div>';
+  msg.innerHTML = manterHtml || '<div class="aviso"><span class="carregando">Carregando…</span></div>';
   return chamar('obterListaFioParaTingir', sessao.token)
     .then(function (r) {
-      msg.innerHTML = '';
+      msg.innerHTML = manterHtml || '';
       // TODOS os itens em aberto, sem filtro nenhum: com o fluxo da
       // Quantidade Tingida pausado (ver `TINGIMENTO_PAUSADO`), é a expedição
       // que lança peso e volumes direto aqui — não existe mais "liberado
@@ -2563,11 +2566,21 @@ function confirmarEmbarqueSelecionado(forcarDuplicado) {
                 ? num(r.malote.volumes) + ' volume(s) em nota separada.'
                 : 'segue com os fios.')
             : '';
-          msg.innerHTML = '<div class="aviso ok">Embarque nº ' + r.numero + ' confirmado (' + r.gravados +
+          // Baixa de fio crú que falhou, ou consumo diferente do kg tingido: fica
+          // em vermelho, junto do resultado (e também no quadro vermelho do PDF).
+          var avisosCruHtml = (r.avisos && r.avisos.length)
+            ? '<div class="aviso erro"><b>Atenção — conferir o fio crú</b> (o PDF enviado traz o mesmo quadro):' +
+              '<ul style="margin:6px 0 0 18px">' +
+              r.avisos.map(function (a) {
+                return '<li><b>' + escAttr(a.item) + '</b>: ' + escAttr(a.mensagem) + '</li>';
+              }).join('') + '</ul></div>'
+            : '';
+          var resultadoHtml = '<div class="aviso ok">Embarque nº ' + r.numero + ' confirmado (' + r.gravados +
             ' item(ns), ' + num(r.volumesTotal) + ' volume(s)) — e-mail com PDF enviado para ' +
-            r.destinatarios + ' destinatário(s). ' + resumoTxt + maloteTxt + '</div>';
+            r.destinatarios + ' destinatário(s). ' + resumoTxt + maloteTxt + '</div>' + avisosCruHtml;
+          msg.innerHTML = resultadoHtml;
           limparMalote(); // é por embarque: não deixa marcado pro próximo
-          carregarListaConfirmarEmbarque();
+          carregarListaConfirmarEmbarque(resultadoHtml);
         })
         .catch(function (err) {
           liberar();

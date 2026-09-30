@@ -227,3 +227,91 @@ function testarNfsZeradasFioCru() {
   Logger.log(relatorio.ok ? '=== TESTE PASSOU ===' : '=== TESTE FALHOU — confira os itens "FALHOU" acima ===');
   return relatorio;
 }
+
+/**
+ * Teste PURO da regra "a linha escolhida na Confirmar Embarque recebe o
+ * desconto primeiro" (`_planejarDescontoPendencia`) e do alvo da baixa de crú
+ * (`_alvoBaixaConfirmacao`), além do quadro vermelho de avisos do PDF
+ * (`_confirmacaoEmbarqueHTML`). Não lê nem grava planilha (usa linhas e
+ * quantidades inventadas), então pode rodar à vontade. Executar pelo editor:
+ * escolher `testarBaixaPendenciaPorLinha` → Executar → ver o "Log de execução".
+ */
+function testarBaixaPendenciaPorLinha() {
+  var relatorio = { ok: true, checks: [] };
+  function check(nome, condicao, detalhe) {
+    Logger.log((condicao ? 'OK   ' : 'FALHOU ') + nome + (!condicao && detalhe ? ' — veio ' + detalhe : ''));
+    relatorio.checks.push({ nome: nome, ok: !!condicao, detalhe: detalhe || '' });
+    if (!condicao) relatorio.ok = false;
+  }
+  function pedido(row, item, id, sugerido, dataLimite) {
+    return { __row: row, ITEM: item, ID_LINHA: id, SUGERIDO: sugerido, DATA_LIMITE: dataLimite };
+  }
+  function plano(regs, itens) { return _planejarDescontoPendencia(regs, itens); }
+  function j(o) { return JSON.stringify(o); }
+
+  // --- alvo da baixa de crú -------------------------------------------------
+  check('alvo: baseline à frente do razão (sobra do pedido anterior) não cobra a mais — 0 baixado, baseline 20, confirma 580 → 580 (antes: 600)',
+    _alvoBaixaConfirmacao(0, 20, 580) === 580, _alvoBaixaConfirmacao(0, 20, 580));
+  check('alvo: razão = baseline (parcial normal) → baseline + kg',
+    _alvoBaixaConfirmacao(50, 50, 102) === 152, _alvoBaixaConfirmacao(50, 50, 102));
+  check('alvo: razão acima do baseline (tingido já lançado) → baseline + kg, como sempre',
+    _alvoBaixaConfirmacao(80, 50, 30) === 80, _alvoBaixaConfirmacao(80, 50, 30));
+  check('alvo: parte "do estoque" adiantou o baseline (40) sem baixa → o resto (60) baixa 60, não 100',
+    _alvoBaixaConfirmacao(0, 40, 60) === 60, _alvoBaixaConfirmacao(0, 40, 60));
+
+  // --- desconto na pendência ------------------------------------------------
+  var h1 = pedido(2, '4414', 'h1', 30, new Date(2026, 9, 1));   // prazo antes
+  var h2 = pedido(3, '4414', 'h2', 80, new Date(2026, 10, 1));  // prazo depois
+  var p = plano([h1, h2], [{ item: '4414', quantidade: 80, idLinha: 'h2' }]);
+  check('confirma o pedido de prazo MAIOR: só ele é descontado (o de prazo menor continua aberto)',
+    p.descontoPorLinha[3] === 80 && !p.descontoPorLinha[2], j(p));
+
+  p = plano([h1, h2], [{ item: '4414', quantidade: 50, idLinha: 'h1' }]);
+  check('kg acima do pedido escolhido: ele zera (30) e a sobra (20) cai no outro pedido do código',
+    p.descontoPorLinha[2] === 30 && p.descontoPorLinha[3] === 20, j(p));
+
+  p = plano([h1, h2], [{ item: '4414', quantidade: 50 }]);
+  check('sem idLinha (PDF importado): FIFO por prazo, como sempre (30 no 1º, 20 no 2º)',
+    p.descontoPorLinha[2] === 30 && p.descontoPorLinha[3] === 20, j(p));
+
+  p = plano([h1, h2], [{ item: '4414', quantidade: 50, idLinha: 'nao-existe' }]);
+  check('idLinha que não existe mais (alguém já fechou a linha): cai no FIFO por prazo, sem perder kg',
+    p.descontoPorLinha[2] === 30 && p.descontoPorLinha[3] === 20, j(p));
+
+  p = plano([h1, h2], [{ item: '4414', quantidade: 30, idLinha: 'h1' }, { item: '4414', quantidade: 80, idLinha: 'h2' }]);
+  check('mesmo código, duas linhas no mesmo embarque: cada uma desconta a sua (30 e 80)',
+    p.descontoPorLinha[2] === 30 && p.descontoPorLinha[3] === 80 && !p.semLinha['4414'], j(p));
+
+  p = plano([h1, h2], [{ item: '4414', quantidade: 150, idLinha: 'h2' }]);
+  check('kg acima de TODAS as linhas: o excedente fica registrado em `semLinha`',
+    p.descontoPorLinha[3] === 80 && p.descontoPorLinha[2] === 30 && p.semLinha['4414'] === 40, j(p));
+
+  p = plano([h1, h2], [{ item: '9999', quantidade: 10 }]);
+  check('item sem linha nenhuma: nada é descontado e o kg fica em `semLinha`',
+    !p.descontoPorLinha[2] && !p.descontoPorLinha[3] && p.semLinha['9999'] === 10, j(p));
+
+  var p1 = pedido(2, '5233', 'p1', 180, new Date(2026, 8, 22));
+  var p2 = pedido(3, '5233', 'p2', 600, new Date(2026, 8, 23));
+  p = plano([p1, p2], [{ item: '5233', quantidade: 200, idLinha: 'p1' }]);
+  check('caso do embarque 1000: 200 kg no pedido de 180 → 180 nele e 20 no seguinte',
+    p.descontoPorLinha[2] === 180 && p.descontoPorLinha[3] === 20, j(p));
+
+  p = plano([h1, pedido(3, '4414', 'sem-sugerido', 0, new Date(2026, 9, 2))], [{ item: '4414', quantidade: 10, idLinha: 'sem-sugerido' }]);
+  check('linha escolhida sem SUGERIDO (0): não recebe desconto; o kg vai pra outra linha do código',
+    !p.descontoPorLinha[3] && p.descontoPorLinha[2] === 10, j(p));
+
+  // --- quadro vermelho do PDF ---------------------------------------------------
+  var resumo = [{
+    tipoFio: 'Fio Poliester', totalTingido: 30, totalEstoque: 0, maoObra: 0,
+    itens: [{ item: 'X<b>1', quantidade: 30, qtdEstoque: 0, obs: '', volumes: 1 }], lotes: []
+  }];
+  var html = _confirmacaoEmbarqueHTML(1, '30/09/2026', resumo, 0, 'CEARÁ', '', { ativo: false },
+    [{ item: 'X<b>1', tipo: 'diferenca', mensagem: 'consumo 600 ≠ tingido 580 <script>' }]);
+  check('PDF com avisos: quadro vermelho "conferir o fio crú"', html.indexOf('Atenção — conferir o fio crú') !== -1);
+  check('PDF com avisos: texto do aviso escapado (sem HTML cru)', html.indexOf('<script>') === -1 && html.indexOf('&lt;script&gt;') !== -1);
+  var htmlSem = _confirmacaoEmbarqueHTML(1, '30/09/2026', resumo, 0, 'CEARÁ', '', { ativo: false });
+  check('PDF sem avisos (chamada antiga, 7 argumentos): nada de quadro vermelho', htmlSem.indexOf('conferir o fio crú') === -1);
+
+  Logger.log(relatorio.ok ? '=== TESTE PASSOU ===' : '=== TESTE FALHOU — confira os itens "FALHOU" acima ===');
+  return relatorio;
+}
