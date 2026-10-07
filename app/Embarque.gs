@@ -1348,9 +1348,29 @@ function _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, mal
     var liberadoAntes = _liberadoDoItemPendente(it.item, it.idLinha);
     var existeRetido = liberadoAntes + 0.01 < jaTingido;
     if (qtdEstoque > 0 || existeRetido) {
-      // Não mexe no fio crú: o que já estava baixado (jaTingido) permanece
-      // como o consumo do crú; a sobra (do estoque, ou retida) não passa
-      // pelo ajuste. Nenhuma linha nova no razão de baixas.
+      // O que já estava baixado (jaTingido) permanece como consumo do crú — a
+      // sobra "do estoque" ou retida não é creditada de volta. Mas se o que
+      // vai embarcar (sem a parte do estoque) passa do que o razão já tem,
+      // a FALTA tem que ser baixada: antes este ramo pulava tudo e um item
+      // com poucos kg lançados antes da pausa (19 kg, liberado 0) embarcava
+      // 124 kg com só 19 kg baixados (embarque 1492, item 4758/1 RECICLADO).
+      // `Math.max` garante que aqui nunca há crédito, só baixa do que falta.
+      var alvoRetido = Math.max(atualLinha, _alvoBaixaConfirmacao(atualLinha, baseline, it.quantidade - qtdEstoque));
+      var ajusteRetido = _ajustarBaixaFioCru(tipoFio, it.item, alvoRetido, s.usuario, it.idLinha);
+      if (!ajusteRetido.ok) {
+        avisos.push({
+          item: it.item, tipo: 'baixa',
+          mensagem: 'NÃO foi dada a baixa no fio crú — ' +
+            (tipoFio ? (ajusteRetido.mensagem || 'motivo não informado') : 'tipo de fio não identificado (confira a BASE TINGIMENTO)') +
+            ' Ajuste o saldo da NF em Estoque Fio Crú.'
+        });
+      }
+      (ajusteRetido.lotes || []).forEach(function (l) {
+        deltaLotes.push({
+          tipoFio: l.tipoFio || tipoFio, item: it.item, idLinha: it.idLinha, nf: l.nf,
+          dataNf: l.dataNf, peso: l.quantidadeBaixada
+        });
+      });
     } else {
       // ALVO da baixa: ver `_alvoBaixaConfirmacao`.
       var ajuste = _ajustarBaixaFioCru(tipoFio, it.item, _alvoBaixaConfirmacao(atualLinha, baseline, it.quantidade), s.usuario, it.idLinha);
