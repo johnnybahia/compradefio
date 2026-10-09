@@ -1924,7 +1924,24 @@ function aplicarRegua(wrap) {
 
 /* ---------------------- view: Confirmar Embarque ------------------- */
 // Por ora só o master usa esta tela (papéis por item ainda serão definidos).
-var estadoConfirmarEmbarque = { linhas: [] };
+var estadoConfirmarEmbarque = { linhas: [], filtroTxt: '', filtroMarcados: false };
+
+/** Kg confirmado pode passar do pedido restante em até este tanto, sem aviso
+ * (o servidor tem o mesmo limite — `EMBARQUE_LIMITE_EXCESSO`, em Embarque.gs). */
+var EMBARQUE_LIMITE_EXCESSO = 0.10;
+
+/** Sem acento e minúsculo — o filtro acha "Cinza" digitando "cinza"/"CINZA". */
+function normFiltroEmbarque(t) {
+  return String(t == null ? '' : t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/** Linhas marcadas cujo kg passa do pedido restante (`total`) em mais de 10%. */
+function itensAcimaDoPedido(selecionados) {
+  return selecionados.filter(function (l) {
+    var total = Number(l.total) || 0;
+    return !l.doEstoque && total > 0 && Number(l.quantidade) > total * (1 + EMBARQUE_LIMITE_EXCESSO) + 0.0001;
+  });
+}
 
 function viewConfirmarEmbarque(alvo) {
   var editavel = podeEditar(['master', 'almoxarifado1']);
@@ -1960,6 +1977,14 @@ function viewConfirmarEmbarque(alvo) {
           '</div>'
         : '') +
       '<div id="embarque-msg"></div>' +
+      '<div id="filtro-embarque" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px">' +
+        '<input type="search" id="filtro-embarque-txt" placeholder="Filtrar por item, descrição, cliente ou tipo de fio…" ' +
+          'autocomplete="off" style="flex:1;min-width:240px;max-width:460px;padding:7px 10px;' +
+          'border:1px solid #cbd5e1;border-radius:6px;font-size:13px">' +
+        '<label style="font-size:12.5px;cursor:pointer;white-space:nowrap">' +
+          '<input type="checkbox" id="filtro-embarque-marcados"> só marcados</label>' +
+        '<span id="filtro-embarque-info" class="desc" style="margin:0"></span>' +
+      '</div>' +
       '<div class="tabela-wrap" id="tabela-embarque-confirmar"></div>' +
       (editavel
         ? '<div style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
@@ -2045,6 +2070,18 @@ function viewConfirmarEmbarque(alvo) {
   var btnCancEmb = document.getElementById('btn-cancelar-embarque');
   if (btnCancEmb) btnCancEmb.onclick = cancelarEmbarquePorNumero;
   ligarControlesMalote();
+  var campoFiltro = document.getElementById('filtro-embarque-txt');
+  var chkMarcados = document.getElementById('filtro-embarque-marcados');
+  campoFiltro.value = estadoConfirmarEmbarque.filtroTxt || '';
+  chkMarcados.checked = !!estadoConfirmarEmbarque.filtroMarcados;
+  campoFiltro.addEventListener('input', function () {
+    estadoConfirmarEmbarque.filtroTxt = campoFiltro.value;
+    renderConfirmarEmbarque();
+  });
+  chkMarcados.addEventListener('change', function () {
+    estadoConfirmarEmbarque.filtroMarcados = chkMarcados.checked;
+    renderConfirmarEmbarque();
+  });
   ativarRegua('tabela-embarque-confirmar');
   carregarListaConfirmarEmbarque();
   carregarCustoMaoObra();
@@ -2329,7 +2366,18 @@ function renderConfirmarEmbarque() {
     btn.style.display = 'none';
     return;
   }
+  var termos = normFiltroEmbarque(estadoConfirmarEmbarque.filtroTxt).split(/\s+/).filter(Boolean);
+  var soMarcados = !!estadoConfirmarEmbarque.filtroMarcados;
+  var exibidas = 0;
   var body = linhas.map(function (l, i) {
+    // Filtro da tela: só esconde a linha (o índice `i` continua o da lista
+    // completa, e item marcado escondido continua marcado e entra no embarque).
+    if (soMarcados && !l.selecionado) return '';
+    if (termos.length) {
+      var palheiro = normFiltroEmbarque([l.item, l.descricao, l.cliente, l.tipoFio].join(' '));
+      if (!termos.every(function (t) { return palheiro.indexOf(t) !== -1; })) return '';
+    }
+    exibidas++;
     // Badges de tingimento só fazem sentido pra item que TEM tingido lançado
     // (fluxo da Quantidade Tingida, hoje pausado — ver `TINGIMENTO_PAUSADO`).
     // Com ela pausada, `tingido` é 0 e a linha sai limpa, sem destaque nenhum.
@@ -2389,12 +2437,25 @@ function renderConfirmarEmbarque() {
       '<th style="width:' + (editavel
         ? '13%">Situação</th><th style="width:18%">Observação (e-mail)'
         : '24%">Situação') + '</th>' +
-    '</tr></thead><tbody>' + body + '</tbody></table>';
+    '</tr></thead><tbody>' + body + '</tbody></table>' +
+    (exibidas ? '' : '<div class="vazio">Nenhum item encontrado com esse filtro.</div>');
+  var infoFiltro = document.getElementById('filtro-embarque-info');
+  if (infoFiltro) {
+    var qtdMarcadas = linhas.filter(function (l) { return l.selecionado; }).length;
+    infoFiltro.textContent = exibidas + ' de ' + linhas.length + ' exibido(s) · ' + qtdMarcadas + ' marcado(s) no total';
+  }
 
   if (editavel) {
     Array.prototype.forEach.call(wrap.querySelectorAll('.chk-embarcar'), function (chk) {
       chk.addEventListener('change', function () {
         estadoConfirmarEmbarque.linhas[Number(chk.getAttribute('data-idx'))].selecionado = chk.checked;
+        // Contador do filtro; com "só marcados" ligado a linha sai da tela ao desmarcar.
+        if (estadoConfirmarEmbarque.filtroMarcados && !chk.checked) renderConfirmarEmbarque();
+        else {
+          var inf = document.getElementById('filtro-embarque-info');
+          if (inf) inf.textContent = inf.textContent.replace(/· \d+ marcado/, '· ' +
+            estadoConfirmarEmbarque.linhas.filter(function (x) { return x.selecionado; }).length + ' marcado');
+        }
       });
     });
     Array.prototype.forEach.call(wrap.querySelectorAll('.vol-input'), function (inp) {
@@ -2518,14 +2579,25 @@ function confirmarEmbarqueSelecionado(forcarDuplicado) {
       'Só siga se for mesmo um embarque NOVO — senão vai sair outro número, outro e-mail e a mão de ' +
       'obra vai ser cobrada de novo.</b> '
     : '';
+  var acimaPedido = itensAcimaDoPedido(selecionados);
+  var avisoExcesso = acimaPedido.length
+    ? '<b style="color:#B91C1C">ATENÇÃO: kg acima do pedido em mais de ' + Math.round(EMBARQUE_LIMITE_EXCESSO * 100) +
+      '%:</b><ul style="margin:6px 0 10px 18px;color:#B91C1C">' +
+      acimaPedido.map(function (l) {
+        return '<li><b>' + escAttr(l.item) + '</b>: pedido ' + num(l.total) + ' kg, confirmando ' +
+          num(Number(l.quantidade)) + ' kg (+' + Math.round((Number(l.quantidade) / l.total - 1) * 100) + '%)</li>';
+      }).join('') + '</ul>' +
+      '<b style="color:#B91C1C">Confira se não foi erro de digitação.</b> Se estiver certo, o fio crú será baixado ' +
+      'por essa quantidade. '
+    : '';
   confirmarModal(
-    forcarDuplicado ? 'Confirmar mesmo assim?' : 'Confirmar embarque?',
-    avisoForcado +
+    forcarDuplicado ? 'Confirmar mesmo assim?' : (acimaPedido.length ? 'Quantidade acima do pedido — confirmar?' : 'Confirmar embarque?'),
+    avisoExcesso + avisoForcado +
     'Isso vai gravar ' + selecionados.length + ' item(ns) (total ' + num(totalKg) + ' kg) como embarcados, ' +
     'dar baixa na lista pendente de compra e no estoque de fio crú, e enviar o e-mail de confirmação ' +
     '(relatório em PDF anexo).' + linhaVolumes + linhaMaoObra + linhaMalote +
     ' Clique UMA vez e espere: o envio leva alguns segundos.',
-    forcarDuplicado ? 'Sim, é um embarque novo' : 'Confirmar', 'Cancelar',
+    forcarDuplicado ? 'Sim, é um embarque novo' : (acimaPedido.length ? 'Sim, a quantidade está certa' : 'Confirmar'), 'Cancelar',
     function (ok) {
       if (!ok) return;
       var btn = document.getElementById('btn-confirmar-embarque');
@@ -2553,7 +2625,7 @@ function confirmarEmbarqueSelecionado(forcarDuplicado) {
       var observacao = campoObs ? campoObs.value : '';
       chamar('confirmarEmbarqueManual', sessao.token,
         { itens: itens, custoMaoObra: custoMaoObra, observacao: observacao, malote: malote,
-          confirmarDuplicado: !!forcarDuplicado })
+          confirmarDuplicado: !!forcarDuplicado, confirmarExcesso: acimaPedido.length > 0 })
         .then(function (r) {
           liberar();
           var resumoTxt = r.resumo.map(function (g) {

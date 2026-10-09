@@ -1162,10 +1162,58 @@ function confirmarEmbarqueManual(token, params) {
   var trava = _travaEmbarque();
   try {
     _conferirEmbarqueDuplicado(itens, !!params.confirmarDuplicado);
+    _conferirExcessoSobrePedido(itens, !!params.confirmarExcesso);
     return _confirmarEmbarqueManualInterno(s, itens, observacao, custoMaoObra, malote, lista);
   } finally {
     try { trava.releaseLock(); } catch (e) {}
   }
+}
+
+/** Quanto o kg confirmado pode passar do pedido restante sem pedir confirmação. */
+var EMBARQUE_LIMITE_EXCESSO = 0.10;
+
+/**
+ * Itens cujo kg confirmado passa do pedido restante (SUGERIDO da linha, que já
+ * desce a cada embarque parcial) em mais de `EMBARQUE_LIMITE_EXCESSO`. Função
+ * PURA: `pedidoPorLinha` é { chave -> pedido }, com a mesma chave `idLinha`
+ * dos itens. Item sem pedido conhecido (> 0) ou "do estoque" não entra: não há
+ * base confiável pra comparar.
+ * @return {Array} [{ item, pedido, quantidade, excessoPct }]
+ */
+function _itensAcimaDoPedido(itens, pedidoPorLinha) {
+  var acima = [];
+  (itens || []).forEach(function (it) {
+    if (it.doEstoque || !it.idLinha) return;
+    var pedido = Number(pedidoPorLinha[it.idLinha]) || 0;
+    var qtd = Number(it.quantidade) || 0;
+    if (pedido <= 0 || qtd <= pedido * (1 + EMBARQUE_LIMITE_EXCESSO) + 0.0001) return;
+    acima.push({ item: it.item, pedido: pedido, quantidade: qtd, excessoPct: Math.round((qtd / pedido - 1) * 100) });
+  });
+  return acima;
+}
+
+/**
+ * Barra a confirmação quando algum item passa do pedido restante em mais de
+ * 10% (digitação errada, ex.: 300 kg num pedido de 100). A tela já pergunta
+ * antes, mas a trava vive dos dois lados — uma aba com o App.html antigo
+ * mandaria o embarque errado do mesmo jeito. `confirmar` (a opção "confirmar
+ * mesmo assim" da tela) libera.
+ */
+function _conferirExcessoSobrePedido(itens, confirmar) {
+  if (confirmar) return;
+  var pedidoPorLinha = {};
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var id = _textoCelula(r.ID_LINHA);
+    if (id) pedidoPorLinha[id] = _numeroCelula(r.SUGERIDO) || 0;
+  });
+  var acima = _itensAcimaDoPedido(itens, pedidoPorLinha);
+  if (!acima.length) return;
+  throw new Error('EXCESSO_PEDIDO: kg acima do pedido restante em mais de ' +
+    Math.round(EMBARQUE_LIMITE_EXCESSO * 100) + '%: ' +
+    acima.map(function (a) {
+      return a.item + ' (pedido ' + _numeroBR(a.pedido) + ' kg, confirmando ' + _numeroBR(a.quantidade) +
+        ' kg, +' + a.excessoPct + '%)';
+    }).join('; ') + '. Confira a quantidade; se estiver certa, confirme de novo marcando a opção de excesso.');
 }
 
 /**
