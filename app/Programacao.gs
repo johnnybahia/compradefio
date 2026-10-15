@@ -5,9 +5,13 @@
  * TINGIMENTO, com lançamento nas últimas PROGRAMACAO_JANELA_DIAS dias) com
  * saldo crítico — negativo ou abaixo do limite desta unidade
  * (CONFIG.UNIDADES[].limiteSaldoCritico: 20 no Ceará, 10 na Bahia) — para o
- * master/Programação preencherem a data que precisam daquele embarque. O saldo
- * é só o do estoque (último lançamento); o que está em viagem e o que já foi
- * solicitado aparecem em colunas à parte, só para consulta.
+ * master/Programação preencherem a data que precisam daquele embarque.
+ *
+ * Quem decide se a cor entra na lista (e a cor da linha) é um cálculo INTERNO:
+ * saldo do estoque + o que está em viagem + o que já foi solicitado (pedido
+ * aberto). Acima do limite = fora da lista; de 0 até o limite = amarelo;
+ * negativo = vermelho. A tela, porém, mostra o Saldo só do estoque, com
+ * "Em viagem" e "Solicitado" em colunas à parte — a soma nunca é exibida.
  *
  * Essa data é a nova fonte de DATA_LIMITE usada pela Análise de Compra (ver
  * `_criarLocalizadorDataLimite`, Analise.gs) — substitui a antiga planilha
@@ -95,8 +99,8 @@ function _saldoAtualPorItem(movimentos) {
  * cor que não está mais crítica — ver docstring do arquivo.
  * Cor com pedido (pendente ou em viagem) e consumo novo depois dele volta com
  * `novo: true` e a data em branco (`dataAnterior` guarda a antiga) — ver `_itensReabertos`.
- * `emViagem` e `solicitado` são só para o operador consultar: não entram no
- * `saldo` (que decide a lista, a cor da linha e a ordem) nem em nenhuma regra.
+ * `saldo`, `emViagem` e `solicitado` são só o que o operador vê; `negativo` (vermelho
+ * x amarelo) e a própria presença na lista vêm do cálculo interno descrito no topo.
  * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
  */
 function listarCoresCriticas(token) {
@@ -114,7 +118,8 @@ function listarCoresCriticas(token) {
 
   var movimentos = _lerEstoque(); // uma leitura só: saldo atual e reabertura (`_itensReabertos`)
   var porItem = _saldoAtualPorItem(movimentos);
-  var emViagem = _emViagemPorItem(); // só exibido (coluna "Em viagem") e usado em `_itensReabertos`; não entra no saldo
+  var emViagem = _emViagemPorItem();
+  var emAberto = _emAbertoPorItem(); // "Solicitado": já pedido, aguardando envio (o "Já pendente" da Análise)
   var tipoFioDe = _criarLocalizadorTipoFio();
   var descricaoDe = _criarLocalizadorDescricao();
 
@@ -127,14 +132,17 @@ function listarCoresCriticas(token) {
   Object.keys(porItem).forEach(function (k) {
     var r = porItem[k];
     if (!tipoFioDe(r.item)) return; // não é uma cor de fio (ex.: código de outro controle)
-    if (r.saldo >= limite) return; // saldo do estoque, sem somar o que está em viagem
+    // Cálculo interno (nunca exibido somado): estoque + em viagem + solicitado.
+    // Se isso já cobre o limite, a cor não precisa de data de embarque agora.
+    var saldoEfetivo = r.saldo + (emViagem[k] || 0) + (emAberto[k] || 0);
+    if (saldoEfetivo >= limite) return;
     var recente = r.data.getTime() >= corte.getTime();
     // Sem movimento nas últimas 2 semanas, só entra se já tem data preenchida
     // (ver docstring do arquivo) — senão fica de fora, pra não acumular
     // código parado há tempos.
     if (!recente && !salvasIniciais[k]) return;
     criticoSet[k] = true;
-    base.push({ chave: k, item: r.item, saldo: r.saldo, negativo: r.saldo < 0 });
+    base.push({ chave: k, item: r.item, saldo: r.saldo, saldoEfetivo: saldoEfetivo, negativo: saldoEfetivo < 0 });
   });
 
   // Datas já salvas. Se alguma cor salva não está mais crítica, limpa — mas
@@ -169,8 +177,10 @@ function listarCoresCriticas(token) {
   // Cor que já tem pedido (pendente ou em viagem) e teve consumo novo depois
   // dele: a data salva é da rodada anterior — aparece em branco, com o selo
   // "novo pedido", até alguém informar a nova (ver `_itensReabertos`).
-  var emAberto = _emAbertoPorItem(); // "Solicitado": já pedido, aguardando envio (mesmo número do "Já pendente" da Análise)
   var reabertos = _itensReabertos(limite, movimentos, emViagem, emAberto, salvasIniciais);
+
+  // Mais crítica primeiro, pelo mesmo cálculo interno que decidiu a lista e a cor.
+  base.sort(function (a, b) { return a.saldoEfetivo - b.saldoEfetivo; });
 
   var itens = base.map(function (b) {
     var salvo = salvas[b.chave];
@@ -180,9 +190,9 @@ function listarCoresCriticas(token) {
       item: b.item,
       descricao: d.descricao,
       motivo: d.motivo,
-      saldo: b.saldo,                       // só o estoque: base da lista, da cor da linha e da ordenação
-      emViagem: emViagem[b.chave] || 0,     // só consulta: não mexe no saldo nem na cor
-      solicitado: emAberto[b.chave] || 0,   // só consulta: idem
+      saldo: b.saldo,                       // exibido: só o estoque (a soma interna não sai do servidor)
+      emViagem: emViagem[b.chave] || 0,     // exibido, só consulta
+      solicitado: emAberto[b.chave] || 0,   // exibido, só consulta
       negativo: b.negativo,
       dataNecessaria: rea ? '' : (salvo ? salvo.dataNecessaria : ''),
       novo: !!rea,
@@ -190,7 +200,6 @@ function listarCoresCriticas(token) {
       dataAnterior: rea ? rea.dataAnterior : ''
     };
   });
-  itens.sort(function (a, b) { return a.saldo - b.saldo; });
 
   return { ok: true, limite: limite, itens: itens };
 }
