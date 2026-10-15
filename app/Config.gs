@@ -24,6 +24,19 @@ var CONFIG = {
   NOME_REMETENTE_EMBARQUE: 'Embarque de fio tingido',
 
   /**
+   * VERSÃO DO PROGRAMA — aparece numa faixa logo acima do programa (login e
+   * app), pra confirmar que a versão certa está rodando depois de cada
+   * atualização. REGRA: TODA atualização sobe esta versão e registra a linha
+   * correspondente em "Histórico de versões" (NOTAS.md), no mesmo commit.
+   *   - correção / ajuste pequeno ............ sobe o 3º número (1.0.0 → 1.0.1)
+   *   - funcionalidade nova / regra alterada .. sobe o 2º número (1.0.1 → 1.1.0)
+   *   - mudança grande de estrutura ........... sobe o 1º número (1.1.0 → 2.0.0)
+   * VERSAO_DATA é a data da atualização (dd/mm/aaaa).
+   */
+  VERSAO: '1.0.0',
+  VERSAO_DATA: '15/10/2026',
+
+  /**
    * Logo usado na tela (splash, login, topo) e nos e-mails (Pedido de Fio,
    * Confirmação de Embarque) — URL externa direta, mesma ideia (e mesmo
    * arquivo) do outro projeto Marfim: sem precisar manter um arquivo "Logo"
