@@ -816,6 +816,17 @@ aba e aparece como "anterior: dd/mm/aaaa" ao lado do selo **novo pedido**.
   (sem referência não dá pra comparar); com o piso do item (4), consumo
   novo que o pedido ainda cobre **não** reabre — decisão consciente (opção B).
 
+### Programação de Embarque: colunas "Em viagem" e "Solicitado"
+
+A tela passou a mostrar, ao lado do saldo, as mesmas informações da Análise de
+Compra: **Saldo** (agora o saldo final — último lançamento —, não mais somado
+ao em viagem), **Em viagem** (`_emViagemPorItem`) e **Solicitado** (o "Já
+pendente" da Análise, `_emAbertoPorItem`; só o rótulo muda, na Análise segue
+"Já pendente"). `listarCoresCriticas` devolve `saldo`, `emViagem`, `solicitado`
+e `saldoComViagem`; a **lista, a cor da linha e a ordem continuam pelo saldo +
+em viagem** (`saldoComViagem`) — Solicitado não entra nesse critério. O
+`_emAbertoPorItem` é lido uma vez e reaproveitado em `_itensReabertos`.
+
 ## Confirmação de Embarque: consumo de fio crú maior que o kg tingido (resolvido)
 
 Reportado pelo usuário, com dois PDFs de confirmação em mãos: num grupo (ex.

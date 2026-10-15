@@ -282,7 +282,8 @@ function viewProgramacaoEmbarque(alvo) {
         'semanas</b> — sempre o saldo mais recente, sem precisar analisar nada antes. ' +
         '<span style="color:#C0392B;font-weight:600">Vermelho</span>: saldo negativo. ' +
         '<span style="color:#9A7D0A;font-weight:600">Amarelo</span>: saldo baixo, dentro do limite desta ' +
-        'unidade. Preencha a <b>data que precisa do embarque</b> de cada cor — é a mesma data usada na ' +
+        'unidade. A cor considera o saldo <b>somado ao que está em viagem</b>; <b>Solicitado</b> é o que já ' +
+        'foi pedido e aguarda envio (não entra na cor). Preencha a <b>data que precisa do embarque</b> de cada cor — é a mesma data usada na ' +
         'Análise de Compra e no Tingimento (substitui a antiga planilha PRIORIDADES DE FIO). Uma cor que ' +
         'já tem data preenchida continua na lista mesmo sem lançamento recente — só sai quando o saldo ' +
         'deixar de ser crítico; aí a data também se apaga, e se ela voltar a ficar crítica depois, ' +
@@ -332,6 +333,9 @@ function renderProgramacaoEmbarque() {
       '<td>' + (it.descricao ? escAttr(it.descricao)
         : '<span class="sem-desc">— ' + escAttr(it.motivo || 'sem descrição') + '</span>') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
+      '<td style="text-align:right">' + (it.emViagem ? num(it.emViagem) : '—') + '</td>' +
+      '<td style="text-align:right" title="Já solicitado, aguardando envio.">' +
+        (it.solicitado ? num(it.solicitado) : '—') + '</td>' +
       '<td>' +
         (it.novo ? '<div class="selo-reaberto" title="Já existe ' + escAttr(it.motivoNovo || 'pedido') +
           ' desta cor e entrou consumo novo — informe a nova data que precisa do embarque.">novo pedido</div>' +
@@ -343,8 +347,11 @@ function renderProgramacaoEmbarque() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:15%">Cor</th><th style="width:45%">Descrição</th>' +
-      '<th style="text-align:right;width:15%">Saldo</th><th style="width:25%">Data que precisa do embarque</th>' +
+      '<th style="width:12%">Cor</th><th style="width:30%">Descrição</th>' +
+      '<th style="text-align:right;width:10%">Saldo</th>' +
+      '<th style="text-align:right;width:10%">Em viagem</th>' +
+      '<th style="text-align:right;width:10%">Solicitado</th>' +
+      '<th style="width:28%">Data que precisa do embarque</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   Array.prototype.forEach.call(wrap.querySelectorAll('.data-input'), function (inp) {
     // Bloqueia digitação (a causa dos erros de data) sem tirar o campo do
