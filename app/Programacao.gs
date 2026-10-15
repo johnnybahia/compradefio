@@ -94,10 +94,9 @@ function _saldoAtualPorItem(movimentos) {
  * cor que não está mais crítica — ver docstring do arquivo.
  * Cor com pedido (pendente ou em viagem) e consumo novo depois dele volta com
  * `novo: true` e a data em branco (`dataAnterior` guarda a antiga) — ver `_itensReabertos`.
- * `saldo` é o saldo final (último lançamento), igual à Análise de Compra; `emViagem`
- * e `solicitado` aparecem ao lado. A lista, a cor e a ordem seguem `saldoComViagem`
- * (saldo + em viagem), como sempre.
- * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, saldoComViagem, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
+ * `emViagem` e `solicitado` são só para o operador consultar: não entram no
+ * `saldo` (que decide a lista, a cor da linha e a ordem) nem em nenhuma regra.
+ * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
  */
 function listarCoresCriticas(token) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
@@ -139,7 +138,7 @@ function listarCoresCriticas(token) {
     // código parado há tempos.
     if (!recente && !salvasIniciais[k]) return;
     criticoSet[k] = true;
-    base.push({ chave: k, item: r.item, saldoFisico: r.saldo, saldoAjustado: saldoAjustado, negativo: saldoAjustado < 0 });
+    base.push({ chave: k, item: r.item, saldo: saldoAjustado, negativo: saldoAjustado < 0 });
   });
 
   // Datas já salvas. Se alguma cor salva não está mais crítica, limpa — mas
@@ -185,10 +184,9 @@ function listarCoresCriticas(token) {
       item: b.item,
       descricao: d.descricao,
       motivo: d.motivo,
-      saldo: b.saldoFisico,                 // saldo final (último lançamento), como na Análise de Compra
-      emViagem: emViagem[b.chave] || 0,
-      solicitado: emAberto[b.chave] || 0,
-      saldoComViagem: b.saldoAjustado,      // critério da lista, da cor da linha e da ordenação
+      saldo: b.saldo,                       // base da lista, da cor da linha e da ordenação — como sempre
+      emViagem: emViagem[b.chave] || 0,     // só consulta: não mexe no saldo nem na cor
+      solicitado: emAberto[b.chave] || 0,   // só consulta: idem
       negativo: b.negativo,
       dataNecessaria: rea ? '' : (salvo ? salvo.dataNecessaria : ''),
       novo: !!rea,
@@ -196,7 +194,7 @@ function listarCoresCriticas(token) {
       dataAnterior: rea ? rea.dataAnterior : ''
     };
   });
-  itens.sort(function (a, b) { return a.saldoComViagem - b.saldoComViagem; });
+  itens.sort(function (a, b) { return a.saldo - b.saldo; });
 
   return { ok: true, limite: limite, itens: itens };
 }
