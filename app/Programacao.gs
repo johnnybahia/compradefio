@@ -75,9 +75,9 @@ function _lerDatasProgramacao() {
 }
 
 /** Saldo mais recente de cada item da aba ESTOQUE (mesmo critério de `listarItensParaAnalise`). */
-function _saldoAtualPorItem() {
+function _saldoAtualPorItem(movimentos) {
   var porItem = {};
-  _lerEstoque().forEach(function (mov) {
+  (movimentos || _lerEstoque()).forEach(function (mov) {
     if (!mov.data) return;
     var chave = _norm(mov.item);
     if (!chave) return;
@@ -92,7 +92,9 @@ function _saldoAtualPorItem() {
  * Lista as cores em condição crítica na unidade ativa, com a data já
  * preenchida (se houver), e limpa da aba PROGRAMACAO_DATA_EMBARQUE qualquer
  * cor que não está mais crítica — ver docstring do arquivo.
- * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, negativo, dataNecessaria}] }
+ * Cor com pedido (pendente ou em viagem) e consumo novo depois dele volta com
+ * `novo: true` e a data em branco (`dataAnterior` guarda a antiga) — ver `_itensReabertos`.
+ * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
  */
 function listarCoresCriticas(token) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
@@ -107,7 +109,8 @@ function listarCoresCriticas(token) {
   // tela também é usada pelo papel Programação.
   _registrarItensNovosInterno();
 
-  var porItem = _saldoAtualPorItem();
+  var movimentos = _lerEstoque(); // uma leitura só: saldo atual e reabertura (`_itensReabertos`)
+  var porItem = _saldoAtualPorItem(movimentos);
   // O que já está embarcado e a caminho conta a favor do saldo — mesmo
   // critério da Análise de Compra ("soma ao saldo pra não pedir compra à
   // toa"; ver `listarItensParaAnalise`, Analise.gs) — senão uma cor que já
@@ -165,8 +168,14 @@ function listarCoresCriticas(token) {
     }
   }
 
+  // Cor que já tem pedido (pendente ou em viagem) e teve consumo novo depois
+  // dele: a data salva é da rodada anterior — aparece em branco, com o selo
+  // "novo pedido", até alguém informar a nova (ver `_itensReabertos`).
+  var reabertos = _itensReabertos(limite, movimentos, emViagem, null, salvasIniciais);
+
   var itens = base.map(function (b) {
     var salvo = salvas[b.chave];
+    var rea = reabertos[b.chave] || null;
     var d = descricaoDe(b.item);
     return {
       item: b.item,
@@ -174,7 +183,10 @@ function listarCoresCriticas(token) {
       motivo: d.motivo,
       saldo: b.saldo,
       negativo: b.negativo,
-      dataNecessaria: salvo ? salvo.dataNecessaria : ''
+      dataNecessaria: rea ? '' : (salvo ? salvo.dataNecessaria : ''),
+      novo: !!rea,
+      motivoNovo: rea ? rea.motivo : '',
+      dataAnterior: rea ? rea.dataAnterior : ''
     };
   });
   itens.sort(function (a, b) { return a.saldo - b.saldo; });
@@ -199,27 +211,38 @@ function salvarDataEmbarqueItem(token, item, data) {
   _prepararProgramacaoEmbarque();
   var lock = _travaProgramacaoEmbarque();
   try {
-    var linhaExistente = null;
-    lerRegistros(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).forEach(function (r) {
-      if (_norm(_itemDeCelula(r.ITEM)) === _norm(item)) linhaExistente = r.__row;
-    });
-
-    if (!data) {
-      if (linhaExistente) _aba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).deleteRow(linhaExistente);
-      return { ok: true, apagado: true };
-    }
-
-    if (linhaExistente) {
-      atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'DATA_NECESSARIA', data);
-      atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'USUARIO', s.usuario || '');
-      atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'ATUALIZADO_EM', new Date());
-    } else {
-      acrescentarRegistro(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE,
-        { ITEM: item, DATA_NECESSARIA: data, USUARIO: s.usuario || '', ATUALIZADO_EM: new Date() },
-        PROGRAMACAO_DATA_EMBARQUE_HEADERS);
-    }
-    return { ok: true };
+    return _gravarDataProgramacao(item, data, s.usuario || '');
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Grava (ou apaga, se `data` vier vazio) a linha da cor em
+ * PROGRAMACAO_DATA_EMBARQUE. O CHAMADOR precisa estar segurando
+ * `_travaProgramacaoEmbarque` — usado por `salvarDataEmbarqueItem` e por
+ * `gerarRelacaoDeCompra` (Analise.gs), que sincroniza a data nova de um item
+ * reaberto.
+ */
+function _gravarDataProgramacao(item, data, usuario) {
+  var linhaExistente = null;
+  lerRegistros(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).forEach(function (r) {
+    if (_norm(_itemDeCelula(r.ITEM)) === _norm(item)) linhaExistente = r.__row;
+  });
+
+  if (!data) {
+    if (linhaExistente) _aba(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE).deleteRow(linhaExistente);
+    return { ok: true, apagado: true };
+  }
+
+  if (linhaExistente) {
+    atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'DATA_NECESSARIA', data);
+    atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'USUARIO', usuario || '');
+    atualizarCelula(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE, linhaExistente, 'ATUALIZADO_EM', new Date());
+  } else {
+    acrescentarRegistro(CONFIG.SHEETS.PROGRAMACAO_DATA_EMBARQUE,
+      { ITEM: item, DATA_NECESSARIA: data, USUARIO: usuario || '', ATUALIZADO_EM: new Date() },
+      PROGRAMACAO_DATA_EMBARQUE_HEADERS);
+  }
+  return { ok: true };
 }

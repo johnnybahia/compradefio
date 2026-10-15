@@ -770,6 +770,52 @@ Análise, e mantém a tela "Programação de Embarque" como uma fonte à parte).
   não tenta adivinhar qual das linhas está vencida; só cria uma linha nova em
   branco, sem piorar o que já existia.
 
+## Data de embarque não reabria com consumo novo — agora também Programação e "em viagem" (resolvido)
+
+Reportado: item que já tinha data de embarque e recebe mais consumo depois de
+solicitada a compra deveria voltar com a data em branco pra uma data nova —
+"às vezes ocorria, às vezes não". **Substitui o gatilho da seção anterior**
+(`emAberto > 0 && t.total > 0`), que era indireto e falhava assim:
+
+- com consumo médio ≤ 250 o alvo ignora o saldo positivo (`_alvoTingimento`),
+  então o pedido pendente quase sempre "cobria" o alvo e `t.total` dava 0;
+- o botão ↻ da Análise (`consultarDataLimiteItem`) repunha a data antiga da
+  Programação mesmo com o item reaberto — e o servidor deixava passar, caindo
+  na substituição silenciosa da linha pendente;
+- `_emAbertoPorItem` usava `_norm(r.ITEM)` sem `_itemDeCelula`: código que o
+  Sheets converteu em data (ex. `6254/1`) dava `emAberto = 0`;
+- depois do embarque confirmado a linha sai de `PENDENCIA_COMPRA`
+  (`emAberto = 0`), então item **em viagem** nunca reabria.
+
+**Implementado** — `_itensReabertos` (Analise.gs), fonte única usada pela
+Análise, pelo ↻ e pela Programação de Embarque. Item é "novo" quando, juntas:
+
+1. há pedido: dia do `GERADO_EM` da linha pendente e/ou dia da `DATA` do
+   embarque ainda em viagem (vale a mais recente);
+2. existe **saída** em `ESTOQUE` em dia posterior a essa referência (mesmo
+   dia não conta — o ESTOQUE só tem data, sem hora);
+3. nenhuma data foi salva na Programação depois dessa saída
+   (`ATUALIZADO_EM` em dia ≥ o da última saída resolve);
+4. saldo atual + em viagem + em aberto continua **abaixo do limite crítico**
+   da unidade (`limiteSaldoCritico`). Sem este piso, todo item com pedido
+   viraria "novo" no dia seguinte, já que o estoque consome todo dia.
+
+Só lê — nada é apagado em `PROGRAMACAO_DATA_EMBARQUE`; a data antiga fica na
+aba e aparece como "anterior: dd/mm/aaaa" ao lado do selo **novo pedido**.
+
+- `_criarLocalizadorDataLimite(reabertos)` devolve `''` pra item reaberto. O
+  argumento é opcional: Relatório e cancelamento de embarque seguem como antes.
+- Programação (`listarCoresCriticas` → `novo`, `motivoNovo`, `dataAnterior`):
+  data em branco + selo; some ao salvar uma data.
+- `gerarRelacaoDeCompra`: recusa item reaberto com data **igual** à de uma
+  linha pendente do item; e, ao gravar, copia a data nova do item reaberto
+  pra Programação (`_gravarDataProgramacao`, melhor esforço, sob a trava da
+  aba) — senão a Programação voltaria a mostrar a data da rodada anterior.
+- **Limitações conhecidas:** um item pedido hoje só pode reabrir a partir de
+  amanhã; item pendente cujo `GERADO_EM` esteja vazio/ilegível não reabre
+  (sem referência não dá pra comparar); com o piso do item (4), consumo
+  novo que o pedido ainda cobre **não** reabre — decisão consciente (opção B).
+
 ## Confirmação de Embarque: consumo de fio crú maior que o kg tingido (resolvido)
 
 Reportado pelo usuário, com dois PDFs de confirmação em mãos: num grupo (ex.
