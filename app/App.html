@@ -286,7 +286,9 @@ function viewProgramacaoEmbarque(alvo) {
         'Análise de Compra e no Tingimento (substitui a antiga planilha PRIORIDADES DE FIO). Uma cor que ' +
         'já tem data preenchida continua na lista mesmo sem lançamento recente — só sai quando o saldo ' +
         'deixar de ser crítico; aí a data também se apaga, e se ela voltar a ficar crítica depois, ' +
-        'reaparece em branco.'
+        'reaparece em branco. Cor que já tem pedido (pendente ou em viagem) e teve <b>consumo novo</b> ' +
+        'depois dele volta em branco com o selo <b>novo pedido</b> (mostrando a data anterior) — informe ' +
+        'a data nova; só aparece enquanto o saldo, contando o que já está pedido, continuar abaixo do limite.'
       ) +
       '<div id="prog-embarque-msg"></div>' +
       '<div class="tabela-wrap" id="tabela-prog-embarque"></div>' +
@@ -330,8 +332,13 @@ function renderProgramacaoEmbarque() {
       '<td>' + (it.descricao ? escAttr(it.descricao)
         : '<span class="sem-desc">— ' + escAttr(it.motivo || 'sem descrição') + '</span>') + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
-      '<td><input type="date" class="data-input" data-item="' + escAttr(it.item) +
-        '" value="' + brParaISO(it.dataNecessaria) + '"></td>' +
+      '<td>' +
+        (it.novo ? '<div class="selo-reaberto" title="Já existe ' + escAttr(it.motivoNovo || 'pedido') +
+          ' desta cor e entrou consumo novo — informe a nova data que precisa do embarque.">novo pedido</div>' +
+          (it.dataAnterior ? '<div class="data-anterior">anterior: ' + escAttr(it.dataAnterior) + '</div>' : '') : '') +
+        '<input type="date" class="data-input' + (it.novo ? ' reaberto' : '') + '" data-item="' + escAttr(it.item) +
+        '" value="' + brParaISO(it.dataNecessaria) + '">' +
+      '</td>' +
     '</tr>';
   }).join('');
   wrap.innerHTML =
@@ -360,6 +367,12 @@ function renderProgramacaoEmbarque() {
         inp.style.borderColor = '#CBD5E1';
         chamar('salvarDataEmbarqueItem', sessao.token, item, novaData).then(function () {
           inp.style.borderColor = '#1F9D55';
+          if (novaData) { // data nova informada: a cor deixa de ser "novo pedido"
+            inp.classList.remove('reaberto');
+            Array.prototype.forEach.call(inp.parentNode.querySelectorAll('.selo-reaberto, .data-anterior'), function (el) {
+              el.parentNode.removeChild(el);
+            });
+          }
         }).catch(function (err) {
           inp.style.borderColor = '#D0342C';
           tratarErro(err);
@@ -1054,8 +1067,9 @@ function renderLista(itens) {
       '<td class="cel-maquinas" data-idx="' + i + '">' + (it.maquinas ? it.maquinas : '—') + '</td>' +
       '<td class="cel-total" data-idx="' + i + '" style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
       '<td>' +
-        (it.reaberto ? '<div class="selo-reaberto" title="Já existe pedido pendente deste item — ' +
-          'informe a nova data limite deste pedido.">novo pedido</div>' : '') +
+        (it.reaberto ? '<div class="selo-reaberto" title="Já existe ' + escAttr(it.reabertoMotivo || 'pedido') +
+          ' deste item e entrou consumo novo — informe a nova data limite deste pedido.">novo pedido</div>' +
+          (it.dataAnterior ? '<div class="data-anterior">anterior: ' + escAttr(it.dataAnterior) + '</div>' : '') : '') +
         '<div class="data-limite-cel' + (it.reaberto ? ' reaberto' : '') + '">' +
           '<input type="date" class="data-input" data-idx="' + i + '" value="' + brParaISO(it.dataLimite) + '">' +
           '<button type="button" class="btn-atualizar-data no-print" data-idx="' + i + '" ' +
@@ -1185,8 +1199,16 @@ function atualizarDataLimiteLinha(idx, btn) {
       btn.disabled = false;
       btn.textContent = '↻';
       it.dataLimite = r.dataLimite || '';
-      var inp = document.querySelector('.data-input[data-idx="' + idx + '"]');
-      if (inp) inp.value = brParaISO(it.dataLimite);
+      var mudouReaberto = !!r.reaberto !== !!it.reaberto;
+      it.reaberto = !!r.reaberto;
+      it.reabertoMotivo = r.reabertoMotivo || '';
+      it.dataAnterior = r.dataAnterior || '';
+      if (mudouReaberto) {
+        renderLista(estadoAnalise.itens); // selo "novo pedido" entra/sai junto com a data
+      } else {
+        var inp = document.querySelector('.data-input[data-idx="' + idx + '"]');
+        if (inp) inp.value = brParaISO(it.dataLimite);
+      }
       if (msg) msg.innerHTML = '';
     })
     .catch(function (err) {

@@ -94,7 +94,7 @@ var RELACAO_COMPRA_HEADERS = [
  * @return {Object} { ok, itens: [{item, descricao, saldo, consumoMedio}], mensagem }
  */
 function listarItensParaAnalise(token, params) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var sessao = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   params = params || {};
 
   var inicio = _parseDataISO(params.dataInicio);
@@ -131,7 +131,13 @@ function listarItensParaAnalise(token, params) {
   var movimentos = _lerEstoque();
   var descricaoDe = _criarLocalizadorDescricao();
   var tingimentoDe = _criarCalculadoraTingimento();
-  var dataLimiteDe = _criarLocalizadorDataLimite();
+  // Itens que já têm pedido (pendente ou em viagem) e tiveram consumo novo
+  // depois dele: a DATA LIMITE antiga não vale mais (ver `_itensReabertos`).
+  var reabertos = _itensReabertos(
+    CONFIG.getUnidadeInfo(sessao.unidade).limiteSaldoCritico,
+    movimentos, emViagemPorItem, emAbertoPorItem
+  );
+  var dataLimiteDe = _criarLocalizadorDataLimite(reabertos);
   var porItem = {};
 
   movimentos.forEach(function (mov) {
@@ -169,14 +175,14 @@ function listarItensParaAnalise(token, params) {
     var emAberto = emAbertoPorItem[k] || 0;
     var saldoAjustado = r.saldo + emViagem; // considera o que já está a caminho, para não pedir compra à toa
     var t = tingimentoDe(r.item, saldoAjustado, media, emAberto);
-    // Já existe pedido pendente deste item (emAberto > 0) E ainda falta mais
-    // depois de descontar o que já está em aberto (t.total > 0): é consumo
-    // novo por cima de um pedido já feito, não uma correção da mesma rodada.
-    // Reabre a data em branco em vez de repetir a DATA_LIMITE antiga — sem
-    // isso, "Prosseguir" com a data de sempre bate na mesma chave item+data
-    // da linha já pendente (`_chaveItemData`) e a SUBSTITUI por engano em vez
-    // de criar um pedido à parte (ver `gerarRelacaoDeCompra`).
-    var reaberto = emAberto > 0 && t.total > 0;
+    // Item com pedido pendente ou em viagem que teve consumo novo depois dele
+    // e continua abaixo do limite crítico mesmo contando o que já está pedido:
+    // a data antiga era da rodada anterior. Reabre em branco — sem isso,
+    // "Prosseguir" com a data de sempre bate na mesma chave item+data da linha
+    // já pendente (`_chaveItemData`) e a SUBSTITUI em vez de criar um pedido à
+    // parte (ver `gerarRelacaoDeCompra`).
+    var rea = reabertos[k] || null;
+    var reaberto = !!rea;
     itens.push({
       item: r.item,
       descricao: d.descricao,
@@ -192,8 +198,10 @@ function listarItensParaAnalise(token, params) {
       alvo: t.alvo,
       maquinas: t.maquinas.join(' + '),
       totalTingimento: t.total,
-      dataLimite: reaberto ? '' : dataLimiteDe(r.item),
-      reaberto: reaberto
+      dataLimite: dataLimiteDe(r.item), // '' quando reaberto (ver _criarLocalizadorDataLimite)
+      reaberto: reaberto,
+      reabertoMotivo: rea ? rea.motivo : '',
+      dataAnterior: rea ? rea.dataAnterior : ''
     });
   });
   // Itens de fio primeiro (do saldo menor para o maior, mais críticos primeiro);
@@ -235,14 +243,21 @@ function listarItensParaAnalise(token, params) {
  * pode ser alterada por alguém na tela "Programação de Embarque" enquanto a
  * lista já analisada continua aberta aqui; o botão de atualizar (na Análise
  * de Compra) chama esta função para trazer só o valor mais recente daquele item.
- * @return {Object} { ok, dataLimite: 'dd/MM/aaaa' | '' }
+ * Respeita a reabertura (`_itensReabertos`): item com consumo novo depois do
+ * pedido volta em branco e `reaberto: true`, em vez de repor a data antiga.
+ * @return {Object} { ok, dataLimite: 'dd/MM/aaaa' | '', reaberto, reabertoMotivo, dataAnterior }
  */
 function consultarDataLimiteItem(token, item) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   item = String(item == null ? '' : item).trim();
   if (!item) throw new Error('Informe o item.');
-  var dataLimiteDe = _criarLocalizadorDataLimite();
-  return { ok: true, dataLimite: dataLimiteDe(item) };
+  var reabertos = _itensReabertos(CONFIG.getUnidadeInfo(s.unidade).limiteSaldoCritico);
+  var rea = reabertos[_norm(item)] || null;
+  var dataLimiteDe = _criarLocalizadorDataLimite(reabertos);
+  return {
+    ok: true, dataLimite: dataLimiteDe(item),
+    reaberto: !!rea, reabertoMotivo: rea ? rea.motivo : '', dataAnterior: rea ? rea.dataAnterior : ''
+  };
 }
 
 /**
@@ -297,7 +312,7 @@ function recalcularTingimentoItem(token, params) {
  * @param {Object} params { itens: [{item, descricao, saldo, consumoMedio}] }
  */
 function gerarRelacaoDeCompra(token, params) {
-  exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
+  var sessao = exigirSessao(token, [CONFIG.PAPEIS.MASTER]);
   params = params || {};
   var itens = params.itens || [];
   if (!itens.length) throw new Error('Nenhum item selecionado para a compra.');
@@ -329,6 +344,19 @@ function gerarRelacaoDeCompra(token, params) {
     var chave = _chaveItemData(_itemDeCelula(r.ITEM), r.DATA_LIMITE);
     if (chave) linhaPorChave[chave] = { row: r.__row, id: r.ID_LINHA };
   });
+
+  // Reaberto com a MESMA data de um pedido já pendente do item cairia na mesma
+  // chave item+data e SUBSTITUIRIA a linha antiga em vez de criar um pedido à
+  // parte — exatamente o que a reabertura existe para evitar.
+  var dataRepetida = itens.filter(function (it) {
+    return it.reaberto && it.dataLimite && linhaPorChave[_chaveItemData(it.item, it.dataLimite)];
+  });
+  if (dataRepetida.length) {
+    throw new Error(
+      'A nova data limite de embarque precisa ser diferente da do pedido pendente para: ' +
+      dataRepetida.map(function (it) { return it.item; }).join(', ') + '.'
+    );
+  }
 
   // EM_ABERTO/A_COMPRAR ficam vazios por ora (uso futuro); STATUS nasce ABERTO.
   var novas = [];
@@ -371,6 +399,25 @@ function gerarRelacaoDeCompra(token, params) {
   });
   if (novas.length) {
     sh.getRange(sh.getLastRow() + 1, 1, novas.length, RELACAO_COMPRA_HEADERS.length).setValues(novas);
+  }
+
+  // A data nova de um item reaberto também passa a valer na Programação de
+  // Embarque (fonte da data limite) — senão, depois deste pedido, a tela
+  // voltaria a mostrar a data da rodada anterior como se fosse a atual.
+  // Melhor esforço: o pedido já está gravado, então falha aqui não desfaz nada.
+  var comDataNova = itens.filter(function (it) { return it.reaberto && it.dataLimite && _parseDataBR(it.dataLimite); });
+  if (comDataNova.length) {
+    try {
+      _prepararProgramacaoEmbarque();
+      var lockProg = _travaProgramacaoEmbarque();
+      try {
+        comDataNova.forEach(function (it) { _gravarDataProgramacao(it.item, it.dataLimite, sessao.usuario || ''); });
+      } finally {
+        lockProg.releaseLock();
+      }
+    } catch (e) {
+      Logger.log('gerarRelacaoDeCompra: não sincronizou a data com a Programação — ' + e);
+    }
   }
 
   var partes = [];
@@ -568,11 +615,103 @@ function _rankPrioridadeCompra(it) {
 function _emAbertoPorItem() {
   var mapa = {};
   lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
-    var k = _norm(r.ITEM);
+    var k = _norm(_itemDeCelula(r.ITEM)); // mesma chave de gerarRelacaoDeCompra: código virado em data pelo Sheets também casa
     if (!k) return;
     mapa[k] = (mapa[k] || 0) + (parseFloat(r.SUGERIDO) || 0);
   });
   return mapa;
+}
+
+/** Início do dia (00:00) de uma data, em ms — compara por DIA, ignorando a hora. */
+function _tsDia(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/**
+ * Itens "reabertos": já têm pedido (pendente em PENDENCIA_COMPRA e/ou em viagem
+ * em EMBARQUES) e tiveram CONSUMO NOVO depois dele — a DATA LIMITE de embarque
+ * que estava informada era da rodada anterior e precisa de uma data nova.
+ *
+ * Um item é reaberto quando, juntas:
+ *   1. há referência de pedido: o dia do GERADO_EM da linha pendente e/ou o dia
+ *      do embarque (DATA) ainda em viagem — vale a mais recente;
+ *   2. existe SAÍDA em ESTOQUE em dia POSTERIOR a essa referência (mesmo dia
+ *      não conta: a hora do lançamento não existe, seria ambíguo);
+ *   3. nenhuma data foi (re)salva na Programação de Embarque depois dessa
+ *      última saída (ATUALIZADO_EM em dia >= o da saída resolve a reabertura);
+ *   4. mesmo contando o que já está pedido, o item continua abaixo do limite
+ *      crítico da unidade: saldo atual + em viagem + em aberto < `limite`
+ *      (sem isso, todo item com pedido viraria "novo" no dia seguinte, porque
+ *      o estoque consome todo dia — ruído, não necessidade nova).
+ *
+ * Só LÊ — nada é gravado nem apagado em PROGRAMACAO_DATA_EMBARQUE: a data
+ * antiga continua na aba, só deixa de ser exibida até alguém informar a nova.
+ *
+ * Os parâmetros opcionais evitam reler abas que o chamador já leu.
+ * @param {number} limite  CONFIG.getUnidadeInfo(...).limiteSaldoCritico
+ * @return {Object} chave normalizada → { motivo, dataAnterior: 'dd/MM/aaaa' | '' }
+ */
+function _itensReabertos(limite, movimentos, emViagem, emAberto, datasProg) {
+  movimentos = movimentos || _lerEstoque();
+  emViagem = emViagem || _emViagemPorItem();
+  emAberto = emAberto || _emAbertoPorItem();
+  datasProg = datasProg || _lerDatasProgramacao();
+  limite = Number(limite) || 0;
+
+  // 1) referência do pedido por item
+  var refPorItem = {};
+  function marcar(k, ts, tipo) {
+    if (!k) return;
+    var r = refPorItem[k] || (refPorItem[k] = { ts: 0, pendente: false, viagem: false });
+    if (ts > r.ts) r.ts = ts;
+    r[tipo] = true;
+  }
+  lerRegistros(CONFIG.SHEETS.PENDENCIA_COMPRA).forEach(function (r) {
+    var g = _parseData(r.GERADO_EM);
+    if (g) marcar(_norm(_itemDeCelula(r.ITEM)), _tsDia(g), 'pendente');
+  });
+  var viagens = _embarquesEmViagemPorItem();
+  Object.keys(viagens).forEach(function (k) {
+    (viagens[k] || []).forEach(function (rem) {
+      if (rem.data) marcar(k, _tsDia(rem.data), 'viagem');
+    });
+  });
+
+  // 2) última saída e saldo atual — só dos itens que têm pedido
+  var ultSaida = {};
+  var saldoAtual = {};
+  movimentos.forEach(function (mov) {
+    if (!mov.data) return;
+    var k = _norm(mov.item);
+    if (!k || !refPorItem[k]) return;
+    if (!saldoAtual[k] || mov.data.getTime() > saldoAtual[k].t) {
+      saldoAtual[k] = { t: mov.data.getTime(), saldo: mov.saldo };
+    }
+    if (mov.saida > 0) {
+      var d = _tsDia(mov.data);
+      if (!ultSaida[k] || d > ultSaida[k]) ultSaida[k] = d;
+    }
+  });
+
+  var out = {};
+  Object.keys(refPorItem).forEach(function (k) {
+    var ref = refPorItem[k];
+    var saida = ultSaida[k];
+    if (!saida || saida <= ref.ts) return;                       // (2) sem consumo novo
+    var prog = datasProg[k];
+    if (prog) {
+      var salvoEm = _parseData(prog.atualizadoEm);
+      if (salvoEm && _tsDia(salvoEm) >= saida) return;           // (3) data nova já informada
+    }
+    var efetivo = (saldoAtual[k] ? saldoAtual[k].saldo : 0) + (emViagem[k] || 0) + (emAberto[k] || 0);
+    if (efetivo >= limite) return;                               // (4) o pedido já cobre
+    out[k] = {
+      motivo: ref.pendente && ref.viagem ? 'pedido pendente e em viagem'
+        : ref.viagem ? 'em viagem' : 'pedido pendente',
+      dataAnterior: prog ? prog.dataNecessaria : ''
+    };
+  });
+  return out;
 }
 
 /**
@@ -757,11 +896,16 @@ function _criarLocalizadorDescricao() {
  * antiga (planilha externa PRIORIDADES DE FIO, importada nas colunas K/L de
  * PEDIDO DE FIO), que não é mais consultada.
  * Devolve uma função dataLimite(codigo) → string 'dd/MM/aaaa' ('' se não há).
+ * `reabertos` (opcional, de `_itensReabertos`): itens nele devolvem '' mesmo
+ * com data salva. Sem o argumento, o comportamento é o de sempre — é o caso
+ * dos demais chamadores (Relatório, cancelamento de embarque).
  */
-function _criarLocalizadorDataLimite() {
+function _criarLocalizadorDataLimite(reabertos) {
   var mapa = _lerDatasProgramacao();
   return function (codigo) {
-    var r = mapa[_norm(codigo)];
+    var k = _norm(codigo);
+    if (reabertos && reabertos[k]) return ''; // consumo novo depois do pedido: data antiga não vale
+    var r = mapa[k];
     return r ? r.dataNecessaria : '';
   };
 }
