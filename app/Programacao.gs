@@ -4,9 +4,10 @@
  * cores (itens da aba ESTOQUE que batem com algum tipo de fio da BASE
  * TINGIMENTO, com lançamento nas últimas PROGRAMACAO_JANELA_DIAS dias) com
  * saldo crítico — negativo ou abaixo do limite desta unidade
- * (CONFIG.UNIDADES[].limiteSaldoCritico: 20 no Ceará, 10 na Bahia), já
- * descontado o que está embarcado e a caminho — para o master/Programação
- * preencherem a data que precisam daquele embarque.
+ * (CONFIG.UNIDADES[].limiteSaldoCritico: 20 no Ceará, 10 na Bahia) — para o
+ * master/Programação preencherem a data que precisam daquele embarque. O saldo
+ * é só o do estoque (último lançamento); o que está em viagem e o que já foi
+ * solicitado aparecem em colunas à parte, só para consulta.
  *
  * Essa data é a nova fonte de DATA_LIMITE usada pela Análise de Compra (ver
  * `_criarLocalizadorDataLimite`, Analise.gs) — substitui a antiga planilha
@@ -113,11 +114,7 @@ function listarCoresCriticas(token) {
 
   var movimentos = _lerEstoque(); // uma leitura só: saldo atual e reabertura (`_itensReabertos`)
   var porItem = _saldoAtualPorItem(movimentos);
-  // O que já está embarcado e a caminho conta a favor do saldo — mesmo
-  // critério da Análise de Compra ("soma ao saldo pra não pedir compra à
-  // toa"; ver `listarItensParaAnalise`, Analise.gs) — senão uma cor que já
-  // tem reposição chegando aparece como crítica à toa aqui.
-  var emViagem = _emViagemPorItem();
+  var emViagem = _emViagemPorItem(); // só exibido (coluna "Em viagem") e usado em `_itensReabertos`; não entra no saldo
   var tipoFioDe = _criarLocalizadorTipoFio();
   var descricaoDe = _criarLocalizadorDescricao();
 
@@ -130,15 +127,14 @@ function listarCoresCriticas(token) {
   Object.keys(porItem).forEach(function (k) {
     var r = porItem[k];
     if (!tipoFioDe(r.item)) return; // não é uma cor de fio (ex.: código de outro controle)
-    var saldoAjustado = r.saldo + (emViagem[k] || 0);
-    if (saldoAjustado >= limite) return;
+    if (r.saldo >= limite) return; // saldo do estoque, sem somar o que está em viagem
     var recente = r.data.getTime() >= corte.getTime();
     // Sem movimento nas últimas 2 semanas, só entra se já tem data preenchida
     // (ver docstring do arquivo) — senão fica de fora, pra não acumular
     // código parado há tempos.
     if (!recente && !salvasIniciais[k]) return;
     criticoSet[k] = true;
-    base.push({ chave: k, item: r.item, saldo: saldoAjustado, negativo: saldoAjustado < 0 });
+    base.push({ chave: k, item: r.item, saldo: r.saldo, negativo: r.saldo < 0 });
   });
 
   // Datas já salvas. Se alguma cor salva não está mais crítica, limpa — mas
@@ -184,7 +180,7 @@ function listarCoresCriticas(token) {
       item: b.item,
       descricao: d.descricao,
       motivo: d.motivo,
-      saldo: b.saldo,                       // base da lista, da cor da linha e da ordenação — como sempre
+      saldo: b.saldo,                       // só o estoque: base da lista, da cor da linha e da ordenação
       emViagem: emViagem[b.chave] || 0,     // só consulta: não mexe no saldo nem na cor
       solicitado: emAberto[b.chave] || 0,   // só consulta: idem
       negativo: b.negativo,
