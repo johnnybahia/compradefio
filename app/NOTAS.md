@@ -820,18 +820,22 @@ aba e aparece como "anterior: dd/mm/aaaa" ao lado do selo **novo pedido**.
 
 A tela mostra, ao lado do Saldo, **Em viagem** (`_emViagemPorItem`) e
 **Solicitado** (o "Já pendente" da Análise, `_emAbertoPorItem`; só o rótulo
-muda, na Análise segue "Já pendente"). São **somente para consulta do
-operador**. O **Saldo é só o do estoque** (último lançamento) e é a base da
-lista, da cor da linha (vermelho = negativo) e da ordem.
+muda, na Análise segue "Já pendente"). O **Saldo exibido é só o do estoque**
+(último lançamento) — a soma nunca aparece na tela.
 
-**Mudança de regra:** até aqui a Programação somava o que estava em viagem ao
-saldo (lista, cor e coluna). Agora não soma mais — uma cor com reposição a
-caminho continua aparecendo como crítica se o estoque está baixo, e o operador
-vê o "Em viagem" ao lado para decidir. Efeito colateral: a limpeza automática
-da data (cor que deixou de ser crítica) também passa a olhar só o estoque.
-`_emAbertoPorItem` é lido uma vez e reaproveitado em `_itensReabertos`, que
-**continua** contando saldo + em viagem + solicitado (decide só o selo "novo
-pedido", não o Saldo nem a cor).
+**Regra da lista e da cor (cálculo interno, só desta tela):**
+`estoque + em viagem + solicitado`. Maior ou igual ao limite da unidade
+(20 Ceará / 10 Bahia) → a cor **não entra na lista**; de 0 até o limite →
+**amarelo**; negativo → **vermelho**. A ordem da lista segue o mesmo valor
+(mais crítica primeiro). A Análise de Compra não mudou.
+
+Histórico: antes só o "em viagem" entrava na conta (e era exibido somado ao
+Saldo); o "solicitado" não entrava. Efeito colateral: a limpeza automática da
+data (cor que deixou de ser crítica) usa o mesmo critério, então passa a
+apagar a data também quando o **pedido solicitado** cobre o limite — a linha
+pendente em `PENDENCIA_COMPRA` guarda a sua própria cópia da data, e se a cor
+voltar a ficar crítica (consumo novo) ela reaparece em branco. `_emAbertoPorItem`
+é lido uma vez e reaproveitado em `_itensReabertos`.
 
 ## Confirmação de Embarque: consumo de fio crú maior que o kg tingido (resolvido)
 
