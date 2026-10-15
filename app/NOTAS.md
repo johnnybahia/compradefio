@@ -3,6 +3,29 @@
 Anotações de coisas a acompanhar/melhorar (não são bugs — são decisões e
 pendências que valem manter à vista).
 
+## Versão do programa (regra: TODA atualização muda a versão)
+
+Uma faixa **"Versão x.y.z · atualizado em dd/mm/aaaa"** aparece logo acima do
+programa (tela de login e app; some na impressão). Serve pra conferir, depois
+de cada atualização, se a versão certa é a que está rodando — se a faixa não
+mudou, a publicação (nova versão da implantação do Web App) não pegou ou a
+página está em cache (Ctrl+F5).
+
+**A cada atualização, no mesmo commit:**
+1. Subir `CONFIG.VERSAO` e `CONFIG.VERSAO_DATA` em `app/Config.gs` (fonte única;
+   `doGet`, em `Codigo.gs`, repassa pro `Index.html`).
+2. Acrescentar a linha no histórico abaixo (a mais nova em cima).
+
+Numeração: correção/ajuste pequeno sobe o 3º número (1.0.0 → 1.0.1);
+funcionalidade nova ou regra alterada sobe o 2º (1.0.1 → 1.1.0); mudança grande
+de estrutura sobe o 1º (1.1.0 → 2.0.0).
+
+### Histórico de versões
+
+| Versão | Data | O que mudou |
+|---|---|---|
+| 1.0.0 | 15/10/2026 | Primeira versão numerada. Inclui: data de embarque reabre em branco quando entra consumo novo depois de pedido pendente ou em viagem (Análise, ↻ e Programação, com selo "novo pedido"); Programação de Embarque com colunas Em viagem e Solicitado e lista/cor por estoque + em viagem + solicitado (cálculo interno). |
+
 ## Numeração de embarque (ajuste pontual)
 
 Pedido: o próximo embarque confirmado deve sair como **985 no Ceará** e

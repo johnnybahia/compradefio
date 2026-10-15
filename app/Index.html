@@ -7,6 +7,11 @@
 </head>
 <body>
 
+  <!-- Faixa de versão: sempre logo acima do programa (ver CONFIG.VERSAO, Config.gs) -->
+  <div class="faixa-versao no-print" id="faixa-versao" title="Versão do programa em execução">
+    Versão <b><?= VERSAO ?></b> · atualizado em <?= VERSAO_DATA ?>
+  </div>
+
   <!-- ========================== CARREGANDO ======================== -->
   <div id="splash" class="splash">
     <img class="logo" src="<?= LOGO_URL ?>" alt="Marfim" onerror="this.style.display='none'">

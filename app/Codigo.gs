@@ -8,6 +8,8 @@ function doGet() {
   var t = HtmlService.createTemplateFromFile('Index');
   t.LOGO_URL = CONFIG.LOGO_URL;
   t.APP_NOME = CONFIG.APP_NOME;
+  t.VERSAO = CONFIG.VERSAO;
+  t.VERSAO_DATA = CONFIG.VERSAO_DATA;
   return t.evaluate()
     .setTitle(CONFIG.APP_NOME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')

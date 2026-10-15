@@ -29,6 +29,13 @@ que `SPREADSHEET_ID_AUTH` aponte para outra. Já a lista de e-mails de envio
 da compra e a numeração do Pedido de Fio são **por unidade** (cada uma com
 sua própria Propriedade do script).
 
+## Versão
+
+A versão em execução aparece numa faixa logo acima do programa. Fonte única:
+`CONFIG.VERSAO` / `CONFIG.VERSAO_DATA` (`app/Config.gs`). **Toda atualização
+sobe a versão** e registra no "Histórico de versões" de `app/NOTAS.md` — regra
+completa lá.
+
 ## Arquitetura
 
 - **Web App** publicado com *Executar como: eu (dono)* e *Acesso: qualquer

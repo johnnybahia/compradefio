@@ -2,6 +2,7 @@
   :root {
     --azul: #0F5FA0;
     --azul-esc: #0B4576;
+    --h-versao: 22px; /* altura da faixa de versão (.faixa-versao) — telas de 100vh descontam isso */
     --azul-claro: #2E86C9;
     --azul-suave: #E8F1F9;
     --bg: #EEF2F6;
@@ -28,9 +29,18 @@
   .oculto { display: none !important; }
   button { font-family: inherit; }
 
+  /* ------------------------ FAIXA DE VERSÃO ------------------------- */
+  .faixa-versao {
+    height: var(--h-versao); box-sizing: border-box;
+    text-align: center; font-size: 11px; line-height: 16px; padding: 2px 8px;
+    color: var(--texto-fraco); background: #EEF2F7; border-bottom: 1px solid var(--borda);
+    letter-spacing: .02em;
+  }
+  .faixa-versao b { color: var(--azul-esc); }
+
   /* --------------------------- CARREGANDO --------------------------- */
   .splash {
-    min-height: 100vh;
+    min-height: calc(100vh - var(--h-versao));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -50,7 +60,7 @@
 
   /* ---------------------------- LOGIN ---------------------------- */
   .tela-login {
-    min-height: 100vh;
+    min-height: calc(100vh - var(--h-versao));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -106,7 +116,7 @@
   .rodape-login { margin-top: 22px; color: var(--texto-fraco); font-size: 12px; }
 
   /* ---------------------------- APP SHELL ---------------------------- */
-  .app { min-height: 100vh; display: flex; flex-direction: column; }
+  .app { min-height: calc(100vh - var(--h-versao)); display: flex; flex-direction: column; }
   .topo {
     background: var(--azul); color: #fff;
     display: flex; align-items: center; gap: 16px;
