@@ -2666,7 +2666,8 @@ function salvarConfigChegada(token, dias, prazoDias) {
  * previsão até entrar um novo relatório de embarque com o saldo (e assim
  * quantas vezes precisar, até fechar o pedido). Cada remessa a caminho mantém
  * a SUA data e a SUA quantidade — com dois relatórios parciais em viagem,
- * aparecem as duas datas (linhas do mesmo nº de embarque são somadas).
+ * aparecem as duas datas. Uma remessa por LINHA da aba: duas linhas do mesmo
+ * item no mesmo nº de embarque (pedidos diferentes) NÃO são somadas.
  *
  * Só a previsão de chegada do Relatório usa esta função; o cálculo de "em
  * viagem" da análise de compra (`_emViagemPorItem`) segue somando, como antes.
@@ -2712,7 +2713,7 @@ function _embarquesEmViagemPorItem() {
   if (iVol < 0 && header.length > 5) iVol = 5;
   var iSol = header.indexOf('solicitado_em'); // pode não existir em aba antiga
 
-  var porItemEmb = {}; // item -> { nºembarque -> remessa }
+  var numeroPorNorm = {}; // nº normalizado -> 1º valor cru visto (agrupa "1474" e 1474 juntos)
   vals.forEach(function (row) {
     var item = row[iItem];
     if (item === '' || item == null) return;
@@ -2720,35 +2721,27 @@ function _embarquesEmViagemPorItem() {
     if (sit.indexOf('chegou') !== -1 || sit.indexOf('cancelado') !== -1) return;
     var chave = _norm(_itemDeCelula(item));
     var num = _normNumero(row[iEmb]) || '(sem número)';
-    if (!porItemEmb[chave]) porItemEmb[chave] = {};
-    var atual = porItemEmb[chave][num];
-    var qtd = parseFloat(row[iPeso]) || 0;
-    var data = _parseData(row[iData]);
-    var vol = (iVol >= 0) ? (parseFloat(row[iVol]) || 0) : 0;
-    var dataSolicitado = (iSol >= 0) ? _soData(row[iSol]) : '';
-    if (!atual) {
-      // `item` guarda o texto como está na aba EMBARQUES — usado pelo Relatório
-      // pra montar a linha do item que já saiu da pendência mas não chegou.
-      porItemEmb[chave][num] = {
-        item: _itemDeCelula(item), numero: row[iEmb], data: data, quantidade: qtd, volumes: vol,
-        dataSolicitado: dataSolicitado
-      };
-    } else {
-      atual.quantidade += qtd;
-      atual.volumes += vol;
-      if (data && !atual.data) atual.data = data;
-      if (dataSolicitado && !atual.dataSolicitado) atual.dataSolicitado = dataSolicitado;
-    }
+    if (numeroPorNorm[num] == null) numeroPorNorm[num] = row[iEmb];
+    if (!mapa[chave]) mapa[chave] = [];
+    // Uma remessa por LINHA da aba: o mesmo item pode sair duas vezes no mesmo
+    // embarque (pedidos diferentes) e cada linha tem de aparecer separada,
+    // como na lista de embarque — é assim que a expedição dá entrada no estoque.
+    // `item` guarda o texto como está na aba EMBARQUES — usado pelo Relatório
+    // pra montar a linha do item que já saiu da pendência mas não chegou.
+    mapa[chave].push({
+      item: _itemDeCelula(item), numero: numeroPorNorm[num], data: _parseData(row[iData]),
+      quantidade: parseFloat(row[iPeso]) || 0,
+      volumes: (iVol >= 0) ? (parseFloat(row[iVol]) || 0) : 0,
+      dataSolicitado: (iSol >= 0) ? _soData(row[iSol]) : ''
+    });
   });
 
-  Object.keys(porItemEmb).forEach(function (chave) {
-    var lista = Object.keys(porItemEmb[chave]).map(function (n) { return porItemEmb[chave][n]; });
-    lista.sort(function (a, b) {
+  Object.keys(mapa).forEach(function (chave) {
+    mapa[chave].sort(function (a, b) {
       var ta = a.data ? a.data.getTime() : Infinity; // sem data vai pro fim
       var tb = b.data ? b.data.getTime() : Infinity;
       return ta - tb;
     });
-    mapa[chave] = lista;
   });
   return mapa;
 }

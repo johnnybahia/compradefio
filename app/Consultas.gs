@@ -161,7 +161,7 @@ function obterListaTingimento(token) {
       pedidoOriginal: _arredondarKg((Number(total) || 0) + jaEmbarcado),
       emViagemQtd: _arredondarKg(viagem.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0)),
       embarques: viagem.map(function (v) { return String(v.numero == null ? '' : v.numero).trim(); })
-        .filter(function (n) { return n; })
+        .filter(function (n, i, a) { return n && a.indexOf(n) === i; })
     };
   });
   return { ok: true, linhas: linhas };
@@ -307,41 +307,41 @@ function _montarLinhasRelatorio(cfg) {
       descricao = d.descricao || '';
       cliente = d.cliente || '';
     }
-    var remessas = lista.map(function (v) {
+    var dataLimite = (pend && pend.dataLimite) || dataLimiteDe(itemTxt) || '';
+    // UMA linha por remessa (linha da aba EMBARQUES), nunca somadas: o mesmo
+    // item pode sair duas vezes no mesmo embarque, de pedidos diferentes, e o
+    // Relatório (tela e impressão) tem de mostrar as duas — é assim que quem
+    // recebe confere e dá entrada no estoque.
+    lista.forEach(function (v) {
       var p = _previsaoChegada(v.data, cfgChegada.dias, cfgChegada.prazoDias);
-      return {
-        numero: v.numero, quantidade: v.quantidade,
-        // Volumes DAQUELA remessa (vêm da aba EMBARQUES): dentro do bloco de
-        // um embarque, o Relatório mostra o que saiu naquele embarque, não o
-        // que sobrou na pendência — ver `_linhaHtmlRelatorio`, no App.html.
-        volumes: v.volumes,
-        dataEmbarque: v.data ? _soData(v.data) : '',
-        previsaoChegada: p ? _soData(p) : ''
-      };
-    });
-    var total = remessas.reduce(function (a, v) { return a + (Number(v.quantidade) || 0); }, 0);
-    // Volumes vêm registrados na própria aba EMBARQUES (é o que saiu na remessa).
-    var volTotal = lista.reduce(function (a, v) { return a + (Number(v.volumes) || 0); }, 0);
-    // Data de solicitação também vem registrada na própria aba EMBARQUES —
-    // gravada lá na hora do embarque, exatamente pra não se perder aqui
-    // (ver `_registrarEmbarqueEDarBaixa`, em Embarque.gs).
-    var dataSolicitadoItem = lista.map(function (v) { return v.dataSolicitado; }).filter(Boolean)[0] ||
-      (pend ? pend.dataSolicitado : '');
-    linhas.push({
-      linha: 0, // não é linha de PENDENCIA_COMPRA (nada a editar aqui)
-      dataSolicitado: dataSolicitadoItem,
-      item: itemTxt,
-      descricao: descricao,
-      cliente: cliente,
-      maquinas: '',
-      total: total,
-      dataLimite: (pend && pend.dataLimite) || dataLimiteDe(itemTxt) || '',
-      obs: '',
-      saldoCritico: false,
-      volumes: volTotal || '',
-      remessas: remessas,
-      emViagemQtd: total,
-      status: 'embarcado'
+      var quantidade = Number(v.quantidade) || 0;
+      linhas.push({
+        linha: 0, // não é linha de PENDENCIA_COMPRA (nada a editar aqui)
+        // Data de solicitação registrada na própria aba EMBARQUES — gravada lá
+        // na hora do embarque, exatamente pra não se perder aqui (ver
+        // `_registrarEmbarqueEDarBaixa`, em Embarque.gs).
+        dataSolicitado: v.dataSolicitado || (pend ? pend.dataSolicitado : ''),
+        item: itemTxt,
+        descricao: descricao,
+        cliente: cliente,
+        maquinas: '',
+        total: quantidade,
+        dataLimite: dataLimite,
+        obs: '',
+        saldoCritico: false,
+        volumes: Number(v.volumes) || '',
+        remessas: [{
+          numero: v.numero, quantidade: v.quantidade,
+          // Volumes DAQUELA remessa (vêm da aba EMBARQUES): dentro do bloco de
+          // um embarque, o Relatório mostra o que saiu naquele embarque, não o
+          // que sobrou na pendência — ver `_linhaHtmlRelatorio`, no App.html.
+          volumes: v.volumes,
+          dataEmbarque: v.data ? _soData(v.data) : '',
+          previsaoChegada: p ? _soData(p) : ''
+        }],
+        emViagemQtd: quantidade,
+        status: 'embarcado'
+      });
     });
   });
 
