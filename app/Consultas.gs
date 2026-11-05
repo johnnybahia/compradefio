@@ -97,6 +97,13 @@ function _ordenarPorDataLimite(regs) {
   });
 }
 
+/** kg da linha de PENDENCIA_COMPRA que já foram embarcados (TINGIDO_BASELINE;
+ * 0 quando vazio/inválido). Maior que zero = a linha é o RESÍDUO ("saldo") de
+ * um embarque parcial. É por LINHA, não por item. */
+function _jaEmbarcadoDaLinha(r) {
+  return _arredondarKg(Math.max(0, Number(r.TINGIDO_BASELINE) || 0));
+}
+
 /** true quando o SALDO gravado no registro é negativo ou zero — usado só para
  * destacar a linha (não expõe o número em si, que continua fora desta tela). */
 function _saldoCritico(r) {
@@ -260,6 +267,13 @@ function _montarLinhasRelatorio(cfg) {
       obs: _textoCelula(r.OBS),
       saldoCritico: _saldoCritico(r),
       volumes: _numeroCelula(r.VOLUMES),
+      // Resíduo de embarque parcial: kg DESTA linha que já saíram e o pedido
+      // original (o que falta + o que saiu). Mesma origem de
+      // `obterListaTingimento` (TINGIDO_BASELINE). Só alimenta o selo "SALDO"
+      // da tela e da folha impressa — fica FORA da assinatura da revisão
+      // (`_mapaAssinaturaRelatorio`), então não dispara "Relatório atualizado".
+      jaEmbarcado: _jaEmbarcadoDaLinha(r),
+      pedidoOriginal: _arredondarKg((Number(_numeroCelula(r.SUGERIDO)) || 0) + _jaEmbarcadoDaLinha(r)),
       // Sempre vazio: o que está a caminho é linha à parte (ver docstring).
       remessas: [],
       emViagemQtd: 0,
@@ -329,6 +343,8 @@ function _montarLinhasRelatorio(cfg) {
         dataLimite: dataLimite,
         obs: '',
         saldoCritico: false,
+        jaEmbarcado: 0, // linha de remessa: é o que saiu, não há "saldo" a marcar
+        pedidoOriginal: '',
         volumes: Number(v.volumes) || '',
         remessas: [{
           numero: v.numero, quantidade: v.quantidade,
@@ -822,13 +838,33 @@ function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
     'color:#fff;text-align:left;font-size:' + d.fonte + 'px';
   var tdStyle = 'border:1px solid #cbd5e1;padding:' + d.pad + ';font-size:' + d.fonte + 'px';
   var th = cols.map(function (c) { return '<th style="' + thStyle + '">' + c[1] + '</th>'; }).join('');
+  // Linha que é RESÍDUO de embarque parcial ("saldo") sai marcada: selo SALDO
+  // ao lado do item e, sob o total, quanto era o pedido e quanto já saiu —
+  // senão o resíduo parece pedido novo e é tingido de novo. Só texto e borda
+  // preta (sem depender de cor, pra sair igual em impressão P&B).
+  var temSaldo = false;
+  var fonteSelo = Math.max(6, d.fonte - 2);
+  var seloSaldo = '<span style="border:1px solid #000;padding:0 3px;font-size:' + fonteSelo +
+    'px;font-weight:bold;color:#000">SALDO</span>';
   var rows = regs.map(function (r) {
+    var jaEmb = _jaEmbarcadoDaLinha(r);
+    if (jaEmb > 0) temSaldo = true;
     return '<tr>' + cols.map(function (c) {
       var v = (c[0] === 'DATA_LIMITE' || c[0] === 'GERADO_EM') ? _soData(r[c[0]]) : r[c[0]];
       if (v === '' || v == null) v = '';
+      if (jaEmb > 0 && c[0] === 'ITEM') {
+        v = v + ' ' + seloSaldo;
+      } else if (jaEmb > 0 && c[0] === 'SUGERIDO') {
+        v = '<b>' + v + '</b><div style="font-size:' + fonteSelo + 'px;font-weight:normal">saldo de ' +
+          _numeroBR((Number(r.SUGERIDO) || 0) + jaEmb) + '<br>já saiu ' + _numeroBR(jaEmb) + '</div>';
+      }
       return '<td style="' + tdStyle + '">' + v + '</td>';
     }).join('') + '</tr>';
   }).join('');
+  var legendaSaldo = temSaldo
+    ? '<p style="font-size:' + d.fonte + 'px;margin:8px 0 0">' + seloSaldo + ' = resíduo de embarque ' +
+      'parcial: o pedido original já saiu em parte. Não é pedido novo — confira antes de tingir.</p>'
+    : '';
   // CONFIG.LOGO_URL: URL externa fixa (ver Config.gs) — sem arquivo/base64
   // embutido; se o link não carregar, o e-mail só fica sem a imagem (alt).
   var tituloTxt = '<h1 style="color:#0B4576;margin:0 0 3px;font-size:' + d.titulo + 'px;letter-spacing:.02em">' +
@@ -845,6 +881,7 @@ function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
     cabecalho +
     '<table style="border-collapse:collapse;width:100%;table-layout:auto">' +
     '<thead><tr>' + th + '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    legendaSaldo +
     '<p style="color:#64748b;font-size:9px;margin-top:8px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }
 

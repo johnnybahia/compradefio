@@ -24,6 +24,7 @@ de estrutura sobe o 1º (1.1.0 → 2.0.0).
 
 | Versão | Data | O que mudou |
 |---|---|---|
+| 1.1.0 | 05/11/2026 | Relatório e PDF do e-mail: linha que é resíduo de embarque parcial sai marcada com o selo **SALDO** (borda preta, sem depender de cor) ao lado do item e, sob o total, "saldo de X · já saiu Y", mais uma legenda no rodapé — na tela, na impressão da lista pendente e no PDF. Antes o resíduo parecia pedido novo e era tingido de novo. Não aparece no bloco de embarque (ali a linha é o que saiu) nem na impressão da aba Tingimento (continua sem selos). |
 | 1.0.1 | 23/10/2026 | Relatório: o mesmo item lançado duas vezes no MESMO embarque (pedidos diferentes) não é mais somado numa linha só — aparece uma linha por linha da aba EMBARQUES, na tela e na impressão, igual à lista de embarque (antes, a conferência dava uma entrada única no estoque e a outra linha ficava pendente do embarque). |
 | 1.0.0 | 15/10/2026 | Primeira versão numerada. Inclui: data de embarque reabre em branco quando entra consumo novo depois de pedido pendente ou em viagem (Análise, ↻ e Programação, com selo "novo pedido"); Programação de Embarque com colunas Em viagem e Solicitado e lista/cor por estoque + em viagem + solicitado (cálculo interno). |
 

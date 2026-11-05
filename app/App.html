@@ -4460,7 +4460,8 @@ function viewRelatorio(alvo) {
       'depois o que está <b>em viagem</b>, <b>agrupado por nº do embarque</b> (do menor para o maior), ' +
       'com a data de saída, a previsão de chegada e o total de kg de cada um. Item de <b>embarque ' +
       'parcial</b> aparece nos dois lugares: em cima com o que ainda <b>falta</b>, no bloco do embarque ' +
-      'com o que já <b>saiu</b>. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
+      'com o que já <b>saiu</b>; a linha de cima leva o selo <b>SALDO</b> (e sai assim na impressão e no ' +
+      'PDF do e-mail) para ninguém tingir o resíduo como se fosse pedido novo. Use as setas ↑/↓ (ou clique numa linha) para navegar item por item.</p>' +
       '<div class="no-print" style="margin:0 0 12px">' +
         '<button class="btn-principal" id="btn-imprimir-relatorio" ' +
           'title="Pergunta o que imprimir: a lista pendente ou um dos embarques já a caminho">' +
@@ -4806,17 +4807,40 @@ function _linhaHtmlRelatorio(l, remessa) {
     : (marca === 'alterado'
         ? ' <span class="badge-item-alterado" title="Mudou na última atualização">alterado</span>'
         : '');
+  // Resíduo de embarque parcial ("saldo"): só na linha PENDENTE (dentro do bloco
+  // de um embarque a linha é o que saiu, não o saldo). Aparece na tela e na
+  // folha impressa — é o aviso de que NÃO é pedido novo (ver `.selo-saldo`).
+  var jaEmb = remessa ? 0 : (Number(l.jaEmbarcado) || 0);
+  var seloSaldo = jaEmb > 0 ? ' ' + _seloSaldoHtml() : '';
+  var notaSaldo = jaEmb > 0
+    ? '<div class="nota-saldo">saldo de ' + num(l.pedidoOriginal) + '<br>já saiu ' + num(jaEmb) + '</div>'
+    : '';
   return '<tr' + (l.saldoCritico ? ' class="destaque"' : (embarcado ? ' class="destaque-tingido-completo"' : '')) + '>' +
     '<td>' + (l.dataSolicitado ? l.dataSolicitado : '—') + '</td>' +
-    '<td class="col-item">' + (l.item || '—') + selo + '</td>' +
+    '<td class="col-item">' + (l.item || '—') + selo + seloSaldo + '</td>' +
     '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
     '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
-    '<td style="text-align:right">' + (remessa ? '<b>' + totalCel + '</b>' : totalCel) + '</td>' +
+    '<td style="text-align:right">' + ((remessa || jaEmb > 0) ? '<b>' + totalCel + '</b>' : totalCel) + notaSaldo + '</td>' +
     '<td style="text-align:center">' + volumesCel + '</td>' +
     '<td>' + (l.dataLimite ? l.dataLimite : '—') + '</td>' +
     '<td>' + prevCel + '</td>' +
     '<td>' + (l.obs ? l.obs : '—') + '</td>' +
   '</tr>';
+}
+
+/** Selo "SALDO" (borda preta, sem depender de cor — sai também em impressão P&B). */
+function _seloSaldoHtml() {
+  return '<span class="selo-saldo" title="Resíduo de embarque parcial: o pedido original já saiu em parte. ' +
+    'Não é pedido novo.">SALDO</span>';
+}
+
+/** Legenda do selo, no rodapé da tabela — só quando há alguma linha de saldo. */
+function _legendaSaldoHtml(linhasPendentes) {
+  var tem = (linhasPendentes || []).some(function (l) { return (Number(l.jaEmbarcado) || 0) > 0; });
+  return tem
+    ? '<p class="legenda-saldo">' + _seloSaldoHtml() + ' = resíduo de embarque parcial: o pedido original ' +
+      'já saiu em parte. Não é pedido novo — confira antes de tingir.</p>'
+    : '';
 }
 
 /** Cabeçalho (<thead>) da tabela do Relatório — igual na tela e na impressão. */
@@ -4879,7 +4903,8 @@ function renderRelatorio() {
     body += _linhaInfoEmbarque(g.numero);
     body += g.itens.map(function (x) { return _linhaHtmlRelatorio(x.linha, x.remessa); }).join('');
   });
-  wrap.innerHTML = '<table class="dados">' + _cabecalhoHtmlRelatorio() + '<tbody>' + body + '</tbody></table>';
+  wrap.innerHTML = '<table class="dados">' + _cabecalhoHtmlRelatorio() + '<tbody>' + body + '</tbody></table>' +
+    _legendaSaldoHtml(aguardando);
   aplicarRegua(wrap);
 }
 
@@ -4949,7 +4974,8 @@ function imprimirSelecaoRelatorio(selecao) {
 
   var conteudoNormal = wrap.innerHTML;
   if (subtitulo) subtitulo.textContent = textoSubtitulo;
-  wrap.innerHTML = '<table class="dados">' + _cabecalhoHtmlRelatorio() + '<tbody>' + body + '</tbody></table>';
+  wrap.innerHTML = '<table class="dados">' + _cabecalhoHtmlRelatorio() + '<tbody>' + body + '</tbody></table>' +
+    (selecao.tipo === 'embarque' ? '' : _legendaSaldoHtml(agrupado.aguardando));
 
   var restaurado = false;
   var restaurar = function () {
