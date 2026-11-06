@@ -26,6 +26,11 @@
  * ser crítico) — pra não sumir da lista um item que a Programação já está
  * acompanhando só porque ele não teve movimento nesses dias (ex.: já tingido,
  * parado esperando o embarque).
+ *
+ * Cor com estoque 0 nas DUAS filiais (o saldo do estoque, sem em viagem nem
+ * solicitado) também sai em vermelho, mesmo sem saldo negativo, e vem logo
+ * abaixo dos negativos: primeiro as que têm descrição, depois as sem descrição
+ * (ver `_criarLocalizadorZeradoNaOutra`). O resto da lista segue como antes.
  */
 
 var PROGRAMACAO_DATA_EMBARQUE_HEADERS = ['ITEM', 'DATA_NECESSARIA', 'USUARIO', 'ATUALIZADO_EM'];
@@ -93,6 +98,43 @@ function _saldoAtualPorItem(movimentos) {
   return porItem;
 }
 
+/** Saldo "zero" para esta tela: tolerância de meio centésimo (o que a tela mostra como 0). */
+function _saldoEhZero(v) {
+  return v != null && !isNaN(v) && Math.abs(v) < 0.005;
+}
+
+/**
+ * Devolve `fn(item)` → true quando o item tem estoque 0 TAMBÉM na outra
+ * unidade. Só leitura: o estoque da outra filial serve apenas para decidir
+ * cor/ordem, nunca é exibido nem gravado. Casamento do item igual ao de
+ * `compararEstoqueEntreUnidades` (vínculo aprendido; senão código + tipo de fio).
+ * Sem par na outra filial, saldo vazio ou falha ao ler a planilha dela = "não
+ * confirmado" (false) — melhor não pintar vermelho do que pintar errado.
+ */
+function _criarLocalizadorZeradoNaOutra(unidadeAtiva) {
+  var nunca = function () { return false; };
+  var outraId = _outraUnidade(unidadeAtiva);
+  if (!outraId) return nunca;
+  var estoqueOutra, aprendido;
+  try {
+    estoqueOutra = _saldoPorItemUnidade(outraId);
+    aprendido = _equivDe(unidadeAtiva, outraId);
+  } catch (e) {
+    return nunca; // sem acesso à outra planilha: a tela segue com a regra de antes
+  }
+  return function (item) {
+    var alvo = null;
+    var apr = aprendido[_norm(item)];
+    if (apr) {
+      alvo = estoqueOutra.porItem[_norm(apr)] || null;
+    } else {
+      var chave = _chaveEquivItem(item);
+      if (chave) alvo = estoqueOutra.porChave[chave] || null;
+    }
+    return !!alvo && _saldoEhZero(alvo.saldo);
+  };
+}
+
 /**
  * Lista as cores em condição crítica na unidade ativa, com a data já
  * preenchida (se houver), e limpa da aba PROGRAMACAO_DATA_EMBARQUE qualquer
@@ -101,7 +143,8 @@ function _saldoAtualPorItem(movimentos) {
  * `novo: true` e a data em branco (`dataAnterior` guarda a antiga) — ver `_itensReabertos`.
  * `saldo`, `emViagem` e `solicitado` são só o que o operador vê; `negativo` (vermelho
  * x amarelo) e a própria presença na lista vêm do cálculo interno descrito no topo.
- * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
+ * `negativo` também é true quando `zeradoAmbas` (estoque 0 aqui e na outra filial).
+ * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, negativo, zeradoAmbas, dataNecessaria, novo, motivoNovo, dataAnterior}] }
  */
 function listarCoresCriticas(token) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
@@ -122,6 +165,7 @@ function listarCoresCriticas(token) {
   var emAberto = _emAbertoPorItem(); // "Solicitado": já pedido, aguardando envio (o "Já pendente" da Análise)
   var tipoFioDe = _criarLocalizadorTipoFio();
   var descricaoDe = _criarLocalizadorDescricao();
+  var zeradoNaOutra = _criarLocalizadorZeradoNaOutra(s.unidade || CONFIG.UNIDADE_PADRAO);
 
   var salvasIniciais = _lerDatasProgramacao();
   var corte = new Date();
@@ -142,7 +186,14 @@ function listarCoresCriticas(token) {
     // código parado há tempos.
     if (!recente && !salvasIniciais[k]) return;
     criticoSet[k] = true;
-    base.push({ chave: k, item: r.item, saldo: r.saldo, saldoEfetivo: saldoEfetivo, negativo: saldoEfetivo < 0 });
+    var d = descricaoDe(r.item);
+    var negativo = saldoEfetivo < 0;
+    // Estoque 0 aqui E na outra filial (só o estoque, sem em viagem/solicitado).
+    var zeradoAmbas = !negativo && _saldoEhZero(r.saldo) && zeradoNaOutra(r.item);
+    base.push({
+      chave: k, item: r.item, saldo: r.saldo, saldoEfetivo: saldoEfetivo,
+      negativo: negativo, zeradoAmbas: zeradoAmbas, desc: d
+    });
   });
 
   // Datas já salvas. Se alguma cor salva não está mais crítica, limpa — mas
@@ -179,13 +230,23 @@ function listarCoresCriticas(token) {
   // "novo pedido", até alguém informar a nova (ver `_itensReabertos`).
   var reabertos = _itensReabertos(limite, movimentos, emViagem, emAberto, salvasIniciais);
 
-  // Mais crítica primeiro, pelo mesmo cálculo interno que decidiu a lista e a cor.
-  base.sort(function (a, b) { return a.saldoEfetivo - b.saldoEfetivo; });
+  // Mais crítica primeiro, pelo mesmo cálculo interno que decidiu a lista e a cor,
+  // em blocos: negativos → estoque 0 nas duas filiais COM descrição → estoque 0
+  // nas duas filiais SEM descrição → o restante (amarelo). Dentro de cada bloco
+  // vale a ordem de antes (sort estável).
+  function bloco(b) {
+    if (b.negativo) return 0;
+    if (b.zeradoAmbas) return b.desc.descricao ? 1 : 2;
+    return 3;
+  }
+  base.sort(function (a, b) {
+    return (bloco(a) - bloco(b)) || (a.saldoEfetivo - b.saldoEfetivo);
+  });
 
   var itens = base.map(function (b) {
     var salvo = salvas[b.chave];
     var rea = reabertos[b.chave] || null;
-    var d = descricaoDe(b.item);
+    var d = b.desc;
     return {
       item: b.item,
       descricao: d.descricao,
@@ -193,7 +254,8 @@ function listarCoresCriticas(token) {
       saldo: b.saldo,                       // exibido: só o estoque (a soma interna não sai do servidor)
       emViagem: emViagem[b.chave] || 0,     // exibido, só consulta
       solicitado: emAberto[b.chave] || 0,   // exibido, só consulta
-      negativo: b.negativo,
+      negativo: b.negativo || b.zeradoAmbas, // vermelho: saldo negativo OU estoque 0 nas duas filiais
+      zeradoAmbas: b.zeradoAmbas,
       dataNecessaria: rea ? '' : (salvo ? salvo.dataNecessaria : ''),
       novo: !!rea,
       motivoNovo: rea ? rea.motivo : '',
