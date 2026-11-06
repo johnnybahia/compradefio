@@ -24,6 +24,7 @@ de estrutura sobe o 1º (1.1.0 → 2.0.0).
 
 | Versão | Data | O que mudou |
 |---|---|---|
+| 1.2.1 | 06/11/2026 | Programação de Embarque: a regra "com descrição primeiro" passa a valer para **todo estoque 0**, não só o zerado nas duas filiais. Ordem: negativos → zerado nas duas (vermelho) com descrição → sem descrição → estoque 0 só aqui (amarelo) com descrição → sem descrição → restante. Antes, no bloco amarelo, cores sem descrição ficavam misturadas às com descrição. |
 | 1.2.0 | 06/11/2026 | Programação de Embarque: cor com **estoque 0 nas duas filiais** (só o saldo do estoque, sem em viagem/solicitado; item da outra filial casado como em "comparar estoque entre unidades") passa a sair em **vermelho**, mesmo sem saldo negativo. Ordem: negativos → estoque 0 nas duas filiais **com descrição** → estoque 0 nas duas filiais **sem descrição** → amarelos (cada bloco na ordem de antes). Sem par na outra filial, saldo vazio ou falha ao ler a planilha dela = não marca. Quem entra na lista não mudou. |
 | 1.1.0 | 05/11/2026 | Relatório e PDF do e-mail: linha que é resíduo de embarque parcial sai marcada com o selo **SALDO** (borda preta, sem depender de cor) ao lado do item e, sob o total, "saldo de X · já saiu Y", mais uma legenda no rodapé — na tela, na impressão da lista pendente e no PDF. Antes o resíduo parecia pedido novo e era tingido de novo. Não aparece no bloco de embarque (ali a linha é o que saiu) nem na impressão da aba Tingimento (continua sem selos). |
 | 1.0.1 | 23/10/2026 | Relatório: o mesmo item lançado duas vezes no MESMO embarque (pedidos diferentes) não é mais somado numa linha só — aparece uma linha por linha da aba EMBARQUES, na tela e na impressão, igual à lista de embarque (antes, a conferência dava uma entrada única no estoque e a outra linha ficava pendente do embarque). |
@@ -857,8 +858,9 @@ muda, na Análise segue "Já pendente"). O **Saldo exibido é só o do estoque**
 
 **v1.2.0 — estoque 0 nas duas filiais:** além do negativo, a cor com saldo do
 estoque 0 aqui **e** na outra filial sai **vermelha** (`zeradoAmbas`;
-`negativo` na resposta fica true). Ordem em blocos: negativos → zerado nas duas
-com descrição → zerado nas duas sem descrição → amarelos. O item da outra
+`negativo` na resposta fica true). Ordem em blocos (v1.2.1): negativos → zerado
+nas duas com descrição → sem descrição → estoque 0 só aqui (amarelo) com
+descrição → sem descrição → restante. O item da outra
 filial é casado como em `compararEstoqueEntreUnidades` (vínculo aprendido, senão
 código + tipo de fio); sem par, saldo vazio ou erro ao abrir a planilha dela =
 não marca (`_criarLocalizadorZeradoNaOutra`, `Programacao.gs`). Só leitura:

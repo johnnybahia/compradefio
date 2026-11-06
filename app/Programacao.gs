@@ -29,8 +29,9 @@
  *
  * Cor com estoque 0 nas DUAS filiais (o saldo do estoque, sem em viagem nem
  * solicitado) também sai em vermelho, mesmo sem saldo negativo, e vem logo
- * abaixo dos negativos: primeiro as que têm descrição, depois as sem descrição
- * (ver `_criarLocalizadorZeradoNaOutra`). O resto da lista segue como antes.
+ * abaixo dos negativos. Em QUALQUER estoque 0 (nas duas filiais ou só aqui) as
+ * cores com descrição vêm antes das sem descrição, dentro do seu bloco (ver
+ * `_criarLocalizadorZeradoNaOutra` e `bloco`). O resto da lista segue como antes.
  */
 
 var PROGRAMACAO_DATA_EMBARQUE_HEADERS = ['ITEM', 'DATA_NECESSARIA', 'USUARIO', 'ATUALIZADO_EM'];
@@ -189,10 +190,11 @@ function listarCoresCriticas(token) {
     var d = descricaoDe(r.item);
     var negativo = saldoEfetivo < 0;
     // Estoque 0 aqui E na outra filial (só o estoque, sem em viagem/solicitado).
-    var zeradoAmbas = !negativo && _saldoEhZero(r.saldo) && zeradoNaOutra(r.item);
+    var estoqueZero = _saldoEhZero(r.saldo);
+    var zeradoAmbas = !negativo && estoqueZero && zeradoNaOutra(r.item);
     base.push({
       chave: k, item: r.item, saldo: r.saldo, saldoEfetivo: saldoEfetivo,
-      negativo: negativo, zeradoAmbas: zeradoAmbas, desc: d
+      negativo: negativo, estoqueZero: estoqueZero, zeradoAmbas: zeradoAmbas, desc: d
     });
   });
 
@@ -231,13 +233,15 @@ function listarCoresCriticas(token) {
   var reabertos = _itensReabertos(limite, movimentos, emViagem, emAberto, salvasIniciais);
 
   // Mais crítica primeiro, pelo mesmo cálculo interno que decidiu a lista e a cor,
-  // em blocos: negativos → estoque 0 nas duas filiais COM descrição → estoque 0
-  // nas duas filiais SEM descrição → o restante (amarelo). Dentro de cada bloco
-  // vale a ordem de antes (sort estável).
+  // em blocos: negativos → estoque 0 nas duas filiais (vermelho) COM descrição →
+  // idem SEM descrição → estoque 0 só aqui (amarelo) COM descrição → idem SEM
+  // descrição → o restante. Dentro de cada bloco vale a ordem de antes (sort estável).
   function bloco(b) {
     if (b.negativo) return 0;
-    if (b.zeradoAmbas) return b.desc.descricao ? 1 : 2;
-    return 3;
+    var semDesc = b.desc.descricao ? 0 : 1;
+    if (b.zeradoAmbas) return 1 + semDesc;
+    if (b.estoqueZero) return 3 + semDesc;
+    return 5;
   }
   base.sort(function (a, b) {
     return (bloco(a) - bloco(b)) || (a.saldoEfetivo - b.saldoEfetivo);
