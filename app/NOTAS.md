@@ -24,6 +24,7 @@ de estrutura sobe o 1º (1.1.0 → 2.0.0).
 
 | Versão | Data | O que mudou |
 |---|---|---|
+| 1.2.0 | 06/11/2026 | Programação de Embarque: cor com **estoque 0 nas duas filiais** (só o saldo do estoque, sem em viagem/solicitado; item da outra filial casado como em "comparar estoque entre unidades") passa a sair em **vermelho**, mesmo sem saldo negativo. Ordem: negativos → estoque 0 nas duas filiais **com descrição** → estoque 0 nas duas filiais **sem descrição** → amarelos (cada bloco na ordem de antes). Sem par na outra filial, saldo vazio ou falha ao ler a planilha dela = não marca. Quem entra na lista não mudou. |
 | 1.1.0 | 05/11/2026 | Relatório e PDF do e-mail: linha que é resíduo de embarque parcial sai marcada com o selo **SALDO** (borda preta, sem depender de cor) ao lado do item e, sob o total, "saldo de X · já saiu Y", mais uma legenda no rodapé — na tela, na impressão da lista pendente e no PDF. Antes o resíduo parecia pedido novo e era tingido de novo. Não aparece no bloco de embarque (ali a linha é o que saiu) nem na impressão da aba Tingimento (continua sem selos). |
 | 1.0.1 | 23/10/2026 | Relatório: o mesmo item lançado duas vezes no MESMO embarque (pedidos diferentes) não é mais somado numa linha só — aparece uma linha por linha da aba EMBARQUES, na tela e na impressão, igual à lista de embarque (antes, a conferência dava uma entrada única no estoque e a outra linha ficava pendente do embarque). |
 | 1.0.0 | 15/10/2026 | Primeira versão numerada. Inclui: data de embarque reabre em branco quando entra consumo novo depois de pedido pendente ou em viagem (Análise, ↻ e Programação, com selo "novo pedido"); Programação de Embarque com colunas Em viagem e Solicitado e lista/cor por estoque + em viagem + solicitado (cálculo interno). |
@@ -853,6 +854,17 @@ muda, na Análise segue "Já pendente"). O **Saldo exibido é só o do estoque**
 (20 Ceará / 10 Bahia) → a cor **não entra na lista**; de 0 até o limite →
 **amarelo**; negativo → **vermelho**. A ordem da lista segue o mesmo valor
 (mais crítica primeiro). A Análise de Compra não mudou.
+
+**v1.2.0 — estoque 0 nas duas filiais:** além do negativo, a cor com saldo do
+estoque 0 aqui **e** na outra filial sai **vermelha** (`zeradoAmbas`;
+`negativo` na resposta fica true). Ordem em blocos: negativos → zerado nas duas
+com descrição → zerado nas duas sem descrição → amarelos. O item da outra
+filial é casado como em `compararEstoqueEntreUnidades` (vínculo aprendido, senão
+código + tipo de fio); sem par, saldo vazio ou erro ao abrir a planilha dela =
+não marca (`_criarLocalizadorZeradoNaOutra`, `Programacao.gs`). Só leitura:
+nada é gravado no estoque de nenhuma filial e o estoque da outra não é exibido.
+Quem entra na lista não mudou (estoque 0 coberto por em viagem + solicitado
+acima do limite continua fora).
 
 Histórico: antes só o "em viagem" entrava na conta (e era exibido somado ao
 Saldo); o "solicitado" não entrava. Efeito colateral: a limpeza automática da
