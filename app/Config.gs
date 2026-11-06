@@ -33,7 +33,7 @@ var CONFIG = {
    *   - mudança grande de estrutura ........... sobe o 1º número (1.1.0 → 2.0.0)
    * VERSAO_DATA é a data da atualização (dd/mm/aaaa).
    */
-  VERSAO: '1.2.1',
+  VERSAO: '1.3.0',
   VERSAO_DATA: '06/11/2026',
 
   /**

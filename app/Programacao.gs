@@ -27,11 +27,11 @@
  * acompanhando só porque ele não teve movimento nesses dias (ex.: já tingido,
  * parado esperando o embarque).
  *
- * Cor com estoque 0 nas DUAS filiais (o saldo do estoque, sem em viagem nem
- * solicitado) também sai em vermelho, mesmo sem saldo negativo, e vem logo
- * abaixo dos negativos. Em QUALQUER estoque 0 (nas duas filiais ou só aqui) as
- * cores com descrição vêm antes das sem descrição, dentro do seu bloco (ver
- * `_criarLocalizadorZeradoNaOutra` e `bloco`). O resto da lista segue como antes.
+ * Cor com estoque 0 (o saldo do estoque, sem em viagem nem solicitado) também
+ * sai em vermelho, mesmo sem saldo negativo, e vem logo abaixo dos negativos:
+ * primeiro as que têm descrição, depois as sem descrição (ver `bloco`). A regra
+ * vale igual nas duas filiais — cada uma com o seu próprio estoque (nada é lido
+ * da outra unidade). O resto da lista segue como antes.
  */
 
 var PROGRAMACAO_DATA_EMBARQUE_HEADERS = ['ITEM', 'DATA_NECESSARIA', 'USUARIO', 'ATUALIZADO_EM'];
@@ -105,38 +105,6 @@ function _saldoEhZero(v) {
 }
 
 /**
- * Devolve `fn(item)` → true quando o item tem estoque 0 TAMBÉM na outra
- * unidade. Só leitura: o estoque da outra filial serve apenas para decidir
- * cor/ordem, nunca é exibido nem gravado. Casamento do item igual ao de
- * `compararEstoqueEntreUnidades` (vínculo aprendido; senão código + tipo de fio).
- * Sem par na outra filial, saldo vazio ou falha ao ler a planilha dela = "não
- * confirmado" (false) — melhor não pintar vermelho do que pintar errado.
- */
-function _criarLocalizadorZeradoNaOutra(unidadeAtiva) {
-  var nunca = function () { return false; };
-  var outraId = _outraUnidade(unidadeAtiva);
-  if (!outraId) return nunca;
-  var estoqueOutra, aprendido;
-  try {
-    estoqueOutra = _saldoPorItemUnidade(outraId);
-    aprendido = _equivDe(unidadeAtiva, outraId);
-  } catch (e) {
-    return nunca; // sem acesso à outra planilha: a tela segue com a regra de antes
-  }
-  return function (item) {
-    var alvo = null;
-    var apr = aprendido[_norm(item)];
-    if (apr) {
-      alvo = estoqueOutra.porItem[_norm(apr)] || null;
-    } else {
-      var chave = _chaveEquivItem(item);
-      if (chave) alvo = estoqueOutra.porChave[chave] || null;
-    }
-    return !!alvo && _saldoEhZero(alvo.saldo);
-  };
-}
-
-/**
  * Lista as cores em condição crítica na unidade ativa, com a data já
  * preenchida (se houver), e limpa da aba PROGRAMACAO_DATA_EMBARQUE qualquer
  * cor que não está mais crítica — ver docstring do arquivo.
@@ -144,8 +112,8 @@ function _criarLocalizadorZeradoNaOutra(unidadeAtiva) {
  * `novo: true` e a data em branco (`dataAnterior` guarda a antiga) — ver `_itensReabertos`.
  * `saldo`, `emViagem` e `solicitado` são só o que o operador vê; `negativo` (vermelho
  * x amarelo) e a própria presença na lista vêm do cálculo interno descrito no topo.
- * `negativo` também é true quando `zeradoAmbas` (estoque 0 aqui e na outra filial).
- * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, negativo, zeradoAmbas, dataNecessaria, novo, motivoNovo, dataAnterior}] }
+ * `negativo` também é true quando o estoque é 0 (vermelho).
+ * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
  */
 function listarCoresCriticas(token) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
@@ -166,7 +134,6 @@ function listarCoresCriticas(token) {
   var emAberto = _emAbertoPorItem(); // "Solicitado": já pedido, aguardando envio (o "Já pendente" da Análise)
   var tipoFioDe = _criarLocalizadorTipoFio();
   var descricaoDe = _criarLocalizadorDescricao();
-  var zeradoNaOutra = _criarLocalizadorZeradoNaOutra(s.unidade || CONFIG.UNIDADE_PADRAO);
 
   var salvasIniciais = _lerDatasProgramacao();
   var corte = new Date();
@@ -189,12 +156,11 @@ function listarCoresCriticas(token) {
     criticoSet[k] = true;
     var d = descricaoDe(r.item);
     var negativo = saldoEfetivo < 0;
-    // Estoque 0 aqui E na outra filial (só o estoque, sem em viagem/solicitado).
+    // Estoque 0 desta unidade (só o estoque, sem em viagem/solicitado): vermelho.
     var estoqueZero = _saldoEhZero(r.saldo);
-    var zeradoAmbas = !negativo && estoqueZero && zeradoNaOutra(r.item);
     base.push({
       chave: k, item: r.item, saldo: r.saldo, saldoEfetivo: saldoEfetivo,
-      negativo: negativo, estoqueZero: estoqueZero, zeradoAmbas: zeradoAmbas, desc: d
+      negativo: negativo, estoqueZero: estoqueZero, desc: d
     });
   });
 
@@ -233,15 +199,12 @@ function listarCoresCriticas(token) {
   var reabertos = _itensReabertos(limite, movimentos, emViagem, emAberto, salvasIniciais);
 
   // Mais crítica primeiro, pelo mesmo cálculo interno que decidiu a lista e a cor,
-  // em blocos: negativos → estoque 0 nas duas filiais (vermelho) COM descrição →
-  // idem SEM descrição → estoque 0 só aqui (amarelo) COM descrição → idem SEM
-  // descrição → o restante. Dentro de cada bloco vale a ordem de antes (sort estável).
+  // em blocos: negativos → estoque 0 COM descrição → estoque 0 SEM descrição →
+  // o restante (amarelo). Dentro de cada bloco vale a ordem de antes (sort estável).
   function bloco(b) {
     if (b.negativo) return 0;
-    var semDesc = b.desc.descricao ? 0 : 1;
-    if (b.zeradoAmbas) return 1 + semDesc;
-    if (b.estoqueZero) return 3 + semDesc;
-    return 5;
+    if (b.estoqueZero) return b.desc.descricao ? 1 : 2;
+    return 3;
   }
   base.sort(function (a, b) {
     return (bloco(a) - bloco(b)) || (a.saldoEfetivo - b.saldoEfetivo);
@@ -258,8 +221,7 @@ function listarCoresCriticas(token) {
       saldo: b.saldo,                       // exibido: só o estoque (a soma interna não sai do servidor)
       emViagem: emViagem[b.chave] || 0,     // exibido, só consulta
       solicitado: emAberto[b.chave] || 0,   // exibido, só consulta
-      negativo: b.negativo || b.zeradoAmbas, // vermelho: saldo negativo OU estoque 0 nas duas filiais
-      zeradoAmbas: b.zeradoAmbas,
+      negativo: b.negativo || b.estoqueZero, // vermelho: saldo negativo OU estoque 0 nesta unidade
       dataNecessaria: rea ? '' : (salvo ? salvo.dataNecessaria : ''),
       novo: !!rea,
       motivoNovo: rea ? rea.motivo : '',
