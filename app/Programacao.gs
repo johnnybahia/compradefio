@@ -156,8 +156,10 @@ function listarCoresCriticas(token) {
     // (ver docstring do arquivo) — senão fica de fora, pra não acumular
     // código parado há tempos.
     if (!recente && !salvasIniciais[k]) return;
-    criticoSet[k] = true;
     var d = descricaoDe(r.item);
+    // Sem descrição: só entra se o estoque estiver negativo (0 ou positivo sai da lista).
+    if (!d.descricao && !(r.saldo < 0 && !_saldoEhZero(r.saldo))) return;
+    criticoSet[k] = true;
     var negativo = saldoEfetivo < 0;
     // Estoque 0 desta unidade (só o estoque, sem em viagem/solicitado): vermelho.
     var estoqueZero = _saldoEhZero(r.saldo);
