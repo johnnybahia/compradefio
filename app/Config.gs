@@ -33,8 +33,8 @@ var CONFIG = {
    *   - mudança grande de estrutura ........... sobe o 1º número (1.1.0 → 2.0.0)
    * VERSAO_DATA é a data da atualização (dd/mm/aaaa).
    */
-  VERSAO: '1.3.0',
-  VERSAO_DATA: '06/11/2026',
+  VERSAO: '1.4.0',
+  VERSAO_DATA: '11/11/2026',
 
   /**
    * Logo usado na tela (splash, login, topo) e nos e-mails (Pedido de Fio,
