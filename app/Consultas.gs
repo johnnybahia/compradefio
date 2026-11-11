@@ -982,7 +982,9 @@ function _urgenciaTingimentoHTML(detalhes, unidade, autor, dataFmt) {
     return '<td style="border:1px solid #cbd5e1;padding:6px 9px;font-size:13px">' + v + '</td>';
   }
   var rows = detalhes.map(function (d) {
-    return '<tr>' + td(_escHtmlEmail(d.item)) + td(_escHtmlEmail(d.descricao) || '—') +
+    return '<tr>' +
+      '<td style="border:2px solid #B91C1C;padding:8px 12px;background:#FEE2E2;color:#B91C1C;' +
+        'font-size:22px;font-weight:bold;white-space:nowrap">' + _escHtmlEmail(d.item) + '</td>' + td(_escHtmlEmail(d.descricao) || '—') +
       td(_escHtmlEmail(d.cliente) || '—') +
       td(Number(d.qtdUrgencia) > 0 ? (d.qtdUrgencia + ' kg') : '—') +
       td(d.dataUrgencia ? _escHtmlEmail(d.dataUrgencia) : '—') + '</tr>';
@@ -999,7 +1001,7 @@ function _urgenciaTingimentoHTML(detalhes, unidade, autor, dataFmt) {
     '<p style="font-size:14px;margin:0 0 10px">Os itens abaixo são <b style="color:#B91C1C">prioridade</b> — ' +
       'favor priorizar o tingimento/entrega (a quantidade prioritária pode ser menor que o pedido total):</p>' +
     '<table style="border-collapse:collapse"><thead><tr>' +
-      ['Item', 'Descrição', 'Cliente', 'Prioridade (kg)', 'Prioridade para'].map(th).join('') +
+      ['COR', 'Descrição', 'Cliente', 'Prioridade (kg)', 'Prioridade para'].map(th).join('') +
     '</tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p style="color:#64748b;font-size:12px;margin-top:14px">Enviado automaticamente pelo sistema Marfim.</p></div>';
 }

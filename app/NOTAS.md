@@ -24,6 +24,7 @@ de estrutura sobe o 1º (1.1.0 → 2.0.0).
 
 | Versão | Data | O que mudou |
 |---|---|---|
+| 1.5.1 | 11/11/2026 | E-mail de Tingimento Urgente: coluna "Item" passa a se chamar **COR** e sai em destaque (fonte grande, negrito, fundo vermelho claro), pois é o que precisa de urgência. |
 | 1.5.0 | 11/11/2026 | Programação de Embarque: cor **sem descrição** só entra na lista com estoque **negativo**; com estoque 0 ou positivo sai (e a data salva, se houver, é apagada pela limpeza normal). |
 | 1.4.1 | 11/11/2026 | Texto de "sem descrição" (sem cadastro na ASSOCIAÇÃO / cadastrado, sem descrição na produção), na Programação de Embarque e na Análise de Compra: com fio 0 ou negativo, ganha destaque em vermelho e negrito pedindo para confirmar a situação. |
 | 1.4.0 | 11/11/2026 | Programação de Embarque: lista ordenada pelo **menor total** (estoque + em viagem + solicitado); **vermelho** quando o total é ≤ 15 kg (ou estoque 0); nova coluna **Atualizado em** (data do último lançamento no estoque) antes de Cor; item sem descrição pede confirmação ao informar a data e mostra alerta quando negativo; aviso em destaque no texto de ajuda sobre fio 0/negativo e item sem descrição. |
