@@ -280,10 +280,12 @@ function viewProgramacaoEmbarque(alvo) {
       blocoAjuda(
         'Lista automática das cores com saldo crítico do estoque, com lançamento nas <b>últimas 2 ' +
         'semanas</b> — sempre o saldo mais recente, sem precisar analisar nada antes. ' +
-        '<span style="color:#C0392B;font-weight:600">Vermelho</span>: saldo negativo, ou <b>estoque 0</b> ' +
+        '<div style="margin:8px 0;padding:10px 12px;border-left:4px solid #C0392B;background:#FBEAE9;color:#7A1F18;font-weight:700">' +
+        '⚠ Cadastro com fio 0 ou negativo, ou item sem descrição: confirme a situação antes de informar a data.</div>' +
+        '<span style="color:#C0392B;font-weight:600">Vermelho</span>: total (estoque + em viagem + solicitado) de <b>15 kg ou menos</b>, ou <b>estoque 0</b> ' +
         '(só o estoque conta, sem em viagem nem solicitado; vale no Ceará e na Bahia, cada uma com o seu ' +
         'estoque). Os estoques 0 ficam logo abaixo dos negativos: as cores <b>com descrição vêm primeiro</b>, ' +
-        'depois as sem descrição. ' +
+        'depois as sem descrição. A lista segue do <b>menor para o maior total</b>. ' +
         '<span style="color:#9A7D0A;font-weight:600">Amarelo</span>: saldo baixo, dentro do limite desta ' +
         'unidade. O <b>Saldo</b> mostrado é só o do estoque; <b>Em viagem</b> e <b>Solicitado</b> (já pedido, ' +
         'aguardando envio) aparecem ao lado. A lista e a cor consideram, por dentro, estoque + em viagem + ' +
@@ -315,6 +317,19 @@ function carregarProgramacaoEmbarque() {
   });
 }
 
+/** Texto de "sem descrição" (cadastrado sem descrição / sem cadastro na ASSOCIAÇÃO).
+ * Com fio 0 ou negativo, destaca e pede para confirmar a situação. */
+function htmlSemDescricao(it) {
+  var base = '<span class="sem-desc">— ' + escAttr(it.motivo || 'sem descrição') + '</span>';
+  var s = Number(it.saldo);
+  if (!isNaN(s) && s <= 0) {
+    base += '<div style="margin-top:3px;padding:3px 7px;border-left:3px solid #C0392B;background:#FBEAE9;' +
+      'color:#7A1F18;font-weight:700;font-size:12px;font-style:normal">⚠ ' +
+      (s < 0 ? 'fio negativo' : 'fio 0') + ' e sem descrição — confirmar a situação</div>';
+  }
+  return base;
+}
+
 /** Horas entre agora e 00:00 do dia informado (ISO 'aaaa-MM-dd'). Negativo
  * quando o dia já começou/passou. Infinity se `isoStr` não for uma data. */
 function _horasAteMeiaNoite(isoStr) {
@@ -333,10 +348,13 @@ function renderProgramacaoEmbarque() {
     return;
   }
   var body = itens.map(function (it) {
+    var alerta = (it.semDescricao && it.saldoNegativo)
+      ? '<div style="color:#C0392B;font-weight:700;font-size:12px">⚠ negativo e sem descrição — verifique</div>' : '';
     return '<tr class="' + (it.negativo ? 'linha-saldo-negativo' : 'linha-saldo-baixo') + '">' +
+      '<td style="white-space:nowrap">' + escAttr(it.atualizadoEm || '—') + '</td>' +
       '<td class="col-item">' + escAttr(it.item) + '</td>' +
-      '<td>' + (it.descricao ? escAttr(it.descricao)
-        : '<span class="sem-desc">— ' + escAttr(it.motivo || 'sem descrição') + '</span>') + '</td>' +
+      '<td>' + alerta + (it.descricao ? escAttr(it.descricao)
+        : htmlSemDescricao(it)) + '</td>' +
       '<td style="text-align:right">' + num(it.saldo) + '</td>' +
       '<td style="text-align:right">' + (it.emViagem ? num(it.emViagem) : '—') + '</td>' +
       '<td style="text-align:right" title="Já solicitado, aguardando envio.">' +
@@ -352,7 +370,7 @@ function renderProgramacaoEmbarque() {
   }).join('');
   wrap.innerHTML =
     '<table class="dados"><thead><tr>' +
-      '<th style="width:12%">Cor</th><th style="width:30%">Descrição</th>' +
+      '<th style="width:9%">Atualizado em</th><th style="width:11%">Cor</th><th style="width:27%">Descrição</th>' +
       '<th style="text-align:right;width:10%">Saldo</th>' +
       '<th style="text-align:right;width:10%">Em viagem</th>' +
       '<th style="text-align:right;width:10%">Solicitado</th>' +
@@ -394,19 +412,35 @@ function renderProgramacaoEmbarque() {
       // qualquer hora do dia de hoje) — avisa, mas não bloqueia: quem
       // confirmar sabe que o prazo é apertado; quem cancelar volta pro valor
       // anterior sem salvar nada.
-      if (inp.value && _horasAteMeiaNoite(inp.value) < 48) {
+      function checarPrazo() {
+        if (inp.value && _horasAteMeiaNoite(inp.value) < 48) {
+          confirmarModal(
+            'Prazo curto demais?',
+            'A data escolhida (<b>' + escAttr(isoParaBR(inp.value)) + '</b>) está a menos de ' +
+            '<b>48 horas</b> do embarque — pode não dar tempo de preparar e embarcar esse item. ' +
+            'Confira se é a data certa antes de confirmar.',
+            'Confirmar mesmo assim', 'Cancelar',
+            function (ok) {
+              if (ok) { salvar(); } else { inp.value = valorAnterior; }
+            }
+          );
+        } else {
+          salvar();
+        }
+      }
+      var itemObj = estadoProgramacaoEmbarque.itens.filter(function (x) { return x.item === item; })[0];
+      if (inp.value && itemObj && itemObj.semDescricao) {
         confirmarModal(
-          'Prazo curto demais?',
-          'A data escolhida (<b>' + escAttr(isoParaBR(inp.value)) + '</b>) está a menos de ' +
-          '<b>48 horas</b> do embarque — pode não dar tempo de preparar e embarcar esse item. ' +
-          'Confira se é a data certa antes de confirmar.',
-          'Confirmar mesmo assim', 'Cancelar',
+          '⚠ Item sem descrição',
+          '<b>Verifique o item ' + escAttr(item) + ': está sem descrição.</b> Pode ser falta de associação ' +
+          'por não ter mais pedido, ou erro do sistema. Deseja informar a data mesmo assim?',
+          'Informar data mesmo assim', 'Cancelar',
           function (ok) {
-            if (ok) { salvar(); } else { inp.value = valorAnterior; }
+            if (ok) { checarPrazo(); } else { inp.value = valorAnterior; }
           }
         );
       } else {
-        salvar();
+        checarPrazo();
       }
     });
   });
@@ -1059,7 +1093,7 @@ function renderLista(itens) {
   var body = itens.map(function (it, i) {
     var desc = it.descricao
       ? it.descricao
-      : '<span class="sem-desc">— ' + (it.motivo || 'sem descrição') + '</span>';
+      : htmlSemDescricao(it);
     return '<tr data-idx="' + i + '">' +
       '<td style="text-align:center"><input type="checkbox" class="sel-compra" data-idx="' + i + '"' +
         (it.marcado ? ' checked' : '') + '></td>' +

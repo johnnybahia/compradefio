@@ -104,6 +104,9 @@ function _saldoEhZero(v) {
   return v != null && !isNaN(v) && Math.abs(v) < 0.005;
 }
 
+/** Total (estoque + em viagem + solicitado) até o qual a cor fica em vermelho. */
+var PROGRAMACAO_LIMITE_VERMELHO = 15;
+
 /**
  * Lista as cores em condição crítica na unidade ativa, com a data já
  * preenchida (se houver), e limpa da aba PROGRAMACAO_DATA_EMBARQUE qualquer
@@ -113,7 +116,7 @@ function _saldoEhZero(v) {
  * `saldo`, `emViagem` e `solicitado` são só o que o operador vê; `negativo` (vermelho
  * x amarelo) e a própria presença na lista vêm do cálculo interno descrito no topo.
  * `negativo` também é true quando o estoque é 0 (vermelho).
- * @return {Object} { ok, limite, itens: [{item, descricao, motivo, saldo, emViagem, solicitado, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
+ * @return {Object} { ok, limite, itens: [{item, descricao, motivo, atualizadoEm, semDescricao, saldoNegativo, saldo, emViagem, solicitado, negativo, dataNecessaria, novo, motivoNovo, dataAnterior}] }
  */
 function listarCoresCriticas(token) {
   var s = exigirSessao(token, [CONFIG.PAPEIS.MASTER, CONFIG.PAPEIS.PROGRAMACAO]);
@@ -159,7 +162,7 @@ function listarCoresCriticas(token) {
     // Estoque 0 desta unidade (só o estoque, sem em viagem/solicitado): vermelho.
     var estoqueZero = _saldoEhZero(r.saldo);
     base.push({
-      chave: k, item: r.item, saldo: r.saldo, saldoEfetivo: saldoEfetivo,
+      chave: k, item: r.item, saldo: r.saldo, saldoEfetivo: saldoEfetivo, data: r.data,
       negativo: negativo, estoqueZero: estoqueZero, desc: d
     });
   });
@@ -198,17 +201,8 @@ function listarCoresCriticas(token) {
   // "novo pedido", até alguém informar a nova (ver `_itensReabertos`).
   var reabertos = _itensReabertos(limite, movimentos, emViagem, emAberto, salvasIniciais);
 
-  // Mais crítica primeiro, pelo mesmo cálculo interno que decidiu a lista e a cor,
-  // em blocos: negativos → estoque 0 COM descrição → estoque 0 SEM descrição →
-  // o restante (amarelo). Dentro de cada bloco vale a ordem de antes (sort estável).
-  function bloco(b) {
-    if (b.negativo) return 0;
-    if (b.estoqueZero) return b.desc.descricao ? 1 : 2;
-    return 3;
-  }
-  base.sort(function (a, b) {
-    return (bloco(a) - bloco(b)) || (a.saldoEfetivo - b.saldoEfetivo);
-  });
+  // Menor total (estoque + em viagem + solicitado) primeiro.
+  base.sort(function (a, b) { return a.saldoEfetivo - b.saldoEfetivo; });
 
   var itens = base.map(function (b) {
     var salvo = salvas[b.chave];
@@ -221,7 +215,11 @@ function listarCoresCriticas(token) {
       saldo: b.saldo,                       // exibido: só o estoque (a soma interna não sai do servidor)
       emViagem: emViagem[b.chave] || 0,     // exibido, só consulta
       solicitado: emAberto[b.chave] || 0,   // exibido, só consulta
-      negativo: b.negativo || b.estoqueZero, // vermelho: saldo negativo OU estoque 0 nesta unidade
+      // vermelho: total (estoque + em viagem + solicitado) <= limite vermelho OU estoque 0 nesta unidade
+      negativo: b.saldoEfetivo <= PROGRAMACAO_LIMITE_VERMELHO || b.estoqueZero,
+      atualizadoEm: Utilities.formatDate(b.data, Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+      semDescricao: !d.descricao,
+      saldoNegativo: b.negativo,
       dataNecessaria: rea ? '' : (salvo ? salvo.dataNecessaria : ''),
       novo: !!rea,
       motivoNovo: rea ? rea.motivo : '',
