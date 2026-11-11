@@ -24,6 +24,7 @@ de estrutura sobe o 1º (1.1.0 → 2.0.0).
 
 | Versão | Data | O que mudou |
 |---|---|---|
+| 1.5.0 | 11/11/2026 | Programação de Embarque: cor **sem descrição** só entra na lista com estoque **negativo**; com estoque 0 ou positivo sai (e a data salva, se houver, é apagada pela limpeza normal). |
 | 1.4.1 | 11/11/2026 | Texto de "sem descrição" (sem cadastro na ASSOCIAÇÃO / cadastrado, sem descrição na produção), na Programação de Embarque e na Análise de Compra: com fio 0 ou negativo, ganha destaque em vermelho e negrito pedindo para confirmar a situação. |
 | 1.4.0 | 11/11/2026 | Programação de Embarque: lista ordenada pelo **menor total** (estoque + em viagem + solicitado); **vermelho** quando o total é ≤ 15 kg (ou estoque 0); nova coluna **Atualizado em** (data do último lançamento no estoque) antes de Cor; item sem descrição pede confirmação ao informar a data e mostra alerta quando negativo; aviso em destaque no texto de ajuda sobre fio 0/negativo e item sem descrição. |
 | 1.3.0 | 06/11/2026 | Programação de Embarque: **todo estoque 0 sai em vermelho**, nas duas filiais (Ceará e Bahia), cada uma com o seu próprio estoque — corrige o entendimento das versões 1.2.0/1.2.1, que só marcavam quando o estoque era 0 também na outra filial. Estoque 0: primeiro as cores com descrição, depois as sem descrição, logo abaixo dos negativos; o restante segue como antes. Não lê mais o estoque da outra unidade. |
