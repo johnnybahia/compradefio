@@ -1836,9 +1836,26 @@ function abrirModalDataUrgencia(item, callback) {
       if (hint) hint.textContent = 'Não consegui carregar os lotes.';
     });
   overlay.querySelector('#modal-btn-destaque').onclick = function () {
-    var dataBR = isoParaBR(overlay.querySelector('#modal-urg-data').value);
+    var iso = overlay.querySelector('#modal-urg-data').value;
+    var dataBR = isoParaBR(iso);
     var qtd = Number(overlay.querySelector('#modal-urg-qtd').value) || 0;
-    fechar(); callback(true, dataBR, qtd > 0 ? qtd : '');
+    function concluir() { fechar(); callback(true, dataBR, qtd > 0 ? qtd : ''); }
+    // Prioridade para o próprio dia da solicitação (ou data já passada): avisa
+    // antes de aceitar — quem cancelar volta pro modal pra trocar a data.
+    if (iso && iso <= ymd(new Date())) {
+      var mesmoDia = iso === ymd(new Date());
+      confirmarModal(
+        '⚠ Data da prioridade',
+        '<b>' + (mesmoDia
+          ? 'A prioridade é para HOJE (' + escAttr(dataBR) + '), o mesmo dia desta solicitação.'
+          : 'A data escolhida (' + escAttr(dataBR) + ') já passou.') + '</b> ' +
+        'Dificilmente dá tempo de tingir e entregar. Confira se é a data certa antes de confirmar.',
+        'Manter esta data', 'Voltar e trocar',
+        function (ok) { if (ok) concluir(); }
+      );
+      return;
+    }
+    concluir();
   };
   overlay.querySelector('#modal-btn-secundario').onclick = function () { fechar(); callback(false, '', ''); };
   overlay.querySelector('#modal-urg-data').focus();

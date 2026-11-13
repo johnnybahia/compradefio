@@ -24,6 +24,7 @@ de estrutura sobe o 1º (1.1.0 → 2.0.0).
 
 | Versão | Data | O que mudou |
 |---|---|---|
+| 1.6.0 | 13/11/2026 | Tingimento, marcar prioridade: aviso quando a data da prioridade é o **mesmo dia da solicitação** (ou já passou); o usuário pode manter a data ou voltar e trocar. |
 | 1.5.1 | 11/11/2026 | E-mail de Tingimento Urgente: coluna "Item" passa a se chamar **COR** e sai em destaque (fonte grande, negrito, fundo vermelho claro), pois é o que precisa de urgência. |
 | 1.5.0 | 11/11/2026 | Programação de Embarque: cor **sem descrição** só entra na lista com estoque **negativo**; com estoque 0 ou positivo sai (e a data salva, se houver, é apagada pela limpeza normal). |
 | 1.4.1 | 11/11/2026 | Texto de "sem descrição" (sem cadastro na ASSOCIAÇÃO / cadastrado, sem descrição na produção), na Programação de Embarque e na Análise de Compra: com fio 0 ou negativo, ganha destaque em vermelho e negrito pedindo para confirmar a situação. |
