@@ -1110,7 +1110,6 @@ function renderLista(itens) {
         'title="Contagem avulsa encontrada, fora de qualquer controle — soma ao saldo e recalcula a necessidade de compra."></td>' +
       '<td style="text-align:right">' + num(it.consumoMedio) + '</td>' +
       '<td class="cel-tipofio" data-idx="' + i + '">' + (it.tipoFio ? it.tipoFio : '—') + '</td>' +
-      '<td class="cel-maquinas" data-idx="' + i + '">' + (it.maquinas ? it.maquinas : '—') + '</td>' +
       '<td class="cel-total" data-idx="' + i + '" style="text-align:right">' + (it.totalTingimento ? num(it.totalTingimento) : '—') + '</td>' +
       '<td>' +
         (it.reaberto ? '<div class="selo-reaberto" title="Já existe ' + escAttr(it.reabertoMotivo || 'pedido') +
@@ -1122,6 +1121,7 @@ function renderLista(itens) {
           'title="Reconsultar a data limite deste item">↻</button>' +
         '</div>' +
       '</td>' +
+      '<td class="cel-lancada" data-idx="' + i + '">' + (it.dataLimiteLancadaEm ? it.dataLimiteLancadaEm : '—') + '</td>' +
       '<td><input class="obs-input" data-idx="' + i + '" value="' + escAttr(it.obs || '') + '" placeholder="anotação…"></td>' +
     '</tr>';
   }).join('');
@@ -1139,9 +1139,9 @@ function renderLista(itens) {
       '<th style="text-align:right;width:7%">Estoque encontrado</th>' +
       '<th style="text-align:right;width:5%">Consumo médio</th>' +
       '<th style="width:9%">Tipo de fio</th>' +
-      '<th style="width:6%">Máquinas</th>' +
       '<th style="text-align:right;width:5%">Total (kg)</th>' +
       '<th style="width:9%">Data limite embarque</th>' +
+      '<th style="width:8%">Data lançada em</th>' +
       '<th style="width:6%">Observação</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   btnPros.style.display = '';
@@ -1217,7 +1217,6 @@ function atualizarEstoqueEncontradoLinha(idx, inp) {
   })
     .then(function (r) {
       it.tipoFio = r.tipoFio || '';
-      it.maquinas = r.maquinas || '';
       it.totalTingimento = r.totalTingimento || 0;
       // recria a tabela já na nova ordem (o campo já tinha perdido o foco,
       // já que "change" só dispara ao sair do campo — não atrapalha digitação)
@@ -1245,6 +1244,7 @@ function atualizarDataLimiteLinha(idx, btn) {
       btn.disabled = false;
       btn.textContent = '↻';
       it.dataLimite = r.dataLimite || '';
+      it.dataLimiteLancadaEm = r.dataLimiteLancadaEm || '';
       var mudouReaberto = !!r.reaberto !== !!it.reaberto;
       it.reaberto = !!r.reaberto;
       it.reabertoMotivo = r.reabertoMotivo || '';
@@ -1254,6 +1254,8 @@ function atualizarDataLimiteLinha(idx, btn) {
       } else {
         var inp = document.querySelector('.data-input[data-idx="' + idx + '"]');
         if (inp) inp.value = brParaISO(it.dataLimite);
+        var cl = document.querySelector('.cel-lancada[data-idx="' + idx + '"]');
+        if (cl) cl.textContent = it.dataLimiteLancadaEm || '—';
       }
       if (msg) msg.innerHTML = '';
     })
@@ -1333,11 +1335,11 @@ function renderRelacaoSalva(linhas) {
   if (!linhas || !linhas.length) { painel.style.display = 'none'; return; }
   painel.style.display = '';
   var cols = ['ITEM', 'DESCRICAO', 'CLIENTE', 'TIPO_FIO', 'SALDO', 'EM_VIAGEM', 'ESTOQUE_ENCONTRADO',
-              'CONSUMO_MEDIO', 'MAQUINAS', 'SUGERIDO', 'DATA_LIMITE', 'OBS', 'STATUS', 'GERADO_EM'];
+              'CONSUMO_MEDIO', 'SUGERIDO', 'DATA_LIMITE', 'OBS', 'STATUS', 'GERADO_EM'];
   var rot = {
     ITEM: 'Item', DESCRICAO: 'Descrição', CLIENTE: 'Cliente', TIPO_FIO: 'Tipo de fio',
     SALDO: 'Saldo final', EM_VIAGEM: 'Em viagem', ESTOQUE_ENCONTRADO: 'Estoque encontrado',
-    CONSUMO_MEDIO: 'Consumo médio', MAQUINAS: 'Máquinas',
+    CONSUMO_MEDIO: 'Consumo médio',
     SUGERIDO: 'Total (kg)', DATA_LIMITE: 'Data limite embarque', OBS: 'Observação',
     STATUS: 'Status', GERADO_EM: 'Gerado em'
   };
@@ -1676,7 +1678,6 @@ function renderTingimento(linhas) {
       '<td>' + (l.item || '—') + selosParcialTing(l) + '</td>' +
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
-      '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + num(l.total) + '</td>' +
       '<td>' + dataCel + '</td>' +
       '<td>' + obsCel + '</td>' +
@@ -1693,7 +1694,7 @@ function renderTingimento(linhas) {
     '<table class="dados"><thead><tr>' +
       '<th style="width:8%">Solicitado em</th>' +
       '<th style="width:10%">Item</th><th style="width:24%">Descrição</th>' +
-      '<th style="width:13%">Cliente</th><th style="width:11%">Máquinas</th>' +
+      '<th style="width:24%">Cliente</th>' +
       '<th style="text-align:right;width:7%">Total (kg)</th>' +
       '<th style="width:13%">Data limite embarque</th><th style="width:14%">Observação</th>' +
       (editavelTing ? '<th class="no-print" style="width:4%"></th>' : '') +
@@ -2974,7 +2975,6 @@ function renderQuantidadeTingida() {
       '<td>' + (l.descricao ? l.descricao : '—') + '</td>' +
       '<td>' + (l.cliente ? l.cliente : '—') + '</td>' +
       '<td>' + (l.tipoFio ? l.tipoFio : '—') + '</td>' +
-      '<td>' + (l.maquinas ? l.maquinas : '—') + '</td>' +
       '<td style="text-align:right">' + num(l.total) + '</td>' +
       '<td style="text-align:right">' + num(l.tingido) + ' kg ' +
         (editavel
@@ -3023,7 +3023,7 @@ function renderQuantidadeTingida() {
       '<th style="width:8%">Solicitado em</th>' +
       '<th style="width:9%">Item</th><th style="width:15%">Descrição</th>' +
       '<th style="width:9%">Cliente</th><th style="width:9%">Tipo de fio</th>' +
-      '<th style="width:6%">Máquinas</th><th style="text-align:right;width:6%">Total (kg)</th>' +
+      '<th style="text-align:right;width:6%">Total (kg)</th>' +
       '<th style="text-align:right;width:7%">Já tingido</th>' +
       (editavel ? '<th style="width:9%">+ kg agora</th><th style="width:7%">Confirmar</th>' : '') +
       '<th style="width:12%">Liberar p/ embarque</th>' +

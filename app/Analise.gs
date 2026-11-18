@@ -138,6 +138,7 @@ function listarItensParaAnalise(token, params) {
     movimentos, emViagemPorItem, emAbertoPorItem
   );
   var dataLimiteDe = _criarLocalizadorDataLimite(reabertos);
+  var dataLancadaDe = _criarLocalizadorDataLancada(reabertos);
   var porItem = {};
 
   movimentos.forEach(function (mov) {
@@ -199,6 +200,7 @@ function listarItensParaAnalise(token, params) {
       maquinas: t.maquinas.join(' + '),
       totalTingimento: t.total,
       dataLimite: dataLimiteDe(r.item), // '' quando reaberto (ver _criarLocalizadorDataLimite)
+      dataLimiteLancadaEm: dataLancadaDe(r.item), // última alteração da data na Programação ('' quando reaberto)
       reaberto: reaberto,
       reabertoMotivo: rea ? rea.motivo : '',
       dataAnterior: rea ? rea.dataAnterior : ''
@@ -254,8 +256,9 @@ function consultarDataLimiteItem(token, item) {
   var reabertos = _itensReabertos(CONFIG.getUnidadeInfo(s.unidade).limiteSaldoCritico);
   var rea = reabertos[_norm(item)] || null;
   var dataLimiteDe = _criarLocalizadorDataLimite(reabertos);
+  var dataLancadaDe = _criarLocalizadorDataLancada(reabertos);
   return {
-    ok: true, dataLimite: dataLimiteDe(item),
+    ok: true, dataLimite: dataLimiteDe(item), dataLimiteLancadaEm: dataLancadaDe(item),
     reaberto: !!rea, reabertoMotivo: rea ? rea.motivo : '', dataAnterior: rea ? rea.dataAnterior : ''
   };
 }
@@ -907,6 +910,21 @@ function _criarLocalizadorDataLimite(reabertos) {
     if (reabertos && reabertos[k]) return ''; // consumo novo depois do pedido: data antiga não vale
     var r = mapa[k];
     return r ? r.dataNecessaria : '';
+  };
+}
+
+/**
+ * Localizador da data/hora da ÚLTIMA ALTERAÇÃO da data limite (coluna
+ * ATUALIZADO_EM de PROGRAMACAO_DATA_EMBARQUE). Devolve 'dd/MM/aaaa HH:mm' ou ''
+ * (sem data salva, registro antigo sem carimbo, ou item reaberto).
+ */
+function _criarLocalizadorDataLancada(reabertos) {
+  var mapa = _lerDatasProgramacao();
+  return function (codigo) {
+    var k = _norm(codigo);
+    if (reabertos && reabertos[k]) return '';
+    var r = mapa[k];
+    return r && r.dataNecessaria ? (r.atualizadoEm || '') : '';
   };
 }
 

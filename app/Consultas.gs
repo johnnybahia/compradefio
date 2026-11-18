@@ -830,7 +830,7 @@ function _relatorioCompraHTML(regs, numero, dataFmt, unidade) {
   var cols = [
     ['GERADO_EM', 'Solicitado em'],
     ['ITEM', 'Item'], ['DESCRICAO', 'Descrição'], ['CLIENTE', 'Cliente'],
-    ['MAQUINAS', 'Máquinas'], ['SUGERIDO', 'Total (kg)'],
+    ['SUGERIDO', 'Total (kg)'],
     ['DATA_LIMITE', 'Data limite'], ['OBS', 'Observação']
   ];
   var d = _densidadeRelatorio(regs.length);
